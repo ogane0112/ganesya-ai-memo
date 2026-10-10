@@ -358,7 +358,19 @@ export function notesRoutes(platform: Platform) {
     const $ = await open(c);
     requireHuman(c);
     const state = await $.indexer.state();
-    return c.json({ head: state.commit, openProposals: await $.notes.openProposalCount() });
+    const since = c.req.query('since');
+    let paths: string[] | null = [];
+    if (since && state.commit && since !== state.commit) {
+      paths = await $.w.store
+        .changedFiles(since, state.commit)
+        .then((files) => (files.length > 200 ? null : files.map((f) => f.path)))
+        .catch(() => null);
+    }
+    return c.json({
+      head: state.commit,
+      openProposals: await $.notes.openProposalCount(),
+      paths,
+    });
   });
 
   // ---- proposals -----------------------------------------------------------

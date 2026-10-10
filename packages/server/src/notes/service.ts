@@ -227,8 +227,11 @@ export class NoteService {
   async head(): Promise<string> {
     const h = await this.store.head(MAIN);
     if (h) return h;
-    // A new account (or an emptied repository): create the first commit.
-    await this.store.init();
+    // A new account (or an emptied repository): create the first commit. Parallel
+    // first requests race here; the loser simply reads the winner's commit.
+    await this.store.init().catch((e: unknown) => {
+      if (!(e instanceof ConcurrentUpdateError)) throw e;
+    });
     const created = await this.store.head(MAIN);
     if (!created) throw new NotFoundError('ノートを初期化できませんでした');
     return created;

@@ -11,7 +11,7 @@ import { NotesListPage } from './pages/NotesList';
 import { RegisterPasskeyPage } from './pages/RegisterPasskey';
 import { ReviewPage } from './pages/Review';
 import { SearchPage } from './pages/Search';
-import { NeedsSetupPage, SetupPage } from './pages/Setup';
+import { NeedsSetupPage, SetupPage, SignupPage } from './pages/Setup';
 import { WritePage } from './pages/Write';
 import { AppProvider, useApp } from './state/app';
 import { ToastProvider } from './state/toast';
@@ -99,6 +99,7 @@ export function App() {
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/setup" element={<SetupPage />} />
+              <Route path="/signup" element={<SignupPage />} />
               <Route
                 path="/register-passkey"
                 element={

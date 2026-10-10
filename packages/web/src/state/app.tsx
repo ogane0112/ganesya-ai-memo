@@ -15,6 +15,8 @@ import { applyPrefs, normalizePrefs } from '../lib/theme';
 import { syncQueue } from '../lib/sync';
 
 const AUTH_CACHE = 'gmemo.lastAuth';
+/** How often a visible app checks for changes made elsewhere. */
+const POLL_MS = 15_000;
 
 interface AppContextValue {
   /** null while loading. */
@@ -83,6 +85,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setAuth(
           cached ?? {
             needsSetup: false,
+            signup: 'closed',
             user: null,
             session: null,
             rpId: location.hostname,
@@ -102,6 +105,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void refreshAuth().catch(() =>
       setAuth({
         needsSetup: false,
+        signup: 'closed',
         user: null,
         session: null,
         rpId: location.hostname,
@@ -152,33 +156,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
     syncQueue.resume();
   }, [signedIn, auth?.session?.via, refreshNotes, refreshProposals]);
 
-  // Live updates from the server.
+  // Changes from other devices and agents: a cheap poll while the app is visible
+  // (serverless hosting cannot keep event streams open).
   useEffect(() => {
-    if (
-      !signedIn ||
-      offlineAuth ||
-      auth?.session?.via === 'recovery' ||
-      typeof EventSource === 'undefined'
-    )
-      return;
-    const es = new EventSource('/api/events');
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    es.addEventListener('change', (ev) => {
+    if (!signedIn || offlineAuth || auth?.session?.via === 'recovery') return;
+    let head: string | null | undefined;
+    let proposals: number | undefined;
+    let stopped = false;
+    const check = async () => {
+      if (stopped || document.visibilityState !== 'visible') return;
       try {
-        setLastChange(
-          JSON.parse((ev as MessageEvent<string>).data) as { commit: string; paths: string[] },
-        );
+        const p = await api.poll(head ?? undefined);
+        if (head !== undefined && p.head !== head) {
+          // Unknown paths ('*') make open notes re-check themselves.
+          setLastChange({ commit: p.head ?? '', paths: p.paths ?? ['*'] });
+          setChangeTick((t) => t + 1);
+          refreshNotes();
+        }
+        if (proposals !== undefined && p.openProposals !== proposals) refreshProposals();
+        else setOpenProposals(p.openProposals);
+        head = p.head;
+        proposals = p.openProposals;
       } catch {
-        /* ignore */
+        /* offline: try again on the next tick */
       }
-      setChangeTick((t) => t + 1);
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(refreshNotes, 300);
-    });
-    es.addEventListener('proposal', () => refreshProposals());
+    };
+    void check();
+    const timer = setInterval(() => void check(), POLL_MS);
+    const onVisible = () => void check();
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
-      es.close();
-      if (timer) clearTimeout(timer);
+      stopped = true;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, [signedIn, offlineAuth, auth?.session?.via, refreshNotes, refreshProposals]);
 

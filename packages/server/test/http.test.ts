@@ -518,7 +518,12 @@ describe('HTTP API', () => {
   it('polls for changes instead of streaming events', async () => {
     const p0 = (await (await req('/api/poll')).json()) as { head: string; openProposals: number };
     await req('/api/note', { method: 'PUT', json: { path: 'x.md', content: 'x\n' } });
-    const p1 = (await (await req('/api/poll')).json()) as { head: string; openProposals: number };
+    const p1 = (await (await req(`/api/poll?since=${p0.head}`)).json()) as {
+      head: string;
+      openProposals: number;
+      paths: string[];
+    };
+    expect(p1.paths).toEqual(['x.md']);
     expect(p1.head).not.toBe(p0.head);
     expect(p1.openProposals).toBe(0);
   });

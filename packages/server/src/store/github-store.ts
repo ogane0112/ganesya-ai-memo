@@ -64,8 +64,16 @@ export class GitHubStore implements NoteStore {
     this.f = cfg.fetch ?? fetch.bind(globalThis);
   }
 
+  /** Names and shas end up in API URLs, so only plain values are accepted. */
   private ghBranch(name: string): string {
+    if (!/^[\w.-]+(\/[\w.-]+)*$/.test(name) || name.split('/').some((p) => p === '..' || p === '.'))
+      throw new StoreError(`invalid ref: ${name.slice(0, 60)}`, 400);
     return name === MAIN ? this.cfg.branch : `gmemo/${name}`;
+  }
+
+  private sha(commit: string): string {
+    if (!HEX40.test(commit)) throw new StoreError('invalid commit id', 400);
+    return commit;
   }
 
   private async req<T>(
@@ -136,7 +144,7 @@ export class GitHubStore implements NoteStore {
   private async commitTree(commit: string): Promise<string> {
     const hit = this.commitTrees.get(commit);
     if (hit) return hit;
-    const r = await this.req<{ tree: { sha: string } }>('GET', `/git/commits/${commit}`);
+    const r = await this.req<{ tree: { sha: string } }>('GET', `/git/commits/${this.sha(commit)}`);
     const tree = r.data!.tree.sha;
     this.commitTrees.set(commit, tree);
     return tree;
@@ -203,7 +211,7 @@ export class GitHubStore implements NoteStore {
 
   /** One tarball download instead of a request per file. */
   async snapshot(commit: string): Promise<Map<string, Uint8Array>> {
-    const res = await this.f(`${this.api}/tarball/${commit}`, {
+    const res = await this.f(`${this.api}/tarball/${this.sha(commit)}`, {
       headers: {
         authorization: `Bearer ${this.cfg.token}`,
         'x-github-api-version': '2022-11-28',
@@ -234,7 +242,12 @@ export class GitHubStore implements NoteStore {
 
   async isAncestor(a: string, b: string): Promise<boolean> {
     if (a === b) return true;
-    const r = await this.req<{ status: string }>('GET', `/compare/${a}...${b}`, undefined, [404]);
+    const r = await this.req<{ status: string }>(
+      'GET',
+      `/compare/${this.sha(a)}...${this.sha(b)}`,
+      undefined,
+      [404],
+    );
     return r.data?.status === 'ahead' || r.data?.status === 'identical';
   }
 

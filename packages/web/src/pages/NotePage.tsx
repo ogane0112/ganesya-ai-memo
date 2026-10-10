@@ -74,7 +74,13 @@ export function NotePage() {
 
   // Someone else changed this note: reload (unless we are editing).
   useEffect(() => {
-    if (!lastChange || editing || commit || !lastChange.paths.includes(path)) return;
+    if (
+      !lastChange ||
+      editing ||
+      commit ||
+      !(lastChange.paths.includes(path) || lastChange.paths.includes('*'))
+    )
+      return;
     note.reload();
     blame.reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -27,7 +27,9 @@ export type {
 
 export interface AuthState {
   needsSetup: boolean;
-  user: { username: string } | null;
+  /** Who may create an account (after the first, admin, account). */
+  signup: SignupMode;
+  user: { username: string; isAdmin: boolean } | null;
   session: { via: 'passkey' | 'recovery'; expiresAt: string } | null;
   rpId: string;
   origin: string;
@@ -246,11 +248,29 @@ export interface OAuthRequestInfo {
   agents: Agent[];
 }
 
-export interface PluginInfo {
-  name: string;
-  error: string | null;
-  routes: string[];
-  tools: string[];
+export type SignupMode = 'open' | 'invite' | 'closed';
+
+export interface StorageSettings {
+  storage: 'builtin' | 'github';
+  github: { owner: string; repo: string; branch: string; hasToken: boolean } | null;
+  updatedAt: string;
+  /** The server has a secret key, so GitHub tokens can be stored. */
+  githubAvailable: boolean;
+}
+
+export interface UserInfo {
+  id: string;
+  username: string;
+  isAdmin: boolean;
+  createdAt: string;
+}
+
+export interface InviteInfo {
+  id: string;
+  createdAt: string;
+  expiresAt: string | null;
+  usedBy: string | null;
+  usedAt: string | null;
 }
 
 // ---- calendar ---------------------------------------------------------------

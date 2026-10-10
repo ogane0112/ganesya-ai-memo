@@ -3,19 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { api, describeError } from '../../api/client';
 import { Spinner } from '../../components/ui';
 import { deviceName, setDeviceName } from '../../lib/device';
-import { useAsync } from '../../lib/hooks';
 import { useApp } from '../../state/app';
 import { useToast } from '../../state/toast';
 
 export function DataSettings() {
   const toast = useToast();
   const navigate = useNavigate();
-  const { refreshAuth, refreshNotes } = useApp();
-  const [pass, setPass] = useState('');
-  const [pass2, setPass2] = useState('');
+  const { auth, refreshAuth, refreshNotes } = useApp();
   const [busy, setBusy] = useState<string | null>(null);
   const [device, setDevice] = useState(deviceName());
-  const plugins = useAsync(() => api.plugins(), []);
 
   const run = async (key: string, fn: () => Promise<void>) => {
     setBusy(key);
@@ -28,70 +24,17 @@ export function DataSettings() {
     }
   };
 
-  const backup = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (pass !== pass2) {
-      toast.show('パスフレーズが一致しません', { kind: 'error' });
-      return;
-    }
-    void run('backup', async () => {
-      const { blob, filename } = await api.backup(pass || undefined);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
-      toast.show('バックアップをダウンロードしました', { kind: 'success' });
-      setPass('');
-      setPass2('');
-    });
-  };
-
   return (
     <div className="stack">
       <section className="card">
-        <h2>バックアップ</h2>
+        <h2>エクスポート</h2>
         <p className="hint">
-          ノート(Git
-          リポジトリ全体)と設定を1つのファイルにまとめてダウンロードします。パスフレーズを入れると暗号化されます。
+          すべてのノート(最新の状態)と添付ファイルを .tar.gz
+          にまとめてダウンロードします。Markdownのままなので、他のアプリでも開けます。
         </p>
-        <form onSubmit={backup}>
-          <div className="row wrap">
-            <div className="field grow">
-              <label htmlFor="bk-pass">パスフレーズ(推奨)</label>
-              <input
-                id="bk-pass"
-                className="input"
-                type="password"
-                autoComplete="new-password"
-                value={pass}
-                onChange={(e) => setPass(e.target.value)}
-              />
-            </div>
-            <div className="field grow">
-              <label htmlFor="bk-pass2">もう一度</label>
-              <input
-                id="bk-pass2"
-                className="input"
-                type="password"
-                autoComplete="new-password"
-                value={pass2}
-                onChange={(e) => setPass2(e.target.value)}
-              />
-            </div>
-          </div>
-          {!pass && <p className="hint">パスフレーズなしの場合、ファイルは暗号化されません。</p>}
-          <button type="submit" className="btn btn-primary" disabled={busy !== null}>
-            {busy === 'backup' && <Spinner />}
-            {pass ? '暗号化してダウンロード' : 'ダウンロード'}
-          </button>
-        </form>
-        <p className="hint">
-          復元はサーバーで <code>gmemo restore &lt;file&gt;</code> を実行します。
-        </p>
+        <a className="btn btn-primary" href={api.exportUrl} download>
+          ダウンロード
+        </a>
       </section>
 
       <section className="card">
@@ -133,17 +76,14 @@ export function DataSettings() {
               void run('sync', async () => {
                 const r = await api.sync();
                 refreshNotes();
-                toast.show(
-                  r.committed.length
-                    ? `${r.committed.length} 件の外部の変更を取り込みました`
-                    : '外部の変更はありません',
-                  { kind: 'success' },
-                );
+                toast.show(r.changed ? '最新の変更を取り込みました' : '変更はありません', {
+                  kind: 'success',
+                });
               })
             }
           >
             {busy === 'sync' && <Spinner />}
-            外部の変更を取り込む
+            今すぐ同期
           </button>
           <button
             type="button"
@@ -162,32 +102,10 @@ export function DataSettings() {
           </button>
         </div>
         <p className="hint">
-          Obsidian
-          などで直接ファイルを編集した場合、変更は自動で取り込まれます。すぐに反映したいときに使ってください。
+          GitHub に保存している場合、他の場所からの push
+          は自動で取り込まれます(数十秒ごと)。すぐに反映したいときは「今すぐ同期」を使ってください。
         </p>
       </section>
-
-      {plugins.data && plugins.data.length > 0 && (
-        <section className="card">
-          <h2>プラグイン</h2>
-          <ul className="item-list">
-            {plugins.data.map((p) => (
-              <li key={p.name} className="item">
-                <div className="item-main">
-                  <strong>{p.name}</strong>
-                  {p.error ? (
-                    <span className="text-danger">{p.error}</span>
-                  ) : (
-                    <span className="hint">
-                      {[...p.routes, ...p.tools.map((t) => `MCP: ${t}`)].join(' ・') || '—'}
-                    </span>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
 
       <section className="card">
         <h2>サインアウト</h2>
@@ -220,6 +138,30 @@ export function DataSettings() {
             すべての端末からサインアウト
           </button>
         </div>
+      </section>
+
+      <section className="card">
+        <h2>アカウントの削除</h2>
+        <p className="hint">
+          アカウントと、このサービス内に保存したノート・履歴・AIエージェントをすべて削除します。GitHub
+          のリポジトリは削除されません。先にエクスポートしておくことをおすすめします。
+        </p>
+        <button
+          type="button"
+          className="btn btn-danger-text"
+          disabled={busy !== null}
+          onClick={() => {
+            const name = prompt('本当に削除しますか?確認のためユーザー名を入力してください。');
+            if (!name) return;
+            void run('delete', async () => {
+              await api.deleteAccount(name);
+              await refreshAuth();
+              navigate('/login', { replace: true });
+            });
+          }}
+        >
+          {auth?.user ? `${auth.user.username} を削除` : 'アカウントを削除'}
+        </button>
       </section>
     </div>
   );

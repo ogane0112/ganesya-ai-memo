@@ -222,3 +222,15 @@ describe('GitHub storage', () => {
     await ctx.cleanup();
   });
 });
+
+describe('new accounts', () => {
+  it('survive parallel first requests', async () => {
+    const ctx = await setup('builtin');
+    const { addUser } = await import('./helpers.js');
+    const id = await addUser(ctx.platform, 'fresh', 'builtin', ctx.gh);
+    const ws = await ctx.platform.workspace(id);
+    const heads = await Promise.all([1, 2, 3, 4].map(() => ws.notes.currentHead()));
+    expect(new Set(heads).size).toBe(1);
+    await ctx.cleanup();
+  });
+});
