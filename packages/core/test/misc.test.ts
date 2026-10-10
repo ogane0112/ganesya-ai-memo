@@ -179,3 +179,20 @@ describe('paths', () => {
     expect(normalizeNotePath('/a//b.md')).toBe('a/b.md');
   });
 });
+
+import { markdownToPlain } from '../src/index.js';
+
+describe('markdownToPlain', () => {
+  it('strips markdown syntax for previews', () => {
+    expect(
+      markdownToPlain(
+        '# 新サービス\n\n- [x] 要件を **書く**\n- see [[議事録 10-08|議事録]] and [site](https://x)\n> quote `code`\n```js\nx\n```',
+      ),
+    ).toBe('新サービス 要件を 書く see 議事録 and site quote code x');
+  });
+  it('keeps search highlight markers', () => {
+    expect(markdownToPlain('…## 目的 «AI»と一緒に #tag [[議事録 10-0…')).toBe(
+      '…目的 «AI»と一緒に #tag 議事録 10-0…',
+    );
+  });
+});

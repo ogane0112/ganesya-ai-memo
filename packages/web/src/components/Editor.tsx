@@ -20,24 +20,24 @@ const highlight = HighlightStyle.define([
   { tag: t.strong, fontWeight: '700' },
   { tag: t.emphasis, fontStyle: 'italic' },
   { tag: t.strikethrough, textDecoration: 'line-through' },
-  { tag: [t.link, t.url], color: 'var(--accent)' },
+  { tag: [t.link, t.url], color: 'var(--accent-text)' },
   { tag: t.monospace, fontFamily: 'var(--font-mono)', color: 'var(--code-fg)' },
   { tag: [t.processingInstruction, t.meta, t.contentSeparator], color: 'var(--muted)' },
   { tag: t.quote, color: 'var(--muted)', fontStyle: 'italic' },
-  { tag: t.list, color: 'var(--accent)' },
+  { tag: t.list, color: 'var(--faint)' },
 ]);
 
 const theme = EditorView.theme({
-  '&': { fontSize: '17px', backgroundColor: 'transparent', color: 'var(--fg)', height: '100%' },
-  '.cm-scroller': { fontFamily: 'var(--font-body)', lineHeight: '1.7', overflow: 'auto' },
-  '.cm-content': { padding: '12px 4px 40vh', caretColor: 'var(--accent)' },
+  '&': { fontSize: '16px', backgroundColor: 'transparent', color: 'var(--fg)', height: '100%' },
+  '.cm-scroller': { fontFamily: 'var(--font-body)', lineHeight: '1.75', overflow: 'auto' },
+  '.cm-content': { padding: '12px 4px 40vh', caretColor: 'var(--fg-strong)' },
   '.cm-line': { padding: '0 4px' },
   '&.cm-focused': { outline: 'none' },
-  '.cm-placeholder': { color: 'var(--muted)' },
+  '.cm-placeholder': { color: 'var(--faint)' },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': {
     backgroundColor: 'var(--selection) !important',
   },
-  '.cm-cursor': { borderLeftColor: 'var(--accent)', borderLeftWidth: '2px' },
+  '.cm-cursor': { borderLeftColor: 'var(--fg-strong)', borderLeftWidth: '1.5px' },
 });
 
 export interface EditorHandle {

@@ -190,7 +190,8 @@ function KanbanView({ view, data }: { view: ViewDefinition; data: ViewRows }) {
       {groups.map((g) => (
         <section key={g.key} className="kanban-col" role="listitem" aria-label={g.key || '未設定'}>
           <h2 className="kanban-head">
-            {g.key || '(未設定)'} <span className="count">{g.rows.length}</span>
+            <span className="kanban-label">{g.key || '(未設定)'}</span>
+            <span className="count">{g.rows.length}</span>
           </h2>
           <ul className="kanban-cards">
             {g.rows.map((r) => (

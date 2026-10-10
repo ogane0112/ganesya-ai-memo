@@ -26,7 +26,7 @@ export default defineConfig({
         display: 'standalone',
         orientation: 'any',
         background_color: '#ffffff',
-        theme_color: '#3b5bdb',
+        theme_color: '#ffffff',
         categories: ['productivity'],
         icons: [
           { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },

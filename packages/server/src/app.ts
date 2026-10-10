@@ -55,8 +55,11 @@ export function mergeDriverCommand(): string {
   let runner = JSON.stringify(process.execPath);
   if (cli.endsWith('.ts')) {
     // Running from source (dev/tests): git invokes the driver from the notes dir, so pass tsx by absolute URL.
+    // TSX_TSCONFIG_PATH applies the server tsconfig `paths`, so @gmemo/core resolves to its
+    // source instead of a possibly stale (or missing) build.
     const tsxPkg = createRequire(import.meta.url).resolve('tsx/package.json');
-    runner += ` --import ${JSON.stringify(pathToFileURL(join(dirname(tsxPkg), 'dist/loader.mjs')).href)}`;
+    const tsconfig = resolve(dirname(cli), '..', 'tsconfig.json');
+    runner = `TSX_TSCONFIG_PATH=${JSON.stringify(tsconfig)} ${runner} --import ${JSON.stringify(pathToFileURL(join(dirname(tsxPkg), 'dist/loader.mjs')).href)}`;
   }
   return `${runner} ${JSON.stringify(cli)} merge-driver %O %A %B %P`;
 }

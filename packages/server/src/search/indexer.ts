@@ -3,6 +3,7 @@ import {
   effectiveAccess,
   extractLinks,
   extractTags,
+  markdownToPlain,
   noteTitle,
   parseNoteLenient,
   resolveLink,
@@ -348,9 +349,7 @@ export class Indexer {
     return rows.map((r) => {
       const i = r.body.indexOf(`[[${r.target}`);
       const context =
-        i >= 0
-          ? r.body.slice(Math.max(0, i - 60), i + r.target.length + 80).replace(/\s+/g, ' ')
-          : '';
+        i >= 0 ? markdownToPlain(r.body.slice(Math.max(0, i - 60), i + r.target.length + 80)) : '';
       return { path: r.path, title: r.title, context };
     });
   }
@@ -442,7 +441,7 @@ export class Indexer {
     return rows.map((r, i) => ({
       path: r.path,
       title: r.title,
-      snippet: r.snippet.replace(/\s+/g, ' '),
+      snippet: markdownToPlain(r.snippet),
       score: 1 / (i + 1),
       matchedBy: ['text'],
     }));
@@ -475,7 +474,7 @@ export class Indexer {
       seen.add(s.path);
       out.push({
         ...s,
-        snippet: s.chunk.slice(0, 160).replace(/\s+/g, ' '),
+        snippet: markdownToPlain(s.chunk.slice(0, 200)).slice(0, 160),
         matchedBy: ['vector'],
       });
       if (out.length >= limit) break;

@@ -52,10 +52,10 @@ function png(size, pixel) {
   ]);
 }
 
-const BG = [59, 91, 219];
+const BG = [25, 25, 25];
 const PAGE = [255, 255, 255];
-const LINE = [165, 180, 240];
-const AI = [255, 176, 32];
+const LINE = [201, 199, 194];
+const AI = [217, 115, 13];
 
 /** Signed distance to a rounded rectangle (center cx,cy, half size hw,hh, radius r). */
 function roundRect(x, y, cx, cy, hw, hh, r) {
