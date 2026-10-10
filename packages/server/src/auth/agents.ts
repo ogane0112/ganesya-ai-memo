@@ -54,7 +54,9 @@ function fromRow(r: AgentRow): Agent {
   };
 }
 
-export type AgentInput = Partial<Omit<Agent, 'id' | 'userId' | 'createdAt' | 'revokedAt'>> & { name: string };
+export type AgentInput = Partial<Omit<Agent, 'id' | 'userId' | 'createdAt' | 'revokedAt'>> & {
+  name: string;
+};
 
 /** Load any agent by id (token verification), regardless of the owner. */
 export async function agentById(db: Db, id: string): Promise<Agent | null> {
@@ -70,16 +72,29 @@ export class AgentStore {
   ) {}
 
   async list(): Promise<Agent[]> {
-    return (await this.db.all<AgentRow>('SELECT * FROM agents WHERE user_id = ? ORDER BY created_at', this.userId)).map(fromRow);
+    return (
+      await this.db.all<AgentRow>(
+        'SELECT * FROM agents WHERE user_id = ? ORDER BY created_at',
+        this.userId,
+      )
+    ).map(fromRow);
   }
 
   async get(id: string): Promise<Agent | null> {
-    const r = await this.db.first<AgentRow>('SELECT * FROM agents WHERE id = ? AND user_id = ?', id, this.userId);
+    const r = await this.db.first<AgentRow>(
+      'SELECT * FROM agents WHERE id = ? AND user_id = ?',
+      id,
+      this.userId,
+    );
     return r ? fromRow(r) : null;
   }
 
   async getByName(name: string): Promise<Agent | null> {
-    const r = await this.db.first<AgentRow>('SELECT * FROM agents WHERE name = ? AND user_id = ?', name, this.userId);
+    const r = await this.db.first<AgentRow>(
+      'SELECT * FROM agents WHERE name = ? AND user_id = ?',
+      name,
+      this.userId,
+    );
     return r ? fromRow(r) : null;
   }
 
@@ -130,13 +145,27 @@ export class AgentStore {
   async revoke(id: string): Promise<void> {
     const now = nowIso();
     await this.db.batch([
-      stmt('UPDATE agents SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL', now, id, this.userId),
-      stmt('UPDATE tokens SET revoked_at = ? WHERE agent_id = ? AND user_id = ? AND revoked_at IS NULL', now, id, this.userId),
+      stmt(
+        'UPDATE agents SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL',
+        now,
+        id,
+        this.userId,
+      ),
+      stmt(
+        'UPDATE tokens SET revoked_at = ? WHERE agent_id = ? AND user_id = ? AND revoked_at IS NULL',
+        now,
+        id,
+        this.userId,
+      ),
     ]);
   }
 }
 
 export function sanitizeAgentName(name: string): string {
-  const s = name.replace(/[<>\n\r\t@]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
+  const s = name
+    .replace(/[<>\n\r\t@]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 60);
   return s || 'agent';
 }

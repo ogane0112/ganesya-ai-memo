@@ -22,6 +22,8 @@ export interface CommitInfo {
   date: string;
   subject: string;
   body: string;
+  /** Paths changed against the first parent, when the store knows them cheaply. */
+  paths?: string[];
 }
 
 export interface ChangedFile {
@@ -52,9 +54,14 @@ export interface NoteStore {
   /** Git blob id of content, without storing it. */
   hashContent(content: string | Uint8Array): Promise<string>;
   listFiles(commit: string): Promise<{ path: string; sha: string }[]>;
+  /** Every file of a commit in as few round trips as possible (indexing, export). */
+  snapshot(commit: string): Promise<Map<string, Uint8Array>>;
   changedFiles(from: string | null, to: string): Promise<ChangedFile[]>;
   isAncestor(a: string, b: string): Promise<boolean>;
-  log(ref: string, opts?: { path?: string; limit?: number; firstParent?: boolean }): Promise<CommitInfo[]>;
+  log(
+    ref: string,
+    opts?: { path?: string; limit?: number; firstParent?: boolean },
+  ): Promise<CommitInfo[]>;
   createBranch(name: string, at: string): Promise<void>;
   deleteBranch(name: string): Promise<void>;
   /**
@@ -62,7 +69,13 @@ export interface NoteStore {
    * ConcurrentUpdateError if the branch moved in the meantime. Returns the new
    * commit sha (or the parent if nothing changed and allowEmpty is false).
    */
-  commit(branch: string, changes: FileChange[], author: GitIdentity, message: string, opts?: CommitOptions): Promise<string>;
+  commit(
+    branch: string,
+    changes: FileChange[],
+    author: GitIdentity,
+    message: string,
+    opts?: CommitOptions,
+  ): Promise<string>;
 }
 
 export const MAIN = 'main';
@@ -105,4 +118,5 @@ const enc = new TextEncoder();
 const dec = new TextDecoder();
 export const toUtf8 = (s: string): Uint8Array => enc.encode(s);
 export const fromUtf8 = (b: Uint8Array): string => dec.decode(b);
-export const asBytes = (c: string | Uint8Array): Uint8Array => (typeof c === 'string' ? enc.encode(c) : c);
+export const asBytes = (c: string | Uint8Array): Uint8Array =>
+  typeof c === 'string' ? enc.encode(c) : c;

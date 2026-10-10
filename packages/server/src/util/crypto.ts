@@ -63,7 +63,7 @@ export function normalizeRecoveryCode(code: string): string {
 
 // ---- secret encryption (GitHub tokens at rest) --------------------------------
 
-async function aesKey(secret: string): Promise<CryptoKey> {
+async function aesKey(secret: string) {
   const raw = await crypto.subtle.digest('SHA-256', enc.encode(`gmemo:${secret}`));
   return crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']);
 }
@@ -72,7 +72,9 @@ async function aesKey(secret: string): Promise<CryptoKey> {
 export async function encryptSecret(plain: string, secret: string): Promise<string> {
   if (!secret) throw new Error('GMEMO_SECRET_KEY is not configured');
   const iv = randomBytes(12);
-  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await aesKey(secret), enc.encode(plain)));
+  const ct = new Uint8Array(
+    await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await aesKey(secret), enc.encode(plain)),
+  );
   const out = new Uint8Array(iv.length + ct.length);
   out.set(iv);
   out.set(ct, iv.length);
@@ -81,6 +83,10 @@ export async function encryptSecret(plain: string, secret: string): Promise<stri
 
 export async function decryptSecret(blob: string, secret: string): Promise<string> {
   const data = fromB64url(blob);
-  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: data.subarray(0, 12) }, await aesKey(secret), data.subarray(12));
+  const pt = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: data.subarray(0, 12) },
+    await aesKey(secret),
+    data.subarray(12),
+  );
   return new TextDecoder().decode(pt);
 }

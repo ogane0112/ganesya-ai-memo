@@ -1,6 +1,6 @@
-import type { DB } from '../db/db.js';
+import type { Db } from '../db/db.js';
 
-/** Display preferences, shared by all of the owner's devices. */
+/** Display preferences, shared by all of a user's devices. */
 export interface UiPrefs {
   accent: Accent;
   mode: 'system' | 'light' | 'dark';
@@ -24,9 +24,12 @@ export function normalizePrefs(input: unknown): UiPrefs {
   return { accent, mode };
 }
 
-export function loadPrefs(db: DB): UiPrefs {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(KEY) as
-    { value: string } | undefined;
+export async function loadPrefs(db: Db, userId: string): Promise<UiPrefs> {
+  const row = await db.first<{ value: string }>(
+    'SELECT value FROM user_settings WHERE user_id = ? AND key = ?',
+    userId,
+    KEY,
+  );
   if (!row) return DEFAULT_PREFS;
   try {
     return normalizePrefs(JSON.parse(row.value));
@@ -35,10 +38,13 @@ export function loadPrefs(db: DB): UiPrefs {
   }
 }
 
-export function savePrefs(db: DB, input: unknown): UiPrefs {
+export async function savePrefs(db: Db, userId: string, input: unknown): Promise<UiPrefs> {
   const prefs = normalizePrefs(input);
-  db.prepare(
-    'INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-  ).run(KEY, JSON.stringify(prefs));
+  await db.run(
+    'INSERT INTO user_settings(user_id, key, value) VALUES (?, ?, ?) ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value',
+    userId,
+    KEY,
+    JSON.stringify(prefs),
+  );
   return prefs;
 }

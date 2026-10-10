@@ -6,9 +6,8 @@ import {
   scanText,
   type WorkspacePolicy,
 } from '@gmemo/core';
-import type { Rule } from '@gmemo/core';
 import type { Agent } from '../auth/agents.js';
-import { type DB, nowIso } from '../db/db.js';
+import { type Db, nowIso, stmt } from '../db/db.js';
 
 /**
  * How notes look to an agent. Agents whose model runs outside this machine are
@@ -19,8 +18,8 @@ import { type DB, nowIso } from '../db/db.js';
  */
 export class AgentLens {
   constructor(
-    private readonly db: DB,
-    private readonly extraRules: () => Rule[],
+    private readonly db: Db,
+    private readonly userId: string,
   ) {}
 
   canSee(
@@ -40,16 +39,15 @@ export class AgentLens {
       dictionary: policy.sensitive.dictionary,
       allow: policy.sensitive.allow,
       disabledRules: policy.sensitive.disabledRules,
-      extraRules: this.extraRules(),
     });
   }
 
   /** Text as handed to the agent. Throws in block mode when something is detected. */
-  outgoing(
+  async outgoing(
     agent: Agent,
     text: string,
     policy: WorkspacePolicy,
-  ): { text: string; findings: Finding[]; blocked: boolean } {
+  ): Promise<{ text: string; findings: Finding[]; blocked: boolean }> {
     if (agent.location === 'local') return { text, findings: [], blocked: false };
     const findings = this.scan(text, policy);
     if (findings.length === 0) return { text, findings, blocked: false };
@@ -61,20 +59,31 @@ export class AgentLens {
       mapping,
       (f) => `[SECRET_${f.fingerprint.slice(0, 8)}]`,
     );
-    const ins = this.db.prepare(
-      'INSERT INTO secret_placeholders(placeholder, value, created_at) VALUES (?, ?, ?) ON CONFLICT(placeholder) DO NOTHING',
+    const now = nowIso();
+    await this.db.batch(
+      Object.entries(mapping).map(([ph, value]) =>
+        stmt(
+          'INSERT INTO secret_placeholders(user_id, placeholder, value, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id, placeholder) DO NOTHING',
+          this.userId,
+          ph,
+          value,
+          now,
+        ),
+      ),
     );
-    for (const [ph, value] of Object.entries(mapping)) ins.run(ph, value, nowIso());
     return { text: masked.text, findings, blocked: false };
   }
 
   /** Restore placeholders in text written by an agent. */
-  incoming(text: string): string {
-    if (!text.includes('[SECRET_')) return text;
-    const get = this.db.prepare('SELECT value FROM secret_placeholders WHERE placeholder = ?');
-    return text.replace(
-      /\[SECRET_[0-9a-f]{8}\]/g,
-      (ph) => (get.get(ph) as { value: string } | undefined)?.value ?? ph,
+  async incoming(text: string): Promise<string> {
+    const found = [...new Set(text.match(/\[SECRET_[0-9a-f]{8}\]/g) ?? [])].slice(0, 90);
+    if (found.length === 0) return text;
+    const rows = await this.db.all<{ placeholder: string; value: string }>(
+      `SELECT placeholder, value FROM secret_placeholders WHERE user_id = ? AND placeholder IN (${found.map(() => '?').join(',')})`,
+      this.userId,
+      ...found,
     );
+    const map = new Map(rows.map((r) => [r.placeholder, r.value]));
+    return text.replace(/\[SECRET_[0-9a-f]{8}\]/g, (ph) => map.get(ph) ?? ph);
   }
 }

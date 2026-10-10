@@ -1,53 +1,47 @@
-import { normalizeNotePath, publicFindingLabel } from './agent-ops-util.js';
 import type { WorkspacePolicy } from '@gmemo/core';
-import type { AgentLens } from '../ai/agent-lens.js';
-import type { AppContext } from '../app.js';
 import type { Agent } from '../auth/agents.js';
 import { capabilities, type Principal } from '../auth/tokens.js';
 import { ForbiddenError, NotFoundError, type SaveResult } from '../notes/service.js';
+import type { Workspace } from '../workspace.js';
+import { normalizeNotePath, publicFindingLabel } from './agent-ops-util.js';
 
 /**
  * Operations as seen by an agent (shared by the REST API and the MCP server).
  * Applies folder limits, the per-folder AI policy and secret masking.
  */
 export class AgentOps {
-  constructor(
-    private readonly ctx: AppContext,
-    readonly lens: AgentLens,
-  ) {}
+  constructor(private readonly ws: Workspace) {}
 
   private policy(): Promise<WorkspacePolicy> {
-    return this.ctx.notes.loadPolicy();
+    return this.ws.notes.loadPolicy();
   }
 
-  canSeeSync(agent: Agent, path: string, policy: WorkspacePolicy): boolean {
-    return this.lens.canSee(
-      agent,
-      path,
-      this.ctx.indexer.getMeta(path)?.frontmatter ?? null,
-      policy,
-    );
+  /** Visibility checker over the current index (one query for all paths). */
+  async visibility(agent: Agent): Promise<(path: string) => boolean> {
+    const policy = await this.policy();
+    const meta = await this.ws.indexer.allMeta();
+    return (path) => this.ws.lens.canSee(agent, path, meta.get(path) ?? null, policy);
   }
 
   async filter<T>(agent: Agent, items: T[], pathOf: (t: T) => string): Promise<T[]> {
-    const policy = await this.policy();
-    return items.filter((i) => this.canSeeSync(agent, pathOf(i), policy));
+    const canSee = await this.visibility(agent);
+    return items.filter((i) => canSee(pathOf(i)));
   }
 
   async list(agent: Agent, folder?: string) {
-    return this.filter(agent, this.ctx.indexer.listNotes(folder), (n) => n.path);
+    return this.filter(agent, await this.ws.indexer.listNotes(folder), (n) => n.path);
   }
 
   async read(agent: Agent, rawPath: string) {
     if (!agent.canRead) throw new ForbiddenError('agent cannot read');
     const path = normalizeNotePath(rawPath);
     const policy = await this.policy();
-    const doc = await this.ctx.notes.read(path);
-    const meta = this.ctx.indexer.getMeta(path);
-    if (!this.lens.canSee(agent, path, meta?.frontmatter ?? null, policy)) {
+    const doc = await this.ws.notes.read(path);
+    const meta = await this.ws.indexer.getMeta(path);
+    if (!this.ws.lens.canSee(agent, path, meta?.frontmatter ?? null, policy)) {
       throw new ForbiddenError(`${path} is not available to this agent (folder or AI policy)`);
     }
-    const out = this.lens.outgoing(agent, doc.content, policy);
+    const out = await this.ws.lens.outgoing(agent, doc.content, policy);
     if (out.blocked) {
       throw new ForbiddenError(
         `${path} contains sensitive information (${publicFindingLabel(out.findings)}); blocked by policy`,
@@ -64,18 +58,29 @@ export class AgentOps {
 
   async search(agent: Agent, query: string, limit = 20) {
     const policy = await this.policy();
-    const hits = (await this.ctx.indexer.search(query, limit * 2))
-      .filter((h) => this.canSeeSync(agent, h.path, policy))
+    const canSee = await this.visibility(agent);
+    const hits = (await this.ws.indexer.search(query, limit * 2))
+      .filter((h) => canSee(h.path))
       .slice(0, limit);
-    return hits.map((h) => ({ ...h, snippet: this.lens.outgoing(agent, h.snippet, policy).text }));
+    return Promise.all(
+      hits.map(async (h) => ({
+        ...h,
+        snippet: (await this.ws.lens.outgoing(agent, h.snippet, policy)).text,
+      })),
+    );
   }
 
   async backlinks(agent: Agent, path: string) {
     const policy = await this.policy();
-    return this.ctx.indexer
-      .backlinks(normalizeNotePath(path))
-      .filter((b) => this.canSeeSync(agent, b.path, policy))
-      .map((b) => ({ ...b, context: this.lens.outgoing(agent, b.context, policy).text }));
+    const canSee = await this.visibility(agent);
+    return Promise.all(
+      (await this.ws.indexer.backlinks(normalizeNotePath(path)))
+        .filter((b) => canSee(b.path))
+        .map(async (b) => ({
+          ...b,
+          context: (await this.ws.lens.outgoing(agent, b.context, policy)).text,
+        })),
+    );
   }
 
   async write(
@@ -91,31 +96,33 @@ export class AgentOps {
   ): Promise<SaveResult> {
     const caps = capabilities(principal);
     if (!caps.canPropose) throw new ForbiddenError('this token cannot write');
-    const policy = await this.policy();
+    const canSee = await this.visibility(principal.agent);
+    const meta = await this.ws.indexer.allMeta();
     for (const c of changes) {
       const path = normalizeNotePath(c.path, { requireMarkdown: false });
-      const exists = this.ctx.indexer.getMeta(path) !== null;
-      if (exists && !this.canSeeSync(principal.agent, path, policy))
+      if (meta.has(path) && !canSee(path))
         throw new ForbiddenError(`${path} is not available to this agent`);
     }
-    const restored = changes.map((c) => ({
-      path: c.path,
-      content: c.content === null ? null : this.lens.incoming(c.content),
-    }));
-    return this.ctx.notes.writeAsAgent(principal.agent, restored, {
+    const restored = await Promise.all(
+      changes.map(async (c) => ({
+        path: c.path,
+        content: c.content === null ? null : await this.ws.lens.incoming(c.content),
+      })),
+    );
+    return this.ws.notes.writeAsAgent(principal.agent, restored, {
       ...opts,
       mode: caps.canWriteDirect && opts.mode !== 'propose' ? 'direct' : 'propose',
     });
   }
 
-  proposals(agent: Agent, status?: 'open' | 'merged' | 'rejected') {
-    return this.ctx.notes.listProposals(status).filter((p) => p.agent_id === agent.id);
+  async proposals(agent: Agent, status?: 'open' | 'merged' | 'rejected') {
+    return (await this.ws.notes.listProposals(status)).filter((p) => p.agent_id === agent.id);
   }
 
   async proposal(agent: Agent, id: string) {
-    const p = this.ctx.notes.getProposal(id);
+    const p = await this.ws.notes.getProposal(id);
     if (p.agent_id !== agent.id) throw new NotFoundError('proposal not found');
-    const files = await this.ctx.notes.proposalFiles(id);
+    const files = await this.ws.notes.proposalFiles(id);
     return {
       proposal: p,
       files: files.map((f) => ({

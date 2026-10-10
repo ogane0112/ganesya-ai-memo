@@ -21,7 +21,10 @@ function concat(parts: Uint8Array[]): Uint8Array {
 }
 
 /** Hash an object exactly like `git hash-object -t <type>`. */
-export async function objectId(type: 'blob' | 'tree' | 'commit', body: Uint8Array): Promise<string> {
+export async function objectId(
+  type: 'blob' | 'tree' | 'commit',
+  body: Uint8Array,
+): Promise<string> {
   return sha1Hex(concat([toUtf8(`${type} ${body.length}\0`), body]));
 }
 
@@ -58,7 +61,10 @@ export function encodeTree(entries: TreeEntry[]): Uint8Array {
     return x.length - y.length;
   });
   return concat(
-    sorted.flatMap((e) => [toUtf8(`${e.type === 'tree' ? '40000' : '100644'} ${e.name}\0`), hexToBytes(e.sha)]),
+    sorted.flatMap((e) => [
+      toUtf8(`${e.type === 'tree' ? '40000' : '100644'} ${e.name}\0`),
+      hexToBytes(e.sha),
+    ]),
   );
 }
 

@@ -1,18 +1,15 @@
 import { Hono } from 'hono';
 import { deleteCookie, setCookie } from 'hono/cookie';
-import type { AppContext } from '../app.js';
 import { loadPrefs } from '../auth/prefs.js';
+import type { Platform } from '../platform.js';
 import { type Env, jsonBody, requireHuman, SESSION_COOKIE, str } from './http.js';
 
-export function authRoutes(ctx: AppContext) {
+export function authRoutes(platform: Platform) {
   const app = new Hono<Env>();
-  const secure = ctx.cfg.origin.startsWith('https://');
+  const { auth, cfg } = platform;
+  const secure = cfg.origin.startsWith('https://');
 
-  const setSession = (
-    c: Parameters<typeof setCookie>[0],
-    token: string,
-    days = ctx.cfg.sessionDays,
-  ) =>
+  const setSession = (c: Parameters<typeof setCookie>[0], token: string, days = cfg.sessionDays) =>
     setCookie(c, SESSION_COOKIE, token, {
       httpOnly: true,
       secure,
@@ -21,103 +18,109 @@ export function authRoutes(ctx: AppContext) {
       maxAge: days * 86400,
     });
 
-  app.get('/state', (c) => {
+  app.get('/state', async (c) => {
     const s = c.get('session');
     return c.json({
-      needsSetup: ctx.auth.needsSetup(),
-      user: s ? { username: s.username } : null,
+      ...(await auth.signupState()),
+      user: s ? { username: s.username, isAdmin: s.isAdmin } : null,
       session: s ? { via: s.via, expiresAt: s.expiresAt } : null,
-      rpId: ctx.cfg.rpId,
-      origin: ctx.cfg.origin,
-      recoveryCodesRemaining: s ? ctx.auth.remainingRecoveryCodes() : null,
-      passkeyCount: s ? ctx.auth.passkeys().length : null,
-      prefs: s ? loadPrefs(ctx.appDb) : null,
+      rpId: cfg.rpId,
+      origin: cfg.origin,
+      recoveryCodesRemaining: s ? await auth.remainingRecoveryCodes(s.userId) : null,
+      passkeyCount: s ? (await auth.passkeys(s.userId)).length : null,
+      prefs: s ? await loadPrefs(platform.db, s.userId) : null,
     });
   });
 
   app.post('/register/options', async (c) => {
-    const b = await jsonBody<{ setupToken?: string; username?: string }>(c);
+    const b = await jsonBody<{ setupToken?: string; username?: string; inviteCode?: string }>(c);
     return c.json(
-      await ctx.auth.registrationOptions({
+      await auth.registrationOptions({
         session: c.get('session'),
         ...(b.setupToken ? { setupToken: b.setupToken } : {}),
         ...(b.username ? { username: b.username } : {}),
+        ...(b.inviteCode ? { inviteCode: b.inviteCode } : {}),
       }),
     );
   });
 
   app.post('/register/verify', async (c) => {
-    const b = await jsonBody<{
-      challengeId: string;
-      response: never;
-      name?: string;
-      setupToken?: string;
-    }>(c);
-    const res = await ctx.auth.verifyRegistration({
+    const b = await jsonBody<{ challengeId: string; response: never; name?: string }>(c);
+    const res = await auth.verifyRegistration({
       session: c.get('session'),
       challengeId: str(b.challengeId, 'challengeId'),
       response: b.response,
       ...(b.name ? { name: b.name } : {}),
-      ...(b.setupToken ? { setupToken: b.setupToken } : {}),
     });
     if (res.sessionToken) setSession(c, res.sessionToken);
     return c.json({ passkey: res.passkey, recoveryCodes: res.recoveryCodes });
   });
 
-  app.post('/login/options', async (c) => c.json(await ctx.auth.authenticationOptions()));
+  app.post('/login/options', async (c) => c.json(await auth.authenticationOptions()));
 
   app.post('/login/verify', async (c) => {
     const b = await jsonBody<{ challengeId: string; response: never }>(c);
-    const token = await ctx.auth.verifyAuthentication(
-      str(b.challengeId, 'challengeId'),
-      b.response,
-    );
+    const token = await auth.verifyAuthentication(str(b.challengeId, 'challengeId'), b.response);
     setSession(c, token);
     return c.json({ ok: true });
   });
 
   app.post('/recovery', async (c) => {
-    const b = await jsonBody<{ code: string }>(c);
-    const token = ctx.auth.loginWithRecoveryCode(str(b.code, 'code'));
+    const b = await jsonBody<{ username: string; code: string }>(c);
+    const token = await auth.loginWithRecoveryCode(
+      str(b.username, 'username'),
+      str(b.code, 'code'),
+    );
     setSession(c, token, 1);
     return c.json({ ok: true, mustRegisterPasskey: true });
   });
 
-  app.post('/logout', (c) => {
+  app.post('/logout', async (c) => {
     const t = c.get('sessionToken');
-    if (t) ctx.auth.logout(t);
+    if (t) await auth.logout(t);
     deleteCookie(c, SESSION_COOKIE, { path: '/' });
     return c.json({ ok: true });
   });
 
-  app.post('/logout-all', (c) => {
-    requireHuman(c);
-    ctx.auth.logoutEverywhere();
+  app.post('/logout-all', async (c) => {
+    const s = requireHuman(c);
+    await auth.logoutEverywhere(s.userId);
     deleteCookie(c, SESSION_COOKIE, { path: '/' });
     return c.json({ ok: true });
   });
 
-  app.get('/passkeys', (c) => {
-    requireHuman(c);
-    return c.json(ctx.auth.passkeys());
-  });
+  app.get('/passkeys', async (c) => c.json(await auth.passkeys(requireHuman(c).userId)));
 
   app.patch('/passkeys/:id', async (c) => {
-    requireHuman(c);
+    const s = requireHuman(c);
     const b = await jsonBody<{ name: string }>(c);
-    ctx.auth.renamePasskey(c.req.param('id'), str(b.name, 'name'));
+    await auth.renamePasskey(s.userId, c.req.param('id'), str(b.name, 'name'));
     return c.json({ ok: true });
   });
 
-  app.delete('/passkeys/:id', (c) => {
-    requireHuman(c);
-    ctx.auth.deletePasskey(c.req.param('id'));
+  app.delete('/passkeys/:id', async (c) => {
+    await auth.deletePasskey(requireHuman(c).userId, c.req.param('id'));
     return c.json({ ok: true });
   });
 
-  app.post('/recovery-codes', (c) => {
-    requireHuman(c);
-    return c.json({ codes: ctx.auth.replaceRecoveryCodes() });
+  app.post('/recovery-codes', async (c) =>
+    c.json({ codes: await auth.replaceRecoveryCodes(requireHuman(c).userId) }),
+  );
+
+  /** Delete your own account and every note stored here (GitHub repositories are untouched). */
+  app.post('/delete-account', async (c) => {
+    const s = requireHuman(c);
+    const b = await jsonBody<{ username: string }>(c);
+    if (b.username !== s.username)
+      return c.json({ error: '確認のためユーザー名を正しく入力してください' }, 400);
+    if (s.isAdmin) {
+      const users = await auth.users();
+      if (users.length > 1 && !users.some((u) => u.isAdmin && u.id !== s.userId))
+        return c.json({ error: '他のユーザーがいる間は、管理者のアカウントは削除できません' }, 409);
+    }
+    await platform.deleteUser(s.userId);
+    deleteCookie(c, SESSION_COOKIE, { path: '/' });
+    return c.json({ ok: true });
   });
 
   return app;

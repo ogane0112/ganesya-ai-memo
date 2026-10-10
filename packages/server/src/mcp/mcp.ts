@@ -2,9 +2,9 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { applyView, parseView } from '@gmemo/core';
 import { z } from 'zod';
-import type { AgentOps } from '../api/agent-ops.js';
-import type { AppContext } from '../app.js';
+import { AgentOps } from '../api/agent-ops.js';
 import { capabilities, type Principal } from '../auth/tokens.js';
+import type { Workspace } from '../workspace.js';
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
 
@@ -20,7 +20,7 @@ function fail(e: unknown): ToolResult {
   return { content: [{ type: 'text', text: `Error: ${(e as Error).message}` }], isError: true };
 }
 
-const INSTRUCTIONS = `This server holds the user's personal Markdown notes (Obsidian-compatible: YAML frontmatter, [[wiki links]]).
+const INSTRUCTIONS = `This server holds the user's personal Markdown notes (YAML frontmatter, [[wiki links]]).
 - You are a co-editor. Your writes are usually PROPOSALS the user reviews, like pull requests; they are attributed to you.
 - Read a note before changing it and pass its sha as base_sha so concurrent edits merge safely.
 - Write whole-file Markdown. Keep existing frontmatter keys; edit paragraph by paragraph so merges stay clean.
@@ -28,7 +28,8 @@ const INSTRUCTIONS = `This server holds the user's personal Markdown notes (Obsi
 - Some notes are hidden from you by the user's AI policy. Do not ask for them.`;
 
 /** Build an MCP server bound to one authenticated agent. */
-export function buildMcpServer(ctx: AppContext, ops: AgentOps, principal: Principal): McpServer {
+export function buildMcpServer(ws: Workspace, principal: Principal): McpServer {
+  const ops = new AgentOps(ws);
   const server = new McpServer(
     { name: 'ganesya-ai-memo', version: '0.1.0' },
     { instructions: INSTRUCTIONS },
@@ -110,12 +111,12 @@ export function buildMcpServer(ctx: AppContext, ops: AgentOps, principal: Princi
         annotations: { readOnlyHint: true },
       },
       wrap(async ({ id }: { id?: string }) => {
-        const files = await ctx.notes.listViewFiles();
+        const files = await ws.notes.listViewFiles();
         if (!id) return files.map((f) => f.id);
         const f = files.find((v) => v.id === id);
         if (!f) throw new Error('view not found');
         const view = parseView(f.id, f.text);
-        return ops.filter(agent, applyView(view, ctx.indexer.viewNotes()), (r) => r.path);
+        return ops.filter(agent, applyView(view, await ws.indexer.viewNotes()), (r) => r.path);
       }),
     );
   }
@@ -194,9 +195,12 @@ export function buildMcpServer(ctx: AppContext, ops: AgentOps, principal: Princi
         annotations: { readOnlyHint: true },
       },
       wrap(async ({ status }: { status?: 'open' | 'merged' | 'rejected' }) =>
-        ops
-          .proposals(agent, status)
-          .map((p) => ({ id: p.id, title: p.title, status: p.status, created_at: p.created_at })),
+        (await ops.proposals(agent, status)).map((p) => ({
+          id: p.id,
+          title: p.title,
+          status: p.status,
+          created_at: p.created_at,
+        })),
       ),
     );
 
@@ -213,26 +217,16 @@ export function buildMcpServer(ctx: AppContext, ops: AgentOps, principal: Princi
     );
   }
 
-  for (const plugin of ctx.plugins) {
-    for (const tool of plugin.tools) {
-      server.registerTool(
-        `${plugin.name}_${tool.name}`.replace(/[^\w-]/g, '_').slice(0, 64),
-        { description: tool.description, inputSchema: tool.inputSchema },
-        wrap(async (args: Record<string, unknown>) => tool.handler(args, { agent })),
-      );
-    }
-  }
   return server;
 }
 
 /** Handle one MCP HTTP request (stateless Streamable HTTP). */
 export async function handleMcp(
-  ctx: AppContext,
-  ops: AgentOps,
+  ws: Workspace,
   principal: Principal,
   req: Request,
 ): Promise<Response> {
-  const server = buildMcpServer(ctx, ops, principal);
+  const server = buildMcpServer(ws, principal);
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,

@@ -81,8 +81,16 @@ export class TokenService {
     return token;
   }
 
-  createPat(userId: string, agentId: string, scope: Scope[], label: string, expiresInDays?: number): Promise<string> {
-    const expiresAt = expiresInDays ? new Date(Date.now() + expiresInDays * 86400_000).toISOString() : null;
+  createPat(
+    userId: string,
+    agentId: string,
+    scope: Scope[],
+    label: string,
+    expiresInDays?: number,
+  ): Promise<string> {
+    const expiresAt = expiresInDays
+      ? new Date(Date.now() + expiresInDays * 86400_000).toISOString()
+      : null;
     return this.insert('pat', userId, agentId, scope, { label, expiresAt });
   }
 
@@ -95,23 +103,43 @@ export class TokenService {
       clientId,
       expiresAt: new Date(Date.now() + 90 * 86400_000).toISOString(),
     });
-    return { access_token: access, refresh_token: refresh, token_type: 'Bearer', expires_in: this.accessMinutes * 60, scope: scope.join(' ') };
+    return {
+      access_token: access,
+      refresh_token: refresh,
+      token_type: 'Bearer',
+      expires_in: this.accessMinutes * 60,
+      scope: scope.join(' '),
+    };
   }
 
   /** Exchange a refresh token (rotated: the old one is revoked). */
   async refresh(refreshToken: string, clientId: string) {
     const hash = await sha256(refreshToken);
-    const row = await this.db.first<TokenRow>(`SELECT * FROM tokens WHERE hash = ? AND kind = 'refresh'`, hash);
-    if (!row || row.revoked_at || row.client_id !== clientId || (row.expires_at && row.expires_at < nowIso())) return null;
+    const row = await this.db.first<TokenRow>(
+      `SELECT * FROM tokens WHERE hash = ? AND kind = 'refresh'`,
+      hash,
+    );
+    if (
+      !row ||
+      row.revoked_at ||
+      row.client_id !== clientId ||
+      (row.expires_at && row.expires_at < nowIso())
+    )
+      return null;
     const agent = await agentById(this.db, row.agent_id);
     if (!agent || agent.revokedAt) return null;
-    const r = await this.db.run('UPDATE tokens SET revoked_at = ? WHERE hash = ? AND revoked_at IS NULL', nowIso(), hash);
+    const r = await this.db.run(
+      'UPDATE tokens SET revoked_at = ? WHERE hash = ? AND revoked_at IS NULL',
+      nowIso(),
+      hash,
+    );
     if (r.changes !== 1) return null; // used concurrently
     return this.issueOAuthTokens(row.user_id, row.agent_id, clientId, parseScope(row.scope));
   }
 
   async verify(bearer: string | undefined): Promise<Principal | null> {
-    if (!bearer || !(bearer.startsWith(PREFIX.access) || bearer.startsWith(PREFIX.pat))) return null;
+    if (!bearer || !(bearer.startsWith(PREFIX.access) || bearer.startsWith(PREFIX.pat)))
+      return null;
     const hash = await sha256(bearer);
     const row = await this.db.first<TokenRow>('SELECT * FROM tokens WHERE hash = ?', hash);
     if (!row || row.kind === 'refresh' || row.revoked_at) return null;
@@ -119,19 +147,42 @@ export class TokenService {
     const agent = await agentById(this.db, row.agent_id);
     if (!agent || agent.revokedAt || agent.userId !== row.user_id) return null;
     await this.db.run('UPDATE tokens SET last_used_at = ? WHERE hash = ?', nowIso(), hash);
-    return { userId: row.user_id, agent, scope: new Set(parseScope(row.scope)), tokenId: hash.slice(0, 12) };
+    return {
+      userId: row.user_id,
+      agent,
+      scope: new Set(parseScope(row.scope)),
+      tokenId: hash.slice(0, 12),
+    };
   }
 
   /** Revoke by raw token (anyone holding it) or by short id (owner only). */
   async revokeToken(rawOrId: string, userId?: string): Promise<void> {
-    if (rawOrId.length > 12) await this.db.run('UPDATE tokens SET revoked_at = ? WHERE hash = ?', nowIso(), await sha256(rawOrId));
-    else if (userId) await this.db.run(`UPDATE tokens SET revoked_at = ? WHERE substr(hash, 1, 12) = ? AND user_id = ?`, nowIso(), rawOrId, userId);
+    if (rawOrId.length > 12)
+      await this.db.run(
+        'UPDATE tokens SET revoked_at = ? WHERE hash = ?',
+        nowIso(),
+        await sha256(rawOrId),
+      );
+    else if (userId)
+      await this.db.run(
+        `UPDATE tokens SET revoked_at = ? WHERE substr(hash, 1, 12) = ? AND user_id = ?`,
+        nowIso(),
+        rawOrId,
+        userId,
+      );
   }
 
   async list(userId: string, agentId?: string): Promise<TokenInfo[]> {
     const rows = agentId
-      ? await this.db.all<TokenRow>(`SELECT * FROM tokens WHERE user_id = ? AND agent_id = ? AND kind != 'refresh' ORDER BY created_at DESC`, userId, agentId)
-      : await this.db.all<TokenRow>(`SELECT * FROM tokens WHERE user_id = ? AND kind != 'refresh' ORDER BY created_at DESC`, userId);
+      ? await this.db.all<TokenRow>(
+          `SELECT * FROM tokens WHERE user_id = ? AND agent_id = ? AND kind != 'refresh' ORDER BY created_at DESC`,
+          userId,
+          agentId,
+        )
+      : await this.db.all<TokenRow>(
+          `SELECT * FROM tokens WHERE user_id = ? AND kind != 'refresh' ORDER BY created_at DESC`,
+          userId,
+        );
     return rows.map((r) => ({
       id: r.hash.slice(0, 12),
       kind: r.kind,
@@ -160,7 +211,8 @@ export class TokenService {
 /** What a principal may actually do: token scope intersected with agent settings. */
 export function capabilities(p: Principal) {
   const canRead = p.agent.canRead && p.scope.has('notes:read');
-  const canPropose = p.agent.writeMode !== 'none' && (p.scope.has('notes:propose') || p.scope.has('notes:write'));
+  const canPropose =
+    p.agent.writeMode !== 'none' && (p.scope.has('notes:propose') || p.scope.has('notes:write'));
   const canWriteDirect = p.agent.writeMode === 'direct' && p.scope.has('notes:write');
   return { canRead, canPropose, canWriteDirect };
 }

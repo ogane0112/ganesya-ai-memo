@@ -1,7 +1,6 @@
-import { createHash } from 'node:crypto';
 import type { Config } from '../config.js';
-import { type DB, nowIso } from '../db/db.js';
-import { randomId, randomToken, safeEqual, sha256 } from '../util/crypto.js';
+import { type Db, nowIso, stmt } from '../db/db.js';
+import { randomId, randomToken, safeEqual, sha256, sha256b64url } from '../util/crypto.js';
 import type { AgentInput, AgentStore } from './agents.js';
 import { parseScope, type Scope, SCOPES, type TokenService } from './tokens.js';
 
@@ -20,7 +19,11 @@ export interface OAuthClient {
   clientName: string;
   redirectUris: string[];
   createdAt: string;
-  agentId: string | null;
+}
+
+/** A client as seen by one user: which of their agents it acts as. */
+export interface LinkedClient extends OAuthClient {
+  agentId: string;
 }
 
 export interface AuthorizeRequest {
@@ -30,6 +33,22 @@ export interface AuthorizeRequest {
   state?: string;
   scope: Scope[];
   resource?: string;
+}
+
+interface ClientRow {
+  client_id: string;
+  client_name: string;
+  redirect_uris: string;
+  created_at: string;
+}
+
+function toClient(r: ClientRow): OAuthClient {
+  return {
+    clientId: r.client_id,
+    clientName: r.client_name,
+    redirectUris: JSON.parse(r.redirect_uris) as string[],
+    createdAt: r.created_at,
+  };
 }
 
 function isAllowedRedirect(uri: string): boolean {
@@ -52,9 +71,8 @@ function isAllowedRedirect(uri: string): boolean {
  */
 export class OAuthService {
   constructor(
-    private readonly db: DB,
+    private readonly db: Db,
     private readonly cfg: Config,
-    private readonly agents: AgentStore,
     private readonly tokens: TokenService,
   ) {}
 
@@ -84,12 +102,17 @@ export class OAuthService {
     };
   }
 
-  register(body: unknown): Record<string, unknown> {
+  /** Dynamic client registration (RFC 7591). Clients are global; links to agents are per user. */
+  async register(body: unknown): Promise<Record<string, unknown>> {
     const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
     const redirectUris = Array.isArray(b['redirect_uris'])
       ? b['redirect_uris'].filter((u): u is string => typeof u === 'string')
       : [];
-    if (redirectUris.length === 0 || !redirectUris.every(isAllowedRedirect)) {
+    if (
+      redirectUris.length === 0 ||
+      redirectUris.length > 10 ||
+      !redirectUris.every(isAllowedRedirect)
+    ) {
       throw new OAuthError(
         'invalid_redirect_uri',
         'redirect_uris must be https, loopback http, or a private-use scheme',
@@ -107,11 +130,13 @@ export class OAuthService {
         ? b['client_name'].trim().slice(0, 80)
         : 'MCP client';
     const clientId = randomId('mcp_');
-    this.db
-      .prepare(
-        'INSERT INTO oauth_clients(client_id, client_name, redirect_uris, created_at) VALUES (?, ?, ?, ?)',
-      )
-      .run(clientId, clientName, JSON.stringify(redirectUris), nowIso());
+    await this.db.run(
+      'INSERT INTO oauth_clients(client_id, client_name, redirect_uris, created_at) VALUES (?, ?, ?, ?)',
+      clientId,
+      clientName,
+      JSON.stringify(redirectUris),
+      nowIso(),
+    );
     return {
       client_id: clientId,
       client_name: clientName,
@@ -123,42 +148,51 @@ export class OAuthService {
     };
   }
 
-  client(clientId: string): OAuthClient | null {
-    const r = this.db.prepare('SELECT * FROM oauth_clients WHERE client_id = ?').get(clientId) as
-      | {
-          client_id: string;
-          client_name: string;
-          redirect_uris: string;
-          created_at: string;
-          agent_id: string | null;
-        }
-      | undefined;
-    return r
-      ? {
-          clientId: r.client_id,
-          clientName: r.client_name,
-          redirectUris: JSON.parse(r.redirect_uris) as string[],
-          createdAt: r.created_at,
-          agentId: r.agent_id,
-        }
-      : null;
+  async client(clientId: string): Promise<OAuthClient | null> {
+    const r = await this.db.first<ClientRow>(
+      'SELECT * FROM oauth_clients WHERE client_id = ?',
+      clientId,
+    );
+    return r ? toClient(r) : null;
   }
 
-  clients(): OAuthClient[] {
-    return (
-      this.db.prepare('SELECT client_id FROM oauth_clients ORDER BY created_at DESC').all() as {
-        client_id: string;
-      }[]
-    ).map((r) => this.client(r.client_id)!);
+  /** The agent this user linked the client to, if any. */
+  async linkedAgent(clientId: string, userId: string): Promise<string | null> {
+    const r = await this.db.first<{ agent_id: string }>(
+      'SELECT agent_id FROM oauth_client_agents WHERE client_id = ? AND user_id = ?',
+      clientId,
+      userId,
+    );
+    return r?.agent_id ?? null;
   }
 
-  deleteClient(clientId: string): void {
-    this.db.prepare('DELETE FROM oauth_clients WHERE client_id = ?').run(clientId);
+  /** Clients the user has authorized. */
+  async clients(userId: string): Promise<LinkedClient[]> {
+    const rows = await this.db.all<ClientRow & { agent_id: string }>(
+      `SELECT c.*, l.agent_id FROM oauth_client_agents l JOIN oauth_clients c ON c.client_id = l.client_id
+       WHERE l.user_id = ? ORDER BY c.created_at DESC`,
+      userId,
+    );
+    return rows.map((r) => ({ ...toClient(r), agentId: r.agent_id }));
+  }
+
+  /** Disconnect a client from this user's notes: unlink it and revoke its tokens. */
+  async disconnectClient(userId: string, clientId: string): Promise<void> {
+    const now = nowIso();
+    await this.db.batch([
+      stmt('DELETE FROM oauth_client_agents WHERE client_id = ? AND user_id = ?', clientId, userId),
+      stmt(
+        'UPDATE tokens SET revoked_at = ? WHERE client_id = ? AND user_id = ? AND revoked_at IS NULL',
+        now,
+        clientId,
+        userId,
+      ),
+    ]);
   }
 
   /** Validate an /authorize request before showing the consent screen. */
-  validateAuthorize(q: Record<string, string | undefined>): AuthorizeRequest {
-    const client = q['client_id'] ? this.client(q['client_id']) : null;
+  async validateAuthorize(q: Record<string, string | undefined>): Promise<AuthorizeRequest> {
+    const client = q['client_id'] ? await this.client(q['client_id']) : null;
     if (!client) throw new OAuthError('invalid_client', 'unknown client_id');
     const redirectUri =
       q['redirect_uri'] ?? (client.redirectUris.length === 1 ? client.redirectUris[0] : undefined);
@@ -180,40 +214,48 @@ export class OAuthService {
   }
 
   /**
-   * The signed-in human approved the request. Links the client to an existing
-   * agent or creates one with the chosen permissions, then returns the redirect.
+   * The signed-in user approved the request. Links the client to one of their
+   * agents (or a new one with the chosen permissions), then returns the redirect.
    */
-  approve(
+  async approve(
+    userId: string,
+    agents: AgentStore,
     req: AuthorizeRequest,
     choice: { agentId?: string; newAgent?: AgentInput; scope?: Scope[] },
-  ): string {
-    const client = this.client(req.clientId);
+  ): Promise<string> {
+    const client = await this.client(req.clientId);
     if (!client) throw new OAuthError('invalid_client', 'unknown client_id');
-    let agentId = choice.agentId ?? client.agentId ?? undefined;
-    if (!agentId || !this.agents.get(agentId)) {
-      agentId = this.agents.create(choice.newAgent ?? { name: client.clientName }).id;
+    let agentId = choice.agentId ?? (await this.linkedAgent(client.clientId, userId)) ?? undefined;
+    const existing = agentId ? await agents.get(agentId) : null;
+    if (!existing || existing.revokedAt) {
+      agentId = (await agents.create(choice.newAgent ?? { name: client.clientName })).id;
     }
-    this.db
-      .prepare('UPDATE oauth_clients SET agent_id = ? WHERE client_id = ?')
-      .run(agentId, client.clientId);
     const code = randomToken(32);
     const scope = choice.scope?.length
       ? choice.scope.filter((s) => req.scope.includes(s) || s === 'notes:read')
       : req.scope;
-    this.db
-      .prepare(
-        'INSERT INTO oauth_codes(code_hash, client_id, agent_id, redirect_uri, code_challenge, scope, resource, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      )
-      .run(
-        sha256(code),
+    await this.db.batch([
+      stmt('DELETE FROM oauth_codes WHERE expires_at < ?', nowIso()),
+      stmt(
+        `INSERT INTO oauth_client_agents(client_id, user_id, agent_id) VALUES (?, ?, ?)
+         ON CONFLICT(client_id, user_id) DO UPDATE SET agent_id = excluded.agent_id`,
         client.clientId,
-        agentId,
+        userId,
+        agentId!,
+      ),
+      stmt(
+        'INSERT INTO oauth_codes(code_hash, client_id, user_id, agent_id, redirect_uri, code_challenge, scope, resource, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        await sha256(code),
+        client.clientId,
+        userId,
+        agentId!,
         req.redirectUri,
         req.codeChallenge,
         scope.join(' '),
         req.resource ?? null,
         new Date(Date.now() + 5 * 60_000).toISOString(),
-      );
+      ),
+    ]);
     const url = new URL(req.redirectUri);
     url.searchParams.set('code', code);
     if (req.state !== undefined) url.searchParams.set('state', req.state);
@@ -228,40 +270,44 @@ export class OAuthService {
     return url.toString();
   }
 
-  token(form: Record<string, string | undefined>) {
+  async token(form: Record<string, string | undefined>) {
     const grant = form['grant_type'];
     const clientId = form['client_id'];
-    if (!clientId || !this.client(clientId))
+    if (!clientId || !(await this.client(clientId)))
       throw new OAuthError('invalid_client', 'unknown client_id', 401);
     if (grant === 'authorization_code') {
-      const code = form['code'] ?? '';
-      const row = this.db
-        .prepare('SELECT * FROM oauth_codes WHERE code_hash = ?')
-        .get(sha256(code)) as
-        | {
-            code_hash: string;
-            client_id: string;
-            agent_id: string;
-            redirect_uri: string;
-            code_challenge: string;
-            scope: string;
-            expires_at: string;
-          }
-        | undefined;
+      const hash = await sha256(form['code'] ?? '');
+      const row = await this.db.first<{
+        code_hash: string;
+        client_id: string;
+        user_id: string;
+        agent_id: string;
+        redirect_uri: string;
+        code_challenge: string;
+        scope: string;
+        expires_at: string;
+      }>('SELECT * FROM oauth_codes WHERE code_hash = ?', hash);
       // Codes are single use.
-      if (row) this.db.prepare('DELETE FROM oauth_codes WHERE code_hash = ?').run(row.code_hash);
-      if (!row || row.expires_at < nowIso() || row.client_id !== clientId)
+      const claimed = row
+        ? (await this.db.run('DELETE FROM oauth_codes WHERE code_hash = ?', hash)).changes
+        : 0;
+      if (!row || claimed !== 1 || row.expires_at < nowIso() || row.client_id !== clientId)
         throw new OAuthError('invalid_grant', 'invalid or expired code');
       if (form['redirect_uri'] !== undefined && form['redirect_uri'] !== row.redirect_uri)
         throw new OAuthError('invalid_grant', 'redirect_uri mismatch');
       const verifier = form['code_verifier'] ?? '';
-      const challenge = createHash('sha256').update(verifier).digest('base64url');
+      const challenge = await sha256b64url(verifier);
       if (!verifier || !safeEqual(challenge, row.code_challenge))
         throw new OAuthError('invalid_grant', 'PKCE verification failed');
-      return this.tokens.issueOAuthTokens(row.agent_id, clientId, parseScope(row.scope));
+      return this.tokens.issueOAuthTokens(
+        row.user_id,
+        row.agent_id,
+        clientId,
+        parseScope(row.scope),
+      );
     }
     if (grant === 'refresh_token') {
-      const res = this.tokens.refresh(form['refresh_token'] ?? '', clientId);
+      const res = await this.tokens.refresh(form['refresh_token'] ?? '', clientId);
       if (!res) throw new OAuthError('invalid_grant', 'invalid refresh token');
       return res;
     }

@@ -15,7 +15,7 @@ import {
   type WorkspacePolicy,
 } from '@gmemo/core';
 import type { Config } from '../config.js';
-import { type DB, nowIso } from '../db/db.js';
+import { type Db, nowIso } from '../db/db.js';
 import type { NoteService } from '../notes/service.js';
 import type { Indexer } from '../search/indexer.js';
 import { randomId, randomToken, sha256 } from '../util/crypto.js';
@@ -74,9 +74,33 @@ interface SubRow {
   last_error: string | null;
 }
 
-const MAX_FEED_BYTES = 10 * 1024 * 1024;
+/** D1 stores at most 2 MB per value. */
+const MAX_FEED_BYTES = 1_900_000;
 const REFRESH_MS = 15 * 60_000;
 const COLOR_RE = /^#[0-9a-f]{6}$/i;
+
+/** IP literals in private, loopback and link-local ranges (DNS names are not resolved). */
+export function isPrivateHost(host: string): boolean {
+  const h = host.replace(/^\[|\]$/g, '').toLowerCase();
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.internal')) return true;
+  const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(h);
+  if (m) {
+    const [a, b] = [Number(m[1]), Number(m[2])];
+    return (
+      a === 10 ||
+      a === 127 ||
+      a === 0 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 100 && b >= 64 && b <= 127)
+    );
+  }
+  return (
+    h.includes(':') &&
+    (h === '::1' || h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe80'))
+  );
+}
 
 function maskUrl(url: string): string {
   try {
@@ -102,7 +126,8 @@ export class CalendarService {
   readonly timeZone: string;
 
   constructor(
-    private readonly db: DB,
+    private readonly db: Db,
+    private readonly userId: string,
     private readonly cfg: Config,
     private readonly notes: NoteService,
     private readonly indexer: Indexer,
@@ -112,11 +137,21 @@ export class CalendarService {
 
   // ---- feeds (export) ------------------------------------------------------
 
-  feeds(): CalendarFeed[] {
+  /** Which user a feed token belongs to (public /cal/<token>.ics requests). */
+  static async feedOwner(db: Db, token: string): Promise<string | null> {
+    const r = await db.first<{ user_id: string }>(
+      'SELECT user_id FROM calendar_feeds WHERE token_hash = ? AND revoked_at IS NULL',
+      await sha256(token),
+    );
+    return r?.user_id ?? null;
+  }
+
+  async feeds(): Promise<CalendarFeed[]> {
     return (
-      this.db
-        .prepare('SELECT * FROM calendar_feeds WHERE revoked_at IS NULL ORDER BY created_at')
-        .all() as FeedRow[]
+      await this.db.all<FeedRow>(
+        'SELECT * FROM calendar_feeds WHERE user_id = ? AND revoked_at IS NULL ORDER BY created_at',
+        this.userId,
+      )
     ).map((r) => ({
       id: r.id,
       viewId: r.view_id,
@@ -136,26 +171,29 @@ export class CalendarService {
     if (view.type !== 'calendar') throw new CalendarError('カレンダー型のビューだけを公開できます');
     const token = randomToken(24);
     const id = randomId('cf_');
-    this.db
-      .prepare(
-        'INSERT INTO calendar_feeds(id, token_hash, view_id, label, include_links, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-      )
-      .run(
-        id,
-        sha256(token),
-        viewId,
-        (opts.label ?? view.name).slice(0, 80),
-        opts.includeLinks ? 1 : 0,
-        nowIso(),
-      );
+    await this.db.run(
+      'INSERT INTO calendar_feeds(id, user_id, token_hash, view_id, label, include_links, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      id,
+      this.userId,
+      await sha256(token),
+      viewId,
+      (opts.label ?? view.name).slice(0, 80),
+      opts.includeLinks ? 1 : 0,
+      nowIso(),
+    );
     return {
-      feed: this.feeds().find((f) => f.id === id)!,
+      feed: (await this.feeds()).find((f) => f.id === id)!,
       url: `${this.cfg.origin}/cal/${token}.ics`,
     };
   }
 
-  revokeFeed(id: string): void {
-    this.db.prepare('UPDATE calendar_feeds SET revoked_at = ? WHERE id = ?').run(nowIso(), id);
+  async revokeFeed(id: string): Promise<void> {
+    await this.db.run(
+      'UPDATE calendar_feeds SET revoked_at = ? WHERE id = ? AND user_id = ?',
+      nowIso(),
+      id,
+      this.userId,
+    );
   }
 
   private async loadView(viewId: string) {
@@ -166,13 +204,17 @@ export class CalendarService {
 
   /** Render the .ics body for a feed token, or null if the token is unknown/revoked. */
   async renderFeed(token: string): Promise<string | null> {
-    const row = this.db
-      .prepare('SELECT * FROM calendar_feeds WHERE token_hash = ? AND revoked_at IS NULL')
-      .get(sha256(token)) as FeedRow | undefined;
+    const row = await this.db.first<FeedRow>(
+      'SELECT * FROM calendar_feeds WHERE token_hash = ? AND user_id = ? AND revoked_at IS NULL',
+      await sha256(token),
+      this.userId,
+    );
     if (!row) return null;
-    this.db
-      .prepare('UPDATE calendar_feeds SET last_fetched_at = ? WHERE id = ?')
-      .run(nowIso(), row.id);
+    await this.db.run(
+      'UPDATE calendar_feeds SET last_fetched_at = ? WHERE id = ?',
+      nowIso(),
+      row.id,
+    );
     let view;
     try {
       view = await this.loadView(row.view_id);
@@ -180,7 +222,7 @@ export class CalendarService {
       return generateIcal(row.label, []);
     }
     const policy = await this.notes.loadPolicy();
-    const events = this.noteEvents(view, policy, {
+    const events = await this.noteEvents(view, policy, {
       includeLinks: !!row.include_links,
       onlyExternal: true,
     });
@@ -188,14 +230,14 @@ export class CalendarService {
   }
 
   /** Notes of a calendar view as feed events. */
-  noteEvents(
+  async noteEvents(
     view: ReturnType<typeof parseView>,
     policy: WorkspacePolicy,
     opts: { includeLinks: boolean; onlyExternal: boolean },
-  ): FeedEvent[] {
+  ): Promise<FeedEvent[]> {
     const prop = view.dateProperty ?? 'date';
     const out: FeedEvent[] = [];
-    for (const n of applyView(view, this.indexer.viewNotes())) {
+    for (const n of applyView(view, await this.indexer.viewNotes())) {
       if (opts.onlyExternal && effectiveAccess(policy, n.path, n.properties) !== 'external')
         continue;
       const start = parseNoteDate(getProperty(n, prop), this.timeZone);
@@ -204,7 +246,7 @@ export class CalendarService {
         ? parseNoteDate(getProperty(n, view.endDateProperty), this.timeZone)
         : null;
       const title = this.safeTitle(n.title, policy);
-      const uid = `${sha256(`${view.id}|${n.path}`).slice(0, 32)}@gmemo`;
+      const uid = `${(await sha256(`${this.userId}|${view.id}|${n.path}`)).slice(0, 32)}@gmemo`;
       const url = opts.includeLinks
         ? `${this.cfg.origin}/n/${n.path.split('/').map(encodeURIComponent).join('/')}`
         : undefined;
@@ -236,9 +278,12 @@ export class CalendarService {
 
   // ---- subscriptions (import) -----------------------------------------------
 
-  subscriptions(): CalendarSubscription[] {
+  async subscriptions(): Promise<CalendarSubscription[]> {
     return (
-      this.db.prepare('SELECT * FROM calendar_subscriptions ORDER BY created_at').all() as SubRow[]
+      await this.db.all<SubRow>(
+        'SELECT * FROM calendar_subscriptions WHERE user_id = ? ORDER BY created_at',
+        this.userId,
+      )
     ).map((r) => this.toSub(r));
   }
 
@@ -276,6 +321,10 @@ export class CalendarService {
     if (u.protocol !== 'https:' && !(u.protocol === 'http:' && (local || this.cfg.insecureDev))) {
       throw new CalendarError('https:// のURLを指定してください');
     }
+    // The server fetches this URL: keep it away from internal addresses.
+    if (!this.cfg.insecureDev && (local || isPrivateHost(u.hostname))) {
+      throw new CalendarError('このURLは使えません');
+    }
     return u.toString();
   }
 
@@ -287,45 +336,61 @@ export class CalendarService {
     const url = this.validateUrl(input.url);
     const id = randomId('cs_');
     const color = input.color && COLOR_RE.test(input.color) ? input.color : '#4f7cff';
-    this.db
-      .prepare(
-        'INSERT INTO calendar_subscriptions(id, name, url, color, created_at) VALUES (?, ?, ?, ?, ?)',
+    const count = (
+      await this.db.first<{ n: number }>(
+        'SELECT COUNT(*) AS n FROM calendar_subscriptions WHERE user_id = ?',
+        this.userId,
       )
-      .run(id, (input.name.trim() || 'カレンダー').slice(0, 60), url, color, nowIso());
+    )?.n;
+    if ((count ?? 0) >= 20) throw new CalendarError('登録できるカレンダーは20個までです');
+    await this.db.run(
+      'INSERT INTO calendar_subscriptions(id, user_id, name, url, color, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      id,
+      this.userId,
+      (input.name.trim() || 'カレンダー').slice(0, 60),
+      url,
+      color,
+      nowIso(),
+    );
     await this.refresh(id);
-    return this.toSub(this.subRow(id)!);
+    return this.toSub((await this.subRow(id))!);
   }
 
-  updateSubscription(
+  async updateSubscription(
     id: string,
     patch: { name?: string; color?: string; enabled?: boolean; url?: string },
-  ): CalendarSubscription {
-    const cur = this.subRow(id);
+  ): Promise<CalendarSubscription> {
+    const cur = await this.subRow(id);
     if (!cur) throw new CalendarError('カレンダーが見つかりません');
     const url = patch.url ? this.validateUrl(patch.url) : cur.url;
-    this.db
-      .prepare(
-        'UPDATE calendar_subscriptions SET name = ?, color = ?, enabled = ?, url = ?, etag = CASE WHEN ? THEN NULL ELSE etag END, body = CASE WHEN ? THEN NULL ELSE body END WHERE id = ?',
-      )
-      .run(
-        patch.name?.trim() ? patch.name.trim().slice(0, 60) : cur.name,
-        patch.color && COLOR_RE.test(patch.color) ? patch.color : cur.color,
-        patch.enabled === undefined ? cur.enabled : patch.enabled ? 1 : 0,
-        url,
-        url !== cur.url ? 1 : 0,
-        url !== cur.url ? 1 : 0,
-        id,
-      );
-    return this.toSub(this.subRow(id)!);
+    await this.db.run(
+      'UPDATE calendar_subscriptions SET name = ?, color = ?, enabled = ?, url = ?, etag = CASE WHEN ? THEN NULL ELSE etag END, body = CASE WHEN ? THEN NULL ELSE body END WHERE id = ? AND user_id = ?',
+      patch.name?.trim() ? patch.name.trim().slice(0, 60) : cur.name,
+      patch.color && COLOR_RE.test(patch.color) ? patch.color : cur.color,
+      patch.enabled === undefined ? cur.enabled : patch.enabled ? 1 : 0,
+      url,
+      url !== cur.url ? 1 : 0,
+      url !== cur.url ? 1 : 0,
+      id,
+      this.userId,
+    );
+    return this.toSub((await this.subRow(id))!);
   }
 
-  deleteSubscription(id: string): void {
-    this.db.prepare('DELETE FROM calendar_subscriptions WHERE id = ?').run(id);
+  async deleteSubscription(id: string): Promise<void> {
+    await this.db.run(
+      'DELETE FROM calendar_subscriptions WHERE id = ? AND user_id = ?',
+      id,
+      this.userId,
+    );
   }
 
-  private subRow(id: string): SubRow | undefined {
-    return this.db.prepare('SELECT * FROM calendar_subscriptions WHERE id = ?').get(id) as
-      SubRow | undefined;
+  private async subRow(id: string): Promise<SubRow | null> {
+    return this.db.first<SubRow>(
+      'SELECT * FROM calendar_subscriptions WHERE id = ? AND user_id = ?',
+      id,
+      this.userId,
+    );
   }
 
   /** Fetch one subscription (deduplicated while in flight). Errors are recorded, not thrown. */
@@ -338,7 +403,7 @@ export class CalendarService {
   }
 
   private async doRefresh(id: string): Promise<void> {
-    const row = this.subRow(id);
+    const row = await this.subRow(id);
     if (!row) return;
     try {
       const res = await fetch(row.url, {
@@ -350,41 +415,49 @@ export class CalendarService {
         redirect: 'follow',
       });
       if (res.status === 304) {
-        this.db
-          .prepare(
-            'UPDATE calendar_subscriptions SET fetched_at = ?, last_error = NULL WHERE id = ?',
-          )
-          .run(nowIso(), id);
+        await this.db.run(
+          'UPDATE calendar_subscriptions SET fetched_at = ?, last_error = NULL WHERE id = ?',
+          nowIso(),
+          id,
+        );
         return;
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const len = Number(res.headers.get('content-length') ?? 0);
-      if (len > MAX_FEED_BYTES) throw new Error('カレンダーが大きすぎます');
+      if (len > MAX_FEED_BYTES) throw new Error('カレンダーが大きすぎます(2MBまで)');
       const body = await res.text();
-      if (body.length > MAX_FEED_BYTES) throw new Error('カレンダーが大きすぎます');
+      if (new TextEncoder().encode(body).length > MAX_FEED_BYTES)
+        throw new Error('カレンダーが大きすぎます(2MBまで)');
       if (!body.includes('BEGIN:VCALENDAR'))
         throw new Error('iCal 形式ではありません(「iCal形式の非公開URL」を指定してください)');
       const cal = parseIcal(body);
       const name = row.name === 'カレンダー' && cal.name ? cal.name.slice(0, 60) : row.name;
-      this.db
-        .prepare(
-          'UPDATE calendar_subscriptions SET body = ?, etag = ?, fetched_at = ?, last_error = NULL, name = ? WHERE id = ?',
-        )
-        .run(body, res.headers.get('etag'), nowIso(), name, id);
+      await this.db.run(
+        'UPDATE calendar_subscriptions SET body = ?, etag = ?, fetched_at = ?, last_error = NULL, name = ? WHERE id = ?',
+        body,
+        res.headers.get('etag'),
+        nowIso(),
+        name,
+        id,
+      );
     } catch (e) {
       const msg =
         (e as Error).name === 'TimeoutError' ? 'タイムアウトしました' : (e as Error).message;
-      this.db
-        .prepare('UPDATE calendar_subscriptions SET last_error = ?, fetched_at = ? WHERE id = ?')
-        .run(msg.slice(0, 200), nowIso(), id);
+      await this.db.run(
+        'UPDATE calendar_subscriptions SET last_error = ?, fetched_at = ? WHERE id = ?',
+        msg.slice(0, 200),
+        nowIso(),
+        id,
+      );
     }
   }
 
   /** Refresh every enabled subscription older than the refresh interval. */
   async refreshStale(force = false): Promise<void> {
-    const rows = this.db
-      .prepare('SELECT id, fetched_at FROM calendar_subscriptions WHERE enabled = 1')
-      .all() as Pick<SubRow, 'id' | 'fetched_at'>[];
+    const rows = await this.db.all<Pick<SubRow, 'id' | 'fetched_at'>>(
+      'SELECT id, fetched_at FROM calendar_subscriptions WHERE user_id = ? AND enabled = 1',
+      this.userId,
+    );
     const cutoff = Date.now() - REFRESH_MS;
     await Promise.all(
       rows
@@ -394,7 +467,11 @@ export class CalendarService {
   }
 
   /** Occurrences of all enabled subscriptions between two dates ('YYYY-MM-DD', end exclusive). */
-  async events(from: string, to: string): Promise<ExternalEvent[]> {
+  async events(
+    from: string,
+    to: string,
+    defer: (p: Promise<unknown>) => void = (p) => void p,
+  ): Promise<ExternalEvent[]> {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to))
       throw new CalendarError('from/to は YYYY-MM-DD で指定してください');
     const fromMs = parseNoteDate(`${from} 00:00`, this.timeZone);
@@ -403,11 +480,12 @@ export class CalendarService {
       throw new CalendarError('期間が正しくありません');
     if (toMs.ms - fromMs.ms > 400 * 86400_000) throw new CalendarError('期間が長すぎます');
     // Serve cached data right away; stale calendars refresh in the background.
-    void this.refreshStale();
+    defer(this.refreshStale());
     const out: ExternalEvent[] = [];
-    for (const r of this.db
-      .prepare('SELECT * FROM calendar_subscriptions WHERE enabled = 1 AND body IS NOT NULL')
-      .all() as SubRow[]) {
+    for (const r of await this.db.all<SubRow>(
+      'SELECT * FROM calendar_subscriptions WHERE user_id = ? AND enabled = 1 AND body IS NOT NULL',
+      this.userId,
+    )) {
       try {
         for (const o of expandEvents(parseIcal(r.body!).events, {
           from: fromMs.ms,

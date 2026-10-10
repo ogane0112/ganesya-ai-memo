@@ -1,5 +1,13 @@
 import { type Db, stmt, type Stmt, toBytes } from '../db/db.js';
-import { blobId, type CommitData, decodeTree, encodeCommit, encodeTree, objectId, type TreeEntry } from './gitobj.js';
+import {
+  blobId,
+  type CommitData,
+  decodeTree,
+  encodeCommit,
+  encodeTree,
+  objectId,
+  type TreeEntry,
+} from './gitobj.js';
 import {
   asBytes,
   type ChangedFile,
@@ -59,15 +67,29 @@ export class DbGitStore implements NoteStore {
     return obj;
   }
 
-  private async commitRow(sha: string): Promise<CommitRow | null> {
+  /**
+   * Commit metadata. With `prefetch`, a miss also loads the next older commits
+   * in one query, so history walks need a handful of queries instead of one per commit.
+   */
+  private async commitRow(sha: string, prefetch = false): Promise<CommitRow | null> {
     const hit = this.commits.get(sha);
     if (hit) return hit;
+    const cols = 'sha, tree, parents, author_name, author_email, date, message, changed';
     const r = await this.db.first<CommitRow>(
-      'SELECT sha, tree, parents, author_name, author_email, date, message, changed FROM git_commits WHERE user_id = ? AND sha = ?',
+      `SELECT ${cols} FROM git_commits WHERE user_id = ? AND sha = ?`,
       this.userId,
       sha,
     );
-    if (r) this.commits.set(sha, r);
+    if (!r) return null;
+    this.commits.set(sha, r);
+    if (prefetch) {
+      const older = await this.db.all<CommitRow>(
+        `SELECT ${cols} FROM git_commits WHERE user_id = ? AND date <= ? ORDER BY date DESC LIMIT 300`,
+        this.userId,
+        r.date,
+      );
+      for (const o of older) if (!this.commits.has(o.sha)) this.commits.set(o.sha, o);
+    }
     return r;
   }
 
@@ -95,13 +117,23 @@ export class DbGitStore implements NoteStore {
 
   async init(): Promise<void> {
     if (await this.head(MAIN)) return;
-    await this.commit(MAIN, [{ path: 'Welcome.md', content: WELCOME_NOTE }], { name: 'gmemo', email: 'system@gmemo.local' }, 'Initialize notes', {
-      parent: null,
-    });
+    await this.commit(
+      MAIN,
+      [{ path: 'Welcome.md', content: WELCOME_NOTE }],
+      { name: 'gmemo', email: 'system@gmemo.local' },
+      'Initialize notes',
+      {
+        parent: null,
+      },
+    );
   }
 
   async head(branch: string): Promise<string | null> {
-    const r = await this.db.first<{ sha: string }>('SELECT sha FROM git_refs WHERE user_id = ? AND name = ?', this.userId, branch);
+    const r = await this.db.first<{ sha: string }>(
+      'SELECT sha FROM git_refs WHERE user_id = ? AND name = ?',
+      this.userId,
+      branch,
+    );
     return r?.sha ?? null;
   }
 
@@ -150,7 +182,37 @@ export class DbGitStore implements NoteStore {
     return out;
   }
 
-  private async diffTrees(a: string | null, b: string | null, prefix: string, out: ChangedFile[]): Promise<void> {
+  async snapshot(commit: string): Promise<Map<string, Uint8Array>> {
+    const files = await this.listFiles(commit);
+    const bySha = new Map<string, Uint8Array>();
+    const missing = [...new Set(files.map((f) => f.sha))].filter((sha) => {
+      const hit = this.objects.get(sha);
+      if (hit) bySha.set(sha, hit.data);
+      return !hit;
+    });
+    for (let i = 0; i < missing.length; i += 90) {
+      const chunk = missing.slice(i, i + 90);
+      const rows = await this.db.all<{ sha: string; data: unknown }>(
+        `SELECT sha, data FROM git_objects WHERE user_id = ? AND sha IN (${chunk.map(() => '?').join(',')})`,
+        this.userId,
+        ...chunk,
+      );
+      for (const r of rows) bySha.set(r.sha, toBytes(r.data));
+    }
+    const out = new Map<string, Uint8Array>();
+    for (const f of files) {
+      const data = bySha.get(f.sha);
+      if (data) out.set(f.path, data);
+    }
+    return out;
+  }
+
+  private async diffTrees(
+    a: string | null,
+    b: string | null,
+    prefix: string,
+    out: ChangedFile[],
+  ): Promise<void> {
     if (a === b) return;
     const ea = new Map((a ? await this.treeEntries(a) : []).map((e) => [e.name, e]));
     const eb = new Map((b ? await this.treeEntries(b) : []).map((e) => [e.name, e]));
@@ -160,7 +222,12 @@ export class DbGitStore implements NoteStore {
       if (x && y && x.sha === y.sha && x.type === y.type) continue;
       const path = prefix + name;
       if (x?.type === 'tree' || y?.type === 'tree') {
-        await this.diffTrees(x?.type === 'tree' ? x.sha : null, y?.type === 'tree' ? y.sha : null, `${path}/`, out);
+        await this.diffTrees(
+          x?.type === 'tree' ? x.sha : null,
+          y?.type === 'tree' ? y.sha : null,
+          `${path}/`,
+          out,
+        );
         if (x?.type === 'blob') out.push({ status: 'D', path });
         if (y?.type === 'blob') out.push({ status: 'A', path });
         continue;
@@ -185,26 +252,38 @@ export class DbGitStore implements NoteStore {
       if (sha === a) return true;
       if (seen.has(sha)) continue;
       seen.add(sha);
-      const c = await this.commitRow(sha);
+      const c = await this.commitRow(sha, true);
       if (c) queue.push(...(JSON.parse(c.parents) as string[]));
     }
     return false;
   }
 
   /** History along the first-parent chain (merges show up as one commit). */
-  async log(ref: string, opts: { path?: string; limit?: number; firstParent?: boolean } = {}): Promise<CommitInfo[]> {
+  async log(
+    ref: string,
+    opts: { path?: string; limit?: number; firstParent?: boolean } = {},
+  ): Promise<CommitInfo[]> {
     let sha = await this.resolve(ref);
     const limit = opts.limit ?? 100;
     const out: CommitInfo[] = [];
     let steps = 0;
     while (sha && out.length < limit && steps++ < 50000) {
-      const c = await this.commitRow(sha);
+      const c = await this.commitRow(sha, true);
       if (!c) break;
       const parents = JSON.parse(c.parents) as string[];
-      const touched = !opts.path || (JSON.parse(c.changed) as string[]).includes(opts.path);
-      if (touched) {
+      const changed = JSON.parse(c.changed) as string[];
+      if (!opts.path || changed.includes(opts.path)) {
         const { subject, body } = splitMessage(c.message);
-        out.push({ sha: c.sha, parents, authorName: c.author_name, authorEmail: c.author_email, date: c.date, subject, body });
+        out.push({
+          sha: c.sha,
+          parents,
+          authorName: c.author_name,
+          authorEmail: c.author_email,
+          date: c.date,
+          subject,
+          body,
+          paths: changed,
+        });
       }
       sha = parents[0] ?? null;
     }
@@ -213,7 +292,12 @@ export class DbGitStore implements NoteStore {
 
   async createBranch(name: string, at: string): Promise<void> {
     try {
-      await this.db.run('INSERT INTO git_refs(user_id, name, sha) VALUES (?, ?, ?)', this.userId, name, at);
+      await this.db.run(
+        'INSERT INTO git_refs(user_id, name, sha) VALUES (?, ?, ?)',
+        this.userId,
+        name,
+        at,
+      );
     } catch {
       throw new ConcurrentUpdateError(`branch ${name} already exists`);
     }
@@ -230,7 +314,9 @@ export class DbGitStore implements NoteStore {
     changes: { parts: string[]; content: Uint8Array | null }[],
     writes: Map<string, { type: string; data: Uint8Array }>,
   ): Promise<string | null> {
-    const entries = new Map((treeSha ? await this.treeEntries(treeSha) : []).map((e) => [e.name, e]));
+    const entries = new Map(
+      (treeSha ? await this.treeEntries(treeSha) : []).map((e) => [e.name, e]),
+    );
     const byChild = new Map<string, { parts: string[]; content: Uint8Array | null }[]>();
     for (const ch of changes) {
       const [head, ...rest] = ch.parts;
@@ -261,7 +347,13 @@ export class DbGitStore implements NoteStore {
     return sha;
   }
 
-  async commit(branch: string, changes: FileChange[], author: GitIdentity, message: string, opts: CommitOptions = {}): Promise<string> {
+  async commit(
+    branch: string,
+    changes: FileChange[],
+    author: GitIdentity,
+    message: string,
+    opts: CommitOptions = {},
+  ): Promise<string> {
     const current = await this.head(branch);
     const parent = opts.parent === undefined ? current : opts.parent;
     const parentTree = parent ? ((await this.commitRow(parent))?.tree ?? null) : null;
@@ -269,10 +361,14 @@ export class DbGitStore implements NoteStore {
     const tree =
       (await this.applyToTree(
         parentTree,
-        changes.map((c) => ({ parts: c.path.split('/'), content: c.content === null ? null : asBytes(c.content) })),
+        changes.map((c) => ({
+          parts: c.path.split('/'),
+          content: c.content === null ? null : asBytes(c.content),
+        })),
         writes,
       )) ?? (await this.emptyTree(writes));
-    if (parent && tree === parentTree && !opts.allowEmpty && !opts.extraParents?.length) return parent;
+    if (parent && tree === parentTree && !opts.allowEmpty && !opts.extraParents?.length)
+      return parent;
 
     const date = new Date().toISOString();
     const parents = [parent, ...(opts.extraParents ?? [])].filter((p): p is string => !!p);
@@ -294,7 +390,13 @@ export class DbGitStore implements NoteStore {
       changed.push(...out.map((c) => c.path));
     }
     const stmts: Stmt[] = [...writes].map(([s, o]) =>
-      stmt('INSERT OR IGNORE INTO git_objects(user_id, sha, type, data) VALUES (?, ?, ?, ?)', this.userId, s, o.type, o.data),
+      stmt(
+        'INSERT OR IGNORE INTO git_objects(user_id, sha, type, data) VALUES (?, ?, ?, ?)',
+        this.userId,
+        s,
+        o.type,
+        o.data,
+      ),
     );
     stmts.push(
       stmt(
@@ -314,7 +416,11 @@ export class DbGitStore implements NoteStore {
 
     // Compare-and-swap the branch ref. Like a non-forced git push, the new
     // commit must descend from the branch's current head.
-    if (current !== null && parent !== current && !(parent && (await this.isAncestor(current, parent)))) {
+    if (
+      current !== null &&
+      parent !== current &&
+      !(parent && (await this.isAncestor(current, parent)))
+    ) {
       throw new ConcurrentUpdateError(`${branch} is not an ancestor of the new commit`);
     }
     if (current === null) {
@@ -332,7 +438,9 @@ export class DbGitStore implements NoteStore {
     return sha;
   }
 
-  private async emptyTree(writes: Map<string, { type: string; data: Uint8Array }>): Promise<string> {
+  private async emptyTree(
+    writes: Map<string, { type: string; data: Uint8Array }>,
+  ): Promise<string> {
     const data = new Uint8Array(0);
     const sha = await objectId('tree', data);
     writes.set(sha, { type: 'tree', data });
