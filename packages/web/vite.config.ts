@@ -25,8 +25,8 @@ export default defineConfig({
         scope: '/',
         display: 'standalone',
         orientation: 'any',
-        background_color: '#ffffff',
-        theme_color: '#ffffff',
+        background_color: '#fffdf8',
+        theme_color: '#fffdf8',
         categories: ['productivity'],
         icons: [
           { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
@@ -55,7 +55,7 @@ export default defineConfig({
         // only the Latin Inter subsets are precached.
         globPatterns: [
           '**/*.{js,css,html,svg,png,ico}',
-          'assets/inter-latin-*.woff2',
+          'assets/nunito-latin-*.woff2',
           'assets/jetbrains-mono-latin-*.woff2',
         ],
         navigateFallback: '/index.html',
@@ -125,7 +125,7 @@ export default defineConfig({
     sourcemap: true,
     chunkSizeWarningLimit: 700,
     // Never inline fonts as data: URLs; the CSP only allows same-origin fonts.
-    assetsInlineLimit: (file: string) => (file.endsWith('.woff2') ? false : undefined),
+    assetsInlineLimit: (file: string) => (/\.(woff2?|ttf|otf)$/.test(file) ? false : undefined),
     rollupOptions: {
       output: {
         manualChunks(id) {
