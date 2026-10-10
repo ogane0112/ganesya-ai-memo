@@ -4,3 +4,4 @@ coverage
 package-lock.json
 .wrangler
 .cloudflare
+dist-design

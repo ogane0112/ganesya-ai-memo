@@ -21,7 +21,7 @@ import { useAsync, useDocumentTitle } from '../lib/hooks';
 import { noteUrl } from '../lib/paths';
 import { useApp } from '../state/app';
 import { useToast } from '../state/toast';
-import { ProposalMeta } from './Review';
+import { ProposalMeta } from '../components/ProposalCard';
 
 const STATUS_LABEL = { added: '追加', modified: '変更', deleted: '削除' } as const;
 

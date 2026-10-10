@@ -1099,6 +1099,9 @@ select.input {
 .notice-error {
   background: var(--danger-soft);
 }
+.notice-ok {
+  background: var(--ok-soft);
+}
 
 .banner {
   display: flex;

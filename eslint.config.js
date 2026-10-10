@@ -12,6 +12,7 @@ export default tseslint.config(
       'packages/web/dev-dist/**',
       '**/.wrangler/**',
       '**/.cloudflare/**',
+      '**/dist-design/**',
       'examples/**/node_modules/**',
     ],
   },

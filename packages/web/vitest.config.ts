@@ -5,5 +5,5 @@ export default defineConfig({
   resolve: {
     alias: { '@gmemo/core': fileURLToPath(new URL('../core/src/index.ts', import.meta.url)) },
   },
-  test: { include: ['test/**/*.test.ts'], environment: 'node' },
+  test: { include: ['test/**/*.test.ts', 'test/**/*.test.tsx'], environment: 'node' },
 });

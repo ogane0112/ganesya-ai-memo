@@ -19,5 +19,12 @@
       "@gmemo/core": ["../core/src/index.ts"]
     }
   },
-  "include": ["src", "test", "vite.config.ts", "vitest.config.ts"]
+  "include": [
+    "src",
+    "test",
+    "design",
+    "vite.config.ts",
+    "vite.design.config.ts",
+    "vitest.config.ts"
+  ]
 }

@@ -3,40 +3,13 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api, ApiError, describeError } from '../api/client';
 import type { ProposalRow, ProposalStatus } from '../api/types';
 import { Icon } from '../components/Icon';
+import { ProposalCard } from '../components/ProposalCard';
 import { SwipeCard } from '../components/SwipeCard';
-import { Badge, EmptyState, ErrorBox, Loading, PageHeader, Segmented } from '../components/ui';
+import { EmptyState, ErrorBox, Loading, PageHeader, Segmented } from '../components/ui';
 import { needsDecision } from '../lib/conflicts';
-import { relativeTime } from '../lib/format';
 import { useAsync, useDocumentTitle } from '../lib/hooks';
 import { useApp } from '../state/app';
 import { useToast } from '../state/toast';
-
-export const SOURCE_LABEL: Record<string, string> = {
-  device: '端末の編集',
-  revert: '取り消し',
-  agent: 'AIの提案',
-  mcp: 'AIの提案',
-  api: 'AIの提案',
-  plugin: 'プラグイン',
-};
-
-export function ProposalMeta({ p }: { p: ProposalRow }) {
-  return (
-    <span className="proposal-meta">
-      {p.author_kind === 'ai' ? (
-        <Badge tone="ai">
-          <Icon name="bot" size={12} /> {p.author_name}
-        </Badge>
-      ) : (
-        <Badge>{p.author_name}</Badge>
-      )}
-      {SOURCE_LABEL[p.source] && <span className="hint">{SOURCE_LABEL[p.source]}</span>}
-      <time className="hint" dateTime={p.created_at}>
-        {relativeTime(p.created_at)}
-      </time>
-    </span>
-  );
-}
 
 /** AI proposals and device conflicts to review. Swipe right to merge, left to reject. */
 export function ReviewPage() {
@@ -201,16 +174,6 @@ export function ReviewPage() {
           ))}
         </ul>
       )}
-    </div>
-  );
-}
-
-function ProposalCard({ p }: { p: ProposalRow }) {
-  return (
-    <div className="proposal-card">
-      <ProposalMeta p={p} />
-      <h2 className="proposal-title">{p.title}</h2>
-      {p.description && <p className="proposal-desc">{p.description}</p>}
     </div>
   );
 }
