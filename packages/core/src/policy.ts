@@ -46,7 +46,11 @@ export function isAiAccess(v: unknown): v is AiAccess {
  * Effective AI access for a note: folder policy, narrowed by the note's own
  * frontmatter. `sensitivity: secret` always forces local-only (or stricter).
  */
-export function effectiveAccess(policy: WorkspacePolicy, path: string, frontmatter: Frontmatter = {}): AiAccess {
+export function effectiveAccess(
+  policy: WorkspacePolicy,
+  path: string,
+  frontmatter: Frontmatter = {},
+): AiAccess {
   let access = policy.ai.default;
   let bestLen = -1;
   for (const [prefix, a] of Object.entries(policy.ai.folders)) {
@@ -67,17 +71,25 @@ export function effectiveAccess(policy: WorkspacePolicy, path: string, frontmatt
 export function normalizePolicy(input: unknown): WorkspacePolicy {
   const p = (input && typeof input === 'object' ? input : {}) as Partial<Record<string, unknown>>;
   const ai = (p['ai'] && typeof p['ai'] === 'object' ? p['ai'] : {}) as Record<string, unknown>;
-  const s = (p['sensitive'] && typeof p['sensitive'] === 'object' ? p['sensitive'] : {}) as Record<string, unknown>;
+  const s = (p['sensitive'] && typeof p['sensitive'] === 'object' ? p['sensitive'] : {}) as Record<
+    string,
+    unknown
+  >;
   const folders: Record<string, AiAccess> = {};
   if (ai['folders'] && typeof ai['folders'] === 'object') {
-    for (const [k, v] of Object.entries(ai['folders'] as Record<string, unknown>)) if (isAiAccess(v)) folders[k] = v;
+    for (const [k, v] of Object.entries(ai['folders'] as Record<string, unknown>))
+      if (isAiAccess(v)) folders[k] = v;
   }
-  const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+  const strings = (v: unknown) =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
   const mode = s['mode'];
   return {
     ai: { default: isAiAccess(ai['default']) ? ai['default'] : DEFAULT_POLICY.ai.default, folders },
     sensitive: {
-      mode: mode === 'warn' || mode === 'mask' || mode === 'block' ? mode : DEFAULT_POLICY.sensitive.mode,
+      mode:
+        mode === 'warn' || mode === 'mask' || mode === 'block'
+          ? mode
+          : DEFAULT_POLICY.sensitive.mode,
       dictionary: strings(s['dictionary']),
       allow: strings(s['allow']),
       disabledRules: strings(s['disabledRules']),

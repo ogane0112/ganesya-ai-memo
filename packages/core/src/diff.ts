@@ -10,7 +10,11 @@ export interface Hunk {
  * Longest-common-subsequence diff over arbitrary keys. Returns the changed hunks.
  * Common prefix/suffix are trimmed first so typical edits stay cheap.
  */
-export function diffHunks<T>(o: readonly T[], n: readonly T[], eq: (a: T, b: T) => boolean = Object.is): Hunk[] {
+export function diffHunks<T>(
+  o: readonly T[],
+  n: readonly T[],
+  eq: (a: T, b: T) => boolean = Object.is,
+): Hunk[] {
   let pre = 0;
   while (pre < o.length && pre < n.length && eq(o[pre]!, n[pre]!)) pre++;
   let suf = 0;
@@ -68,8 +72,7 @@ export function diffHunks<T>(o: readonly T[], n: readonly T[], eq: (a: T, b: T) 
 }
 
 export type Diff3Region<T> =
-  | { type: 'stable'; items: T[] }
-  | { type: 'conflict'; base: T[]; ours: T[]; theirs: T[] };
+  { type: 'stable'; items: T[] } | { type: 'conflict'; base: T[]; ours: T[]; theirs: T[] };
 
 interface SidedHunk extends Hunk {
   side: 'ours' | 'theirs';
@@ -159,7 +162,11 @@ export type DiffOp<T> =
   | { op: 'replace'; from: T[]; to: T[] };
 
 /** Two-way diff as a list of operations, for display. */
-export function diffOps<T>(o: readonly T[], n: readonly T[], eq: (a: T, b: T) => boolean = Object.is): DiffOp<T>[] {
+export function diffOps<T>(
+  o: readonly T[],
+  n: readonly T[],
+  eq: (a: T, b: T) => boolean = Object.is,
+): DiffOp<T>[] {
   const ops: DiffOp<T>[] = [];
   let oi = 0;
   for (const h of diffHunks(o, n, eq)) {

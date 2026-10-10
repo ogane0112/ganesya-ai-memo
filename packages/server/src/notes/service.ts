@@ -21,10 +21,25 @@ import {
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import type { Agent } from '../auth/agents.js';
 import { type DB, nowIso } from '../db/db.js';
-import { type CommitInfo, type FileChange, MAIN, type NoteRepo, parseTrailers, TRAILER_AGENT, TRAILER_KIND, TRAILER_PROPOSAL } from '../git/repo.js';
+import {
+  type CommitInfo,
+  type FileChange,
+  MAIN,
+  type NoteRepo,
+  parseTrailers,
+  TRAILER_AGENT,
+  TRAILER_KIND,
+  TRAILER_PROPOSAL,
+} from '../git/repo.js';
 import type { Indexer } from '../search/indexer.js';
 import { randomId } from '../util/crypto.js';
-import { type Actor, agentIdFromEmail, authorKindFromEmail, gitIdentity, type HumanActor } from './actor.js';
+import {
+  type Actor,
+  agentIdFromEmail,
+  authorKindFromEmail,
+  gitIdentity,
+  type HumanActor,
+} from './actor.js';
 
 export const POLICY_PATH = '.gmemo/policy.yaml';
 export const VIEWS_DIR = '.views';
@@ -89,8 +104,8 @@ export interface ProposalFile {
 export interface FileResolution extends Resolution {
   /** Skip this file entirely (keep main as is). */
   reject?: boolean;
-  /** For delete/modify clashes: keep the file or delete it. */
-  file?: 'keep' | 'delete';
+  /** For delete/modify clashes: keep the file or delete it. For binary clashes: 'keep' = main, 'theirs' = proposal. */
+  file?: 'keep' | 'delete' | 'theirs';
 }
 
 export interface HistoryEntry {
@@ -217,18 +232,34 @@ export class NoteService {
   }
 
   /** Low-level commit to main under the lock (external edits are committed first). */
-  async commitAs(actor: Actor, changes: FileChange[], subject: string, opts: { extraParents?: string[]; trailers?: Record<string, string> } = {}): Promise<string> {
+  async commitAs(
+    actor: Actor,
+    changes: FileChange[],
+    subject: string,
+    opts: { extraParents?: string[]; trailers?: Record<string, string> } = {},
+  ): Promise<string> {
     return this.repo.lock.run(async () => {
       await this.syncExternalLocked();
       return this.commitLocked(actor, changes, subject, opts);
     });
   }
 
-  private async commitLocked(actor: Actor, changes: FileChange[], subject: string, opts: { extraParents?: string[]; trailers?: Record<string, string> } = {}): Promise<string> {
+  private async commitLocked(
+    actor: Actor,
+    changes: FileChange[],
+    subject: string,
+    opts: { extraParents?: string[]; trailers?: Record<string, string> } = {},
+  ): Promise<string> {
     const before = await this.repo.head(MAIN);
-    const sha = await this.repo.commit(MAIN, changes, gitIdentity(actor), commitMessage(actor, subject, opts.trailers), {
-      ...(opts.extraParents ? { extraParents: opts.extraParents } : {}),
-    });
+    const sha = await this.repo.commit(
+      MAIN,
+      changes,
+      gitIdentity(actor),
+      commitMessage(actor, subject, opts.trailers),
+      {
+        ...(opts.extraParents ? { extraParents: opts.extraParents } : {}),
+      },
+    );
     if (sha !== before) await this.afterMainCommit(sha, await this.changedPaths(before, sha));
     return sha;
   }
@@ -244,7 +275,11 @@ export class NoteService {
    * main moved since (another device, an agent), the edit is merged
    * paragraph-by-paragraph. Unresolvable clashes become a proposal to review.
    */
-  async saveAsHuman(path: string, content: string, opts: { baseSha?: string | null; baseCommit?: string; message?: string; device?: string } = {}): Promise<SaveResult> {
+  async saveAsHuman(
+    path: string,
+    content: string,
+    opts: { baseSha?: string | null; baseCommit?: string; message?: string; device?: string } = {},
+  ): Promise<SaveResult> {
     const p = normalizeNotePath(path);
     const human = this.human();
     return this.repo.lock.run(async () => {
@@ -259,25 +294,47 @@ export class NoteService {
         const current = currentSha ? await this.repo.readBlob(currentSha) : null;
         const merge = mergeNotes(base, current, text);
         if (!merge.clean || current === null) {
-          const baseCommit = opts.baseCommit && (await this.repo.resolve(opts.baseCommit)) ? opts.baseCommit : await this.findCommitWithBlob(p, opts.baseSha ?? null, head);
+          const baseCommit =
+            opts.baseCommit && (await this.repo.resolve(opts.baseCommit))
+              ? opts.baseCommit
+              : await this.findCommitWithBlob(p, opts.baseSha ?? null, head);
           const id = await this.createProposalLocked(human, [{ path: p, content: text }], {
             baseCommit,
             title: `${opts.device ?? '別の端末'}での編集: ${p}`,
-            description: '同じノートが他で更新されていたため、自動で統合できなかった部分の確認が必要です。',
+            description:
+              '同じノートが他で更新されていたため、自動で統合できなかった部分の確認が必要です。',
             source: 'device',
           });
-          return { status: 'proposed', proposalId: id, reason: current === null ? 'deleted-on-main' : 'conflict' };
+          return {
+            status: 'proposed',
+            proposalId: id,
+            reason: current === null ? 'deleted-on-main' : 'conflict',
+          };
         }
         text = merge.text;
       }
-      if (currentSha && (await this.repo.hashContent(text)) === currentSha) return { status: 'unchanged', commit: head, sha: currentSha };
-      const commit = await this.commitLocked(human, [{ path: p, content: text }], opts.message ?? `Update ${p}`);
-      return { status: 'committed', commit, sha: (await this.repo.blobId(commit, p)) ?? '', merged: opts.baseSha !== undefined && (opts.baseSha ?? null) !== currentSha };
+      if (currentSha && (await this.repo.hashContent(text)) === currentSha)
+        return { status: 'unchanged', commit: head, sha: currentSha };
+      const commit = await this.commitLocked(
+        human,
+        [{ path: p, content: text }],
+        opts.message ?? `Update ${p}`,
+      );
+      return {
+        status: 'committed',
+        commit,
+        sha: (await this.repo.blobId(commit, p)) ?? '',
+        merged: opts.baseSha !== undefined && (opts.baseSha ?? null) !== currentSha,
+      };
     });
   }
 
   /** Best effort: find the newest main commit where `path` had blob `sha`. */
-  private async findCommitWithBlob(path: string, sha: string | null, head: string): Promise<string> {
+  private async findCommitWithBlob(
+    path: string,
+    sha: string | null,
+    head: string,
+  ): Promise<string> {
     if (!sha) return head;
     for (const c of await this.repo.log(head, { path, limit: 200 })) {
       if ((await this.repo.blobId(c.sha, path)) === sha) return c.sha;
@@ -310,14 +367,21 @@ export class NoteService {
         if (text === null || b.path === src) continue;
         const { frontmatter, body, hasFrontmatter } = parseNoteLenient(text);
         const nb = renameLinks(body, src, dst);
-        if (nb !== body) changes.push({ path: b.path, content: hasFrontmatter ? serializeNote(frontmatter, nb) : nb });
+        if (nb !== body)
+          changes.push({
+            path: b.path,
+            content: hasFrontmatter ? serializeNote(frontmatter, nb) : nb,
+          });
       }
       return this.commitLocked(actor, changes, `Rename ${src} → ${dst}`);
     });
   }
 
   /** Quick capture from phone / share sheet: append to today's inbox or create a note. */
-  async capture(text: string, opts: { title?: string; folder?: string; actor?: Actor } = {}): Promise<{ path: string; commit: string }> {
+  async capture(
+    text: string,
+    opts: { title?: string; folder?: string; actor?: Actor } = {},
+  ): Promise<{ path: string; commit: string }> {
     const actor = opts.actor ?? this.human();
     const now = new Date();
     const date = now.toISOString().slice(0, 10);
@@ -337,7 +401,10 @@ export class NoteService {
       const existing = await this.repo.readFile(head, path);
       const time = now.toTimeString().slice(0, 5);
       const entry = `- ${time} ${text.trim().replace(/\n/g, '\n  ')}\n`;
-      const content = existing === null ? withCreator(`# ${date}\n\n${entry}`, actor) : existing.replace(/\n*$/, '\n') + entry;
+      const content =
+        existing === null
+          ? withCreator(`# ${date}\n\n${entry}`, actor)
+          : existing.replace(/\n*$/, '\n') + entry;
       const commit = await this.commitLocked(actor, [{ path, content }], `Capture to ${path}`);
       return { path, commit };
     });
@@ -348,10 +415,12 @@ export class NoteService {
   assertAgentCan(agent: Agent, action: 'read' | 'write', paths: string[]): void {
     if (agent.revokedAt) throw new ForbiddenError('agent revoked');
     if (action === 'read' && !agent.canRead) throw new ForbiddenError('agent cannot read');
-    if (action === 'write' && agent.writeMode === 'none') throw new ForbiddenError('agent is read-only');
+    if (action === 'write' && agent.writeMode === 'none')
+      throw new ForbiddenError('agent is read-only');
     for (const p of paths) {
       if (!inFolders(p, agent.folders)) throw new ForbiddenError(`agent has no access to ${p}`);
-      if (p.startsWith('.gmemo/') && action === 'write') throw new ForbiddenError('agents cannot change workspace settings');
+      if (p.startsWith('.gmemo/') && action === 'write')
+        throw new ForbiddenError('agents cannot change workspace settings');
     }
   }
 
@@ -364,10 +433,23 @@ export class NoteService {
   async writeAsAgent(
     agent: Agent,
     changes: FileChange[],
-    opts: { title: string; description?: string; baseShas?: Record<string, string | null>; baseCommit?: string; mode?: 'direct' | 'propose' },
+    opts: {
+      title: string;
+      description?: string;
+      baseShas?: Record<string, string | null>;
+      baseCommit?: string;
+      mode?: 'direct' | 'propose';
+    },
   ): Promise<SaveResult> {
-    const normalized = changes.map((c) => ({ ...c, path: normalizeNotePath(c.path, { requireMarkdown: false }) }));
-    this.assertAgentCan(agent, 'write', normalized.map((c) => c.path));
+    const normalized = changes.map((c) => ({
+      ...c,
+      path: normalizeNotePath(c.path, { requireMarkdown: false }),
+    }));
+    this.assertAgentCan(
+      agent,
+      'write',
+      normalized.map((c) => c.path),
+    );
     const actor: Actor = { kind: 'ai', agentId: agent.id, name: agent.name };
 
     return this.repo.lock.run(async () => {
@@ -376,44 +458,85 @@ export class NoteService {
       const prepared: FileChange[] = [];
       for (const c of normalized) {
         const exists = (await this.repo.blobId(head, c.path)) !== null;
-        prepared.push({ path: c.path, content: typeof c.content === 'string' && !exists && c.path.endsWith('.md') ? withCreator(c.content, actor) : c.content });
+        prepared.push({
+          path: c.path,
+          content:
+            typeof c.content === 'string' && !exists && c.path.endsWith('.md')
+              ? withCreator(c.content, actor)
+              : c.content,
+        });
       }
 
-      const wantsDirect = (opts.mode ?? (agent.writeMode === 'direct' ? 'direct' : 'propose')) === 'direct' && agent.writeMode === 'direct';
+      const wantsDirect =
+        (opts.mode ?? (agent.writeMode === 'direct' ? 'direct' : 'propose')) === 'direct' &&
+        agent.writeMode === 'direct';
       if (wantsDirect) {
         let reason: string | null = null;
         for (const c of prepared) {
           if (this.isHumanEditing(c.path)) reason = `human is editing ${c.path}`;
           const expected = opts.baseShas?.[c.path];
-          if (expected !== undefined && expected !== (await this.repo.blobId(head, c.path))) reason = `${c.path} changed since it was read`;
+          if (expected !== undefined && expected !== (await this.repo.blobId(head, c.path)))
+            reason = `${c.path} changed since it was read`;
         }
         if (!reason) {
           const commit = await this.commitLocked(actor, prepared, opts.title);
           return { status: 'committed', commit, sha: '', merged: false };
         }
-        const baseCommit = opts.baseCommit && (await this.repo.resolve(opts.baseCommit)) ? opts.baseCommit : await this.baseForShas(prepared, opts.baseShas, head);
-        const id = await this.createProposalLocked(actor, prepared, { baseCommit, title: opts.title, description: opts.description ?? '', source: 'agent', agentId: agent.id });
+        const baseCommit =
+          opts.baseCommit && (await this.repo.resolve(opts.baseCommit))
+            ? opts.baseCommit
+            : await this.baseForShas(prepared, opts.baseShas, head);
+        const id = await this.createProposalLocked(actor, prepared, {
+          baseCommit,
+          title: opts.title,
+          description: opts.description ?? '',
+          source: 'agent',
+          agentId: agent.id,
+        });
         return { status: 'proposed', proposalId: id, reason };
       }
 
-      const baseCommit = opts.baseCommit && (await this.repo.resolve(opts.baseCommit)) ? opts.baseCommit : await this.baseForShas(prepared, opts.baseShas, head);
-      const id = await this.createProposalLocked(actor, prepared, { baseCommit, title: opts.title, description: opts.description ?? '', source: 'agent', agentId: agent.id });
+      const baseCommit =
+        opts.baseCommit && (await this.repo.resolve(opts.baseCommit))
+          ? opts.baseCommit
+          : await this.baseForShas(prepared, opts.baseShas, head);
+      const id = await this.createProposalLocked(actor, prepared, {
+        baseCommit,
+        title: opts.title,
+        description: opts.description ?? '',
+        source: 'agent',
+        agentId: agent.id,
+      });
       if (agent.autoMerge && prepared.every((c) => inFolders(c.path, agent.autoMergeFolders))) {
         const detail = await this.proposalFilesLocked(id);
-        if (detail.every((f) => !f.deleteConflict && (f.merge?.clean ?? true)) && !prepared.some((c) => this.isHumanEditing(c.path))) {
+        if (
+          detail.every((f) => !f.deleteConflict && (f.merge?.clean ?? true)) &&
+          !prepared.some((c) => this.isHumanEditing(c.path))
+        ) {
           const commit = await this.mergeProposalLocked(id, {}, this.human());
-          return { status: 'proposed', proposalId: id, reason: 'auto-merged', merged: true, commit };
+          return {
+            status: 'proposed',
+            proposalId: id,
+            reason: 'auto-merged',
+            merged: true,
+            commit,
+          };
         }
       }
       return { status: 'proposed', proposalId: id, reason: 'proposal' };
     });
   }
 
-  private async baseForShas(changes: FileChange[], baseShas: Record<string, string | null> | undefined, head: string): Promise<string> {
+  private async baseForShas(
+    changes: FileChange[],
+    baseShas: Record<string, string | null> | undefined,
+    head: string,
+  ): Promise<string> {
     if (!baseShas) return head;
     for (const c of changes) {
       const sha = baseShas[c.path];
-      if (sha !== undefined && sha !== (await this.repo.blobId(head, c.path))) return this.findCommitWithBlob(c.path, sha, head);
+      if (sha !== undefined && sha !== (await this.repo.blobId(head, c.path)))
+        return this.findCommitWithBlob(c.path, sha, head);
     }
     return head;
   }
@@ -423,7 +546,13 @@ export class NoteService {
   private async createProposalLocked(
     author: Actor,
     changes: FileChange[],
-    opts: { baseCommit: string; title: string; description: string; source: string; agentId?: string },
+    opts: {
+      baseCommit: string;
+      title: string;
+      description: string;
+      source: string;
+      agentId?: string;
+    },
   ): Promise<string> {
     const id = randomId('pr_');
     const branch = PROPOSAL_PREFIX + id;
@@ -436,20 +565,51 @@ export class NoteService {
         `INSERT INTO proposals(id, agent_id, author_name, author_kind, source, branch, base_commit, title, description, status, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)`,
       )
-      .run(id, opts.agentId ?? null, author.name, author.kind, opts.source, branch, opts.baseCommit, opts.title.slice(0, 200), opts.description, now, now);
+      .run(
+        id,
+        opts.agentId ?? null,
+        author.name,
+        author.kind,
+        opts.source,
+        branch,
+        opts.baseCommit,
+        opts.title.slice(0, 200),
+        opts.description,
+        now,
+        now,
+      );
     this.events.emit('proposal', { id, status: 'open' });
     return id;
   }
 
   /** Add more changes to an open proposal (an agent iterating on its suggestion). */
-  async amendProposal(agent: Agent, id: string, changes: FileChange[], message: string): Promise<void> {
+  async amendProposal(
+    agent: Agent,
+    id: string,
+    changes: FileChange[],
+    message: string,
+  ): Promise<void> {
     const p = this.getProposal(id);
     if (p.status !== 'open') throw new ConflictError('proposal is not open', null);
     if (p.agent_id !== agent.id) throw new ForbiddenError('not your proposal');
-    const normalized = changes.map((c) => ({ ...c, path: normalizeNotePath(c.path, { requireMarkdown: false }) }));
-    this.assertAgentCan(agent, 'write', normalized.map((c) => c.path));
+    const normalized = changes.map((c) => ({
+      ...c,
+      path: normalizeNotePath(c.path, { requireMarkdown: false }),
+    }));
+    this.assertAgentCan(
+      agent,
+      'write',
+      normalized.map((c) => c.path),
+    );
     await this.repo.lock.run(async () => {
-      await this.repo.commit(p.branch, normalized, gitIdentity({ kind: 'ai', agentId: agent.id, name: agent.name }), commitMessage({ kind: 'ai', agentId: agent.id, name: agent.name }, message, { [TRAILER_PROPOSAL]: id }));
+      await this.repo.commit(
+        p.branch,
+        normalized,
+        gitIdentity({ kind: 'ai', agentId: agent.id, name: agent.name }),
+        commitMessage({ kind: 'ai', agentId: agent.id, name: agent.name }, message, {
+          [TRAILER_PROPOSAL]: id,
+        }),
+      );
       this.db.prepare('UPDATE proposals SET updated_at = ? WHERE id = ?').run(nowIso(), id);
     });
     this.events.emit('proposal', { id, status: 'open' });
@@ -458,13 +618,16 @@ export class NoteService {
   listProposals(status?: ProposalRow['status']): ProposalRow[] {
     return (
       status
-        ? this.db.prepare('SELECT * FROM proposals WHERE status = ? ORDER BY created_at DESC').all(status)
+        ? this.db
+            .prepare('SELECT * FROM proposals WHERE status = ? ORDER BY created_at DESC')
+            .all(status)
         : this.db.prepare('SELECT * FROM proposals ORDER BY created_at DESC LIMIT 200').all()
     ) as ProposalRow[];
   }
 
   getProposal(id: string): ProposalRow {
-    const row = this.db.prepare('SELECT * FROM proposals WHERE id = ?').get(id) as ProposalRow | undefined;
+    const row = this.db.prepare('SELECT * FROM proposals WHERE id = ?').get(id) as
+      ProposalRow | undefined;
     if (!row) throw new NotFoundError('proposal not found');
     return row;
   }
@@ -476,7 +639,11 @@ export class NoteService {
   private async proposalFilesLocked(id: string): Promise<ProposalFile[]> {
     const p = this.getProposal(id);
     const tip = p.status === 'open' ? await this.repo.head(p.branch) : null;
-    const proposalHead = tip ?? (p.merged_commit ? (await this.repo.log(p.merged_commit, { limit: 1 }))[0]?.parents[1] ?? null : null);
+    const proposalHead =
+      tip ??
+      (p.merged_commit
+        ? ((await this.repo.log(p.merged_commit, { limit: 1 }))[0]?.parents[1] ?? null)
+        : null);
     if (!proposalHead) return [];
     const main = await this.head();
     const files: ProposalFile[] = [];
@@ -485,9 +652,14 @@ export class NoteService {
       const proposed = await this.repo.readFile(proposalHead, ch.path);
       const current = p.status === 'open' ? await this.repo.readFile(main, ch.path) : base;
       const mainChanged = current !== base;
-      const isText = ch.path.toLowerCase().endsWith('.md') || ch.path.endsWith('.yaml') || ch.path.endsWith('.txt');
-      const deleteConflict = mainChanged && (proposed === null || current === null) && proposed !== current;
-      const merge = isText && !deleteConflict && proposed !== null ? mergeNotes(base, current, proposed) : null;
+      const isText =
+        ch.path.toLowerCase().endsWith('.md') ||
+        ch.path.endsWith('.yaml') ||
+        ch.path.endsWith('.txt');
+      const deleteConflict =
+        mainChanged && (proposed === null || current === null) && proposed !== current;
+      const merge =
+        isText && !deleteConflict && proposed !== null ? mergeNotes(base, current, proposed) : null;
       files.push({
         path: ch.path,
         status: base === null ? 'added' : proposed === null ? 'deleted' : 'modified',
@@ -510,14 +682,21 @@ export class NoteService {
    * Merge a proposal into main. Clean files merge automatically; conflicting
    * blocks/keys use `resolutions` (ours = main, theirs = proposal).
    */
-  async mergeProposal(id: string, resolutions: Record<string, FileResolution> = {}): Promise<string> {
+  async mergeProposal(
+    id: string,
+    resolutions: Record<string, FileResolution> = {},
+  ): Promise<string> {
     return this.repo.lock.run(async () => {
       await this.syncExternalLocked();
       return this.mergeProposalLocked(id, resolutions, this.human());
     });
   }
 
-  private async mergeProposalLocked(id: string, resolutions: Record<string, FileResolution>, _approver: HumanActor): Promise<string> {
+  private async mergeProposalLocked(
+    id: string,
+    resolutions: Record<string, FileResolution>,
+    _approver: HumanActor,
+  ): Promise<string> {
     const p = this.getProposal(id);
     if (p.status !== 'open') throw new ConflictError('proposal is not open', null);
     const tip = await this.repo.head(p.branch);
@@ -531,7 +710,16 @@ export class NoteService {
       if (r.reject) continue;
       if (f.deleteConflict) {
         if (!r.file) unresolved.push({ path: f.path, blocks: [], keys: [], file: true });
-        else changes.push({ path: f.path, content: r.file === 'delete' ? null : (f.proposed ?? f.current) });
+        else
+          changes.push({
+            path: f.path,
+            content:
+              r.file === 'delete'
+                ? null
+                : r.file === 'theirs'
+                  ? f.proposed
+                  : (f.proposed ?? f.current),
+          });
         continue;
       }
       if (f.proposed === null) {
@@ -544,15 +732,20 @@ export class NoteService {
       }
       if (!f.merge) {
         // Binary or non-note file: proposal wins unless main also changed it.
-        if (f.mainChanged && !r.file) unresolved.push({ path: f.path, blocks: [], keys: [], file: true });
+        if (f.mainChanged && !r.file)
+          unresolved.push({ path: f.path, blocks: [], keys: [], file: true });
         else if (r.file !== 'keep' || !f.mainChanged) {
           changes.push({ path: f.path, content: (await this.repo.readRaw(tip, f.path)) ?? null });
         }
         continue;
       }
       if (!f.merge.clean) {
-        const missingBlocks = f.merge.segments.filter((s) => s.type === 'conflict' && r.blocks?.[s.index] === undefined).map((s) => (s.type === 'conflict' ? s.index : -1));
-        const missingKeys = f.merge.frontmatterConflicts.filter((c) => r.frontmatter?.[c.key] === undefined).map((c) => c.key);
+        const missingBlocks = f.merge.segments
+          .filter((s) => s.type === 'conflict' && r.blocks?.[s.index] === undefined)
+          .map((s) => (s.type === 'conflict' ? s.index : -1));
+        const missingKeys = f.merge.frontmatterConflicts
+          .filter((c) => r.frontmatter?.[c.key] === undefined)
+          .map((c) => c.key);
         if (missingBlocks.length || missingKeys.length) {
           unresolved.push({ path: f.path, blocks: missingBlocks, keys: missingKeys });
           continue;
@@ -562,12 +755,19 @@ export class NoteService {
     }
     if (unresolved.length) throw new ConflictError('proposal has unresolved conflicts', unresolved);
 
-    const author: Actor = p.author_kind === 'ai' && p.agent_id ? { kind: 'ai', agentId: p.agent_id, name: p.author_name } : { kind: 'human', name: p.author_name };
+    const author: Actor =
+      p.author_kind === 'ai' && p.agent_id
+        ? { kind: 'ai', agentId: p.agent_id, name: p.author_name }
+        : { kind: 'human', name: p.author_name };
     const commit = await this.commitLocked(author, changes, `Merge proposal: ${p.title}`, {
       extraParents: [tip],
       trailers: { [TRAILER_PROPOSAL]: p.id },
     });
-    this.db.prepare(`UPDATE proposals SET status = 'merged', merged_commit = ?, updated_at = ? WHERE id = ?`).run(commit, nowIso(), id);
+    this.db
+      .prepare(
+        `UPDATE proposals SET status = 'merged', merged_commit = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(commit, nowIso(), id);
     await this.repo.deleteBranch(p.branch);
     this.events.emit('proposal', { id, status: 'merged' });
     return commit;
@@ -577,7 +777,9 @@ export class NoteService {
     const p = this.getProposal(id);
     if (p.status !== 'open') throw new ConflictError('proposal is not open', null);
     await this.repo.lock.run(async () => {
-      this.db.prepare(`UPDATE proposals SET status = 'rejected', updated_at = ? WHERE id = ?`).run(nowIso(), id);
+      this.db
+        .prepare(`UPDATE proposals SET status = 'rejected', updated_at = ? WHERE id = ?`)
+        .run(nowIso(), id);
       // Keep the commit reachable for reference via a tag-like ref.
       const tip = await this.repo.head(p.branch);
       if (tip) await this.repo.createBranch(`rejected/${id}`, tip).catch(() => undefined);
@@ -588,15 +790,23 @@ export class NoteService {
 
   // ---- history, blame, revert ---------------------------------------------
 
-  async history(opts: { path?: string; limit?: number; agentId?: string } = {}): Promise<HistoryEntry[]> {
-    const commits = await this.repo.log(MAIN, { ...(opts.path ? { path: normalizeNotePath(opts.path, { requireMarkdown: false }) } : {}), limit: opts.limit ?? 100, firstParent: true });
+  async history(
+    opts: { path?: string; limit?: number; agentId?: string } = {},
+  ): Promise<HistoryEntry[]> {
+    const commits = await this.repo.log(MAIN, {
+      ...(opts.path ? { path: normalizeNotePath(opts.path, { requireMarkdown: false }) } : {}),
+      limit: opts.limit ?? 100,
+      firstParent: true,
+    });
     return commits.map(toHistory).filter((h) => !opts.agentId || h.agentId === opts.agentId);
   }
 
   /** Paragraph-level attribution for coloring AI-written blocks. */
   async blame(path: string): Promise<BlockAttribution[]> {
     const p = normalizeNotePath(path);
-    const commits = (await this.repo.log(MAIN, { path: p, limit: 300, firstParent: true })).reverse();
+    const commits = (
+      await this.repo.log(MAIN, { path: p, limit: 300, firstParent: true })
+    ).reverse();
     const versions: FileVersion[] = [];
     for (const c of commits) {
       const kind = authorKindFromEmail(c.authorEmail);
@@ -624,9 +834,17 @@ export class NoteService {
       const parent = c.parents[0] ?? null;
       const changes: FileChange[] = [];
       for (const f of await this.repo.changedFiles(parent, c.sha)) {
-        changes.push({ path: f.path, content: parent ? await this.repo.readRaw(parent, f.path) : null });
+        changes.push({
+          path: f.path,
+          content: parent ? await this.repo.readRaw(parent, f.path) : null,
+        });
       }
-      const id = await this.createProposalLocked(human, changes, { baseCommit: c.sha, title: `Revert: ${c.subject}`, description: `${c.sha.slice(0, 8)} を取り消します`, source: 'revert' });
+      const id = await this.createProposalLocked(human, changes, {
+        baseCommit: c.sha,
+        title: `Revert: ${c.subject}`,
+        description: `${c.sha.slice(0, 8)} を取り消します`,
+        source: 'revert',
+      });
       const files = await this.proposalFilesLocked(id);
       if (files.every((f) => !f.deleteConflict && (f.merge?.clean ?? !f.mainChanged))) {
         const commit = await this.mergeProposalLocked(id, {}, human);
@@ -660,12 +878,20 @@ export class NoteService {
 
   async saveViewFile(id: string, text: string): Promise<void> {
     if (!/^[\w\-\u3000-\u9fff]+$/.test(id)) throw new ForbiddenError('invalid view id');
-    await this.commitAs(this.human(), [{ path: `${VIEWS_DIR}/${id}.yaml`, content: text }], `Save view ${id}`);
+    await this.commitAs(
+      this.human(),
+      [{ path: `${VIEWS_DIR}/${id}.yaml`, content: text }],
+      `Save view ${id}`,
+    );
   }
 
   async deleteViewFile(id: string): Promise<void> {
     if (!/^[\w\-\u3000-\u9fff]+$/.test(id)) throw new ForbiddenError('invalid view id');
-    await this.commitAs(this.human(), [{ path: `${VIEWS_DIR}/${id}.yaml`, content: null }], `Delete view ${id}`);
+    await this.commitAs(
+      this.human(),
+      [{ path: `${VIEWS_DIR}/${id}.yaml`, content: null }],
+      `Delete view ${id}`,
+    );
   }
 }
 
@@ -682,7 +908,12 @@ function toHistory(c: CommitInfo): HistoryEntry {
   };
 }
 
-function commitMessage(actor: Actor, subject: string, trailers: Record<string, string> = {}, description = ''): string {
+function commitMessage(
+  actor: Actor,
+  subject: string,
+  trailers: Record<string, string> = {},
+  description = '',
+): string {
   const t: Record<string, string> = { [TRAILER_KIND]: actor.kind, ...trailers };
   if (actor.kind === 'ai') t[TRAILER_AGENT] = actor.name;
   const lines = Object.entries(t).map(([k, v]) => `${k}: ${v}`);
@@ -693,7 +924,10 @@ function commitMessage(actor: Actor, subject: string, trailers: Record<string, s
 export function withCreator(text: string, actor: Actor): string {
   const parsed = parseNoteLenient(text);
   if (parsed.frontmatter['created_by'] !== undefined) return text;
-  const fm: Record<string, unknown> = { ...parsed.frontmatter, created_by: actor.kind === 'ai' ? 'ai' : 'human' };
+  const fm: Record<string, unknown> = {
+    ...parsed.frontmatter,
+    created_by: actor.kind === 'ai' ? 'ai' : 'human',
+  };
   if (actor.kind === 'ai') fm['ai_agent'] = actor.name;
   return serializeNote(fm, parsed.body);
 }

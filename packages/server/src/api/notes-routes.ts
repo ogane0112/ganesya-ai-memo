@@ -1,4 +1,13 @@
-import { applyView, effectiveAccess, groupRows, inFolders, normalizeNotePath, parseNoteLenient, parseView, scanText } from '@gmemo/core';
+import {
+  applyView,
+  effectiveAccess,
+  groupRows,
+  inFolders,
+  normalizeNotePath,
+  parseNoteLenient,
+  parseView,
+  scanText,
+} from '@gmemo/core';
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { streamSSE } from 'hono/streaming';
@@ -18,9 +27,14 @@ export function notesRoutes(ctx: AppContext, ops: AgentOps) {
   const { notes, indexer } = ctx;
 
   /** Keep only items the agent may see (folder limits + AI policy). Humans see everything. */
-  const visibleTo = async <T>(p: Principal | null, items: T[], pathOf: (t: T) => string): Promise<T[]> => (p ? ops.filter(p.agent, items, pathOf) : items);
+  const visibleTo = async <T>(
+    p: Principal | null,
+    items: T[],
+    pathOf: (t: T) => string,
+  ): Promise<T[]> => (p ? ops.filter(p.agent, items, pathOf) : items);
   const assertVisible = async (p: Principal | null, path: string) => {
-    if (p && (await ops.filter(p.agent, [path], (x) => x)).length === 0) throw new HTTPException(403, { message: `no access to ${path}` });
+    if (p && (await ops.filter(p.agent, [path], (x) => x)).length === 0)
+      throw new HTTPException(403, { message: `no access to ${path}` });
   };
 
   // ---- reading -------------------------------------------------------------
@@ -28,7 +42,9 @@ export function notesRoutes(ctx: AppContext, ops: AgentOps) {
   app.get('/notes', async (c) => {
     const { principal } = requireReader(c);
     const folder = c.req.query('folder');
-    return c.json(await visibleTo(principal, indexer.listNotes(folder || undefined), (n) => n.path));
+    return c.json(
+      await visibleTo(principal, indexer.listNotes(folder || undefined), (n) => n.path),
+    );
   });
 
   app.get('/note', async (c) => {
@@ -42,7 +58,11 @@ export function notesRoutes(ctx: AppContext, ops: AgentOps) {
     const doc = await notes.read(path, ref);
     const parsed = parseNoteLenient(doc.content);
     const policy = await notes.loadPolicy();
-    return c.json({ ...doc, frontmatter: parsed.frontmatter, access: effectiveAccess(policy, path, parsed.frontmatter) });
+    return c.json({
+      ...doc,
+      frontmatter: parsed.frontmatter,
+      access: effectiveAccess(policy, path, parsed.frontmatter),
+    });
   });
 
   app.get('/note/backlinks', async (c) => {
@@ -72,11 +92,17 @@ export function notesRoutes(ctx: AppContext, ops: AgentOps) {
   app.get('/file', async (c) => {
     const { principal } = requireReader(c);
     const path = normalizeNotePath(str(c.req.query('path'), 'path'), { requireMarkdown: false });
-    if (principal && !inFolders(path, principal.agent.folders)) throw new HTTPException(403, { message: `no access to ${path}` });
+    if (principal && !inFolders(path, principal.agent.folders))
+      throw new HTTPException(403, { message: `no access to ${path}` });
     const data = await ctx.repo.readRaw('main', path);
     if (!data) throw new HTTPException(404, { message: 'file not found' });
     return new Response(new Uint8Array(data), {
-      headers: { 'content-type': contentType(path), 'cache-control': 'private, max-age=60', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'" },
+      headers: {
+        'content-type': contentType(path),
+        'cache-control': 'private, max-age=60',
+        'x-content-type-options': 'nosniff',
+        'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
+      },
     });
   });
 
@@ -85,7 +111,12 @@ export function notesRoutes(ctx: AppContext, ops: AgentOps) {
     const q = c.req.query('q') ?? '';
     const mode = c.req.query('mode') ?? 'hybrid';
     if (principal) return c.json(await ops.search(principal.agent, q, 30));
-    const hits = mode === 'text' ? indexer.textSearch(q, 30) : mode === 'vector' ? await indexer.vectorSearch(q, 30) : await indexer.search(q, 30);
+    const hits =
+      mode === 'text'
+        ? indexer.textSearch(q, 30)
+        : mode === 'vector'
+          ? await indexer.vectorSearch(q, 30)
+          : await indexer.search(q, 30);
     return c.json(hits);
   });
 
@@ -93,8 +124,11 @@ export function notesRoutes(ctx: AppContext, ops: AgentOps) {
     const { principal } = requireReader(c);
     if (!principal) return c.json(indexer.tags());
     const counts = new Map<string, number>();
-    for (const n of await ops.list(principal.agent)) for (const t of n.tags) counts.set(t, (counts.get(t) ?? 0) + 1);
-    return c.json([...counts].map(([tag, count]) => ({ tag, count })).sort((a, b) => b.count - a.count));
+    for (const n of await ops.list(principal.agent))
+      for (const t of n.tags) counts.set(t, (counts.get(t) ?? 0) + 1);
+    return c.json(
+      [...counts].map(([tag, count]) => ({ tag, count })).sort((a, b) => b.count - a.count),
+    );
   });
 
   app.get('/graph', async (c) => {
@@ -108,15 +142,30 @@ export function notesRoutes(ctx: AppContext, ops: AgentOps) {
   app.get('/history', async (c) => {
     requireHuman(c);
     const agentId = c.req.query('agentId');
-    return c.json(await notes.history({ limit: Number(c.req.query('limit') ?? 100), ...(agentId ? { agentId } : {}) }));
+    return c.json(
+      await notes.history({
+        limit: Number(c.req.query('limit') ?? 100),
+        ...(agentId ? { agentId } : {}),
+      }),
+    );
   });
 
   // ---- writing -------------------------------------------------------------
 
   app.put('/note', async (c) => {
-    const b = await jsonBody<{ path: string; content: string; baseSha?: string | null; baseCommit?: string; device?: string; message?: string; mode?: 'direct' | 'propose'; title?: string }>(c);
+    const b = await jsonBody<{
+      path: string;
+      content: string;
+      baseSha?: string | null;
+      baseCommit?: string;
+      device?: string;
+      message?: string;
+      mode?: 'direct' | 'propose';
+      title?: string;
+    }>(c);
     const content = str(b.content, 'content');
-    if (Buffer.byteLength(content) > MAX_NOTE_BYTES) throw new HTTPException(413, { message: 'note too large' });
+    if (Buffer.byteLength(content) > MAX_NOTE_BYTES)
+      throw new HTTPException(413, { message: 'note too large' });
     const principal = c.get('principal');
     if (principal) {
       const path = normalizeNotePath(str(b.path, 'path'));
@@ -143,7 +192,13 @@ export function notesRoutes(ctx: AppContext, ops: AgentOps) {
   app.delete('/note', async (c) => {
     const path = str(c.req.query('path'), 'path');
     const principal = c.get('principal');
-    if (principal) return c.json(await ops.write(principal, [{ path, content: null }], { title: `Delete ${path}`, mode: 'propose' }));
+    if (principal)
+      return c.json(
+        await ops.write(principal, [{ path, content: null }], {
+          title: `Delete ${path}`,
+          mode: 'propose',
+        }),
+      );
     requireHuman(c);
     return c.json({ commit: await notes.deleteAsHuman(path) });
   });
@@ -151,7 +206,9 @@ export function notesRoutes(ctx: AppContext, ops: AgentOps) {
   app.post('/note/rename', async (c) => {
     requireHuman(c);
     const b = await jsonBody<{ from: string; to: string }>(c);
-    return c.json({ commit: await notes.rename(ctx.human(), str(b.from, 'from'), str(b.to, 'to')) });
+    return c.json({
+      commit: await notes.rename(ctx.human(), str(b.from, 'from'), str(b.to, 'to')),
+    });
   });
 
   app.post('/note/editing', async (c) => {
@@ -167,8 +224,16 @@ export function notesRoutes(ctx: AppContext, ops: AgentOps) {
   app.post('/changes', async (c) => {
     const principal = c.get('principal');
     if (!principal) throw new HTTPException(401, { message: 'agent token required' });
-    const b = await jsonBody<{ title: string; description?: string; changes: { path: string; content: string | null }[]; baseShas?: Record<string, string | null>; baseCommit?: string; mode?: 'direct' | 'propose' }>(c);
-    if (!Array.isArray(b.changes) || b.changes.length === 0) throw new HTTPException(400, { message: 'changes required' });
+    const b = await jsonBody<{
+      title: string;
+      description?: string;
+      changes: { path: string; content: string | null }[];
+      baseShas?: Record<string, string | null>;
+      baseCommit?: string;
+      mode?: 'direct' | 'propose';
+    }>(c);
+    if (!Array.isArray(b.changes) || b.changes.length === 0)
+      throw new HTTPException(400, { message: 'changes required' });
     return c.json(
       await ops.write(principal, b.changes, {
         title: str(b.title, 'title'),
@@ -190,11 +255,23 @@ export function notesRoutes(ctx: AppContext, ops: AgentOps) {
     if (principal) {
       // Capture tokens belong to the user's own devices (share sheet, Shortcuts), so the
       // note is recorded as written by the human. Agents use /api/changes instead.
-      if (!principal.scope.has('notes:capture')) throw new HTTPException(403, { message: 'token lacks notes:capture' });
-      return c.json(await notes.capture(text, { ...(b.title ? { title: b.title } : {}), ...(b.folder ? { folder: b.folder } : {}), actor: ctx.human() }));
+      if (!principal.scope.has('notes:capture'))
+        throw new HTTPException(403, { message: 'token lacks notes:capture' });
+      return c.json(
+        await notes.capture(text, {
+          ...(b.title ? { title: b.title } : {}),
+          ...(b.folder ? { folder: b.folder } : {}),
+          actor: ctx.human(),
+        }),
+      );
     }
     requireHuman(c);
-    return c.json(await notes.capture(text, { ...(b.title ? { title: b.title } : {}), ...(b.folder ? { folder: b.folder } : {}) }));
+    return c.json(
+      await notes.capture(text, {
+        ...(b.title ? { title: b.title } : {}),
+        ...(b.folder ? { folder: b.folder } : {}),
+      }),
+    );
   });
 
   app.post('/attachments', async (c) => {
@@ -202,11 +279,19 @@ export function notesRoutes(ctx: AppContext, ops: AgentOps) {
     const form = await c.req.formData();
     const file = form.get('file');
     if (!(file instanceof File)) throw new HTTPException(400, { message: 'file required' });
-    if (file.size > MAX_ATTACHMENT_BYTES) throw new HTTPException(413, { message: 'file too large' });
+    if (file.size > MAX_ATTACHMENT_BYTES)
+      throw new HTTPException(413, { message: 'file too large' });
     const safe = file.name.replace(/[^\w.\-\u3000-\u9fff]/g, '_').slice(-80) || 'file';
     const path = `attachments/${new Date().toISOString().slice(0, 10)}-${Date.now().toString(36)}-${safe}`;
-    await notes.commitAs(ctx.human(), [{ path, content: Buffer.from(await file.arrayBuffer()) }], `Attach ${safe}`);
-    return c.json({ path, markdown: /\.(png|jpe?g|gif|webp|svg)$/i.test(safe) ? `![[${path}]]` : `[[${path}]]` });
+    await notes.commitAs(
+      ctx.human(),
+      [{ path, content: Buffer.from(await file.arrayBuffer()) }],
+      `Attach ${safe}`,
+    );
+    return c.json({
+      path,
+      markdown: /\.(png|jpe?g|gif|webp|svg)$/i.test(safe) ? `![[${path}]]` : `[[${path}]]`,
+    });
   });
 
   app.post('/sync', async (c) => {
@@ -231,7 +316,9 @@ export function notesRoutes(ctx: AppContext, ops: AgentOps) {
 
   app.post('/proposals/:id/merge', async (c) => {
     requireHuman(c);
-    const b = await jsonBody<{ resolutions?: Record<string, FileResolution> }>(c).catch(() => ({ resolutions: {} }));
+    const b = await jsonBody<{ resolutions?: Record<string, FileResolution> }>(c).catch(() => ({
+      resolutions: {},
+    }));
     return c.json({ commit: await notes.mergeProposal(c.req.param('id'), b.resolutions ?? {}) });
   });
 
@@ -275,7 +362,11 @@ export function notesRoutes(ctx: AppContext, ops: AgentOps) {
     if (!f) throw new HTTPException(404, { message: 'view not found' });
     const view = parseView(f.id, f.text);
     const rows = await visibleTo(principal, applyView(view, indexer.viewNotes()), (r) => r.path);
-    return c.json({ view, rows, ...(view.type === 'kanban' ? { groups: groupRows(view, rows) } : {}) });
+    return c.json({
+      view,
+      rows,
+      ...(view.type === 'kanban' ? { groups: groupRows(view, rows) } : {}),
+    });
   });
 
   app.put('/views/:id', async (c) => {
@@ -310,7 +401,12 @@ export function notesRoutes(ctx: AppContext, ops: AgentOps) {
   /** "Ask your notes": retrieval + LLM, through the egress gateway. */
   app.post('/ask', async (c) => {
     requireHuman(c);
-    const b = await jsonBody<{ question: string; prefer?: 'local' | 'external' | 'auto'; confirm?: boolean; paths?: string[] }>(c);
+    const b = await jsonBody<{
+      question: string;
+      prefer?: 'local' | 'external' | 'auto';
+      confirm?: boolean;
+      paths?: string[];
+    }>(c);
     const question = str(b.question, 'question').slice(0, 4000);
     const policy = await notes.loadPolicy();
     let contexts = await indexer.retrieve(question, 8);
@@ -320,7 +416,12 @@ export function notesRoutes(ctx: AppContext, ops: AgentOps) {
         const doc = await notes.read(p).catch(() => null);
         if (!doc) continue;
         const parsed = parseNoteLenient(doc.content);
-        pinned.push({ path: doc.path, title: indexer.getMeta(doc.path)?.title ?? doc.path, text: parsed.body.slice(0, 6000), access: effectiveAccess(policy, doc.path, parsed.frontmatter) });
+        pinned.push({
+          path: doc.path,
+          title: indexer.getMeta(doc.path)?.title ?? doc.path,
+          text: parsed.body.slice(0, 6000),
+          access: effectiveAccess(policy, doc.path, parsed.frontmatter),
+        });
       }
       contexts = [...pinned, ...contexts.filter((x) => !pinned.some((p) => p.path === x.path))];
     }
@@ -334,7 +435,11 @@ export function notesRoutes(ctx: AppContext, ops: AgentOps) {
       actor: ctx.human().name,
       purpose: 'ask',
     });
-    const used = res.used.map((p, i) => ({ n: i + 1, path: p, title: contexts.find((x) => x.path === p)?.title ?? p }));
+    const used = res.used.map((p, i) => ({
+      n: i + 1,
+      path: p,
+      title: contexts.find((x) => x.path === p)?.title ?? p,
+    }));
     return c.json({ ...res, findings: res.findings.map(publicFinding), sources: used });
   });
 
@@ -344,8 +449,21 @@ export function notesRoutes(ctx: AppContext, ops: AgentOps) {
     const b = await jsonBody<{ text: string; useModel?: boolean }>(c);
     const policy = await notes.loadPolicy();
     const text = str(b.text, 'text');
-    const findings = b.useModel ? await ctx.ai.scan(text, policy) : scanText(text, { dictionary: policy.sensitive.dictionary, allow: policy.sensitive.allow, disabledRules: policy.sensitive.disabledRules, extraRules: ctx.extraRules });
-    const strong = findings.some((f) => f.category === 'secret' || f.category === 'credential' || f.category === 'financial' || f.rule === 'my-number');
+    const findings = b.useModel
+      ? await ctx.ai.scan(text, policy)
+      : scanText(text, {
+          dictionary: policy.sensitive.dictionary,
+          allow: policy.sensitive.allow,
+          disabledRules: policy.sensitive.disabledRules,
+          extraRules: ctx.extraRules,
+        });
+    const strong = findings.some(
+      (f) =>
+        f.category === 'secret' ||
+        f.category === 'credential' ||
+        f.category === 'financial' ||
+        f.rule === 'my-number',
+    );
     return c.json({ findings: findings.map(publicFinding), suggestSecret: strong });
   });
 
@@ -354,8 +472,10 @@ export function notesRoutes(ctx: AppContext, ops: AgentOps) {
   app.get('/events', (c) => {
     requireHuman(c);
     return streamSSE(c, async (stream) => {
-      const onChange = (e: unknown) => void stream.writeSSE({ event: 'change', data: JSON.stringify(e) });
-      const onProposal = (e: unknown) => void stream.writeSSE({ event: 'proposal', data: JSON.stringify(e) });
+      const onChange = (e: unknown) =>
+        void stream.writeSSE({ event: 'change', data: JSON.stringify(e) });
+      const onProposal = (e: unknown) =>
+        void stream.writeSSE({ event: 'proposal', data: JSON.stringify(e) });
       notes.events.on('change', onChange);
       notes.events.on('proposal', onProposal);
       stream.onAbort(() => {

@@ -27,8 +27,12 @@ describe('NoteService', () => {
   it('merges a stale save paragraph-by-paragraph', async () => {
     await ctx.service.saveAsHuman('n.md', 'p1\n\np2\n\np3\n');
     const v1 = await ctx.service.read('n.md');
-    await ctx.service.saveAsHuman('n.md', v1.content.replace('p1', 'p1 phone'), { baseSha: v1.sha });
-    const r = await ctx.service.saveAsHuman('n.md', v1.content.replace('p3', 'p3 laptop'), { baseSha: v1.sha });
+    await ctx.service.saveAsHuman('n.md', v1.content.replace('p1', 'p1 phone'), {
+      baseSha: v1.sha,
+    });
+    const r = await ctx.service.saveAsHuman('n.md', v1.content.replace('p3', 'p3 laptop'), {
+      baseSha: v1.sha,
+    });
     expect(r.status).toBe('committed');
     const v3 = await ctx.service.read('n.md');
     expect(v3.content).toContain('p1 phone');
@@ -39,7 +43,10 @@ describe('NoteService', () => {
     await ctx.service.saveAsHuman('n.md', 'p1\n');
     const v1 = await ctx.service.read('n.md');
     await ctx.service.saveAsHuman('n.md', v1.content.replace('p1', 'A'), { baseSha: v1.sha });
-    const r = await ctx.service.saveAsHuman('n.md', v1.content.replace('p1', 'B'), { baseSha: v1.sha, device: 'iPhone' });
+    const r = await ctx.service.saveAsHuman('n.md', v1.content.replace('p1', 'B'), {
+      baseSha: v1.sha,
+      device: 'iPhone',
+    });
     expect(r.status).toBe('proposed');
     if (r.status !== 'proposed') return;
     const files = await ctx.service.proposalFiles(r.proposalId);
@@ -51,7 +58,11 @@ describe('NoteService', () => {
 
   it('agent proposals, auto merge and direct writes', async () => {
     const agent = ctx.agents.create({ name: 'claude', writeMode: 'propose' });
-    const r = await ctx.service.writeAsAgent(agent, [{ path: 'ai/Idea.md', content: '# Idea\n\nfrom ai\n' }], { title: 'Add idea' });
+    const r = await ctx.service.writeAsAgent(
+      agent,
+      [{ path: 'ai/Idea.md', content: '# Idea\n\nfrom ai\n' }],
+      { title: 'Add idea' },
+    );
     expect(r.status).toBe('proposed');
     expect(await ctx.service.exists('ai/Idea.md')).toBe(false);
     if (r.status !== 'proposed') return;
@@ -66,32 +77,57 @@ describe('NoteService', () => {
     expect(hist[0]!.author).toBe('claude');
 
     const auto = ctx.agents.create({ name: 'tidy', writeMode: 'propose', autoMerge: true });
-    const r2 = await ctx.service.writeAsAgent(auto, [{ path: 'ai/Idea.md', content: doc.content + '\nmore\n' }], { title: 'tidy' });
+    const r2 = await ctx.service.writeAsAgent(
+      auto,
+      [{ path: 'ai/Idea.md', content: doc.content + '\nmore\n' }],
+      { title: 'tidy' },
+    );
     expect(r2).toMatchObject({ status: 'proposed', merged: true });
 
     const direct = ctx.agents.create({ name: 'direct', writeMode: 'direct' });
     const cur = await ctx.service.read('ai/Idea.md');
     ctx.service.markEditing('ai/Idea.md');
-    const r3 = await ctx.service.writeAsAgent(direct, [{ path: 'ai/Idea.md', content: cur.content + '\nx\n' }], { title: 'd', baseShas: { 'ai/Idea.md': cur.sha } });
+    const r3 = await ctx.service.writeAsAgent(
+      direct,
+      [{ path: 'ai/Idea.md', content: cur.content + '\nx\n' }],
+      { title: 'd', baseShas: { 'ai/Idea.md': cur.sha } },
+    );
     expect(r3.status).toBe('proposed');
     ctx.service.stopEditing('ai/Idea.md');
-    const r4 = await ctx.service.writeAsAgent(direct, [{ path: 'ai/Idea.md', content: cur.content + '\ny\n' }], { title: 'd2', baseShas: { 'ai/Idea.md': cur.sha } });
+    const r4 = await ctx.service.writeAsAgent(
+      direct,
+      [{ path: 'ai/Idea.md', content: cur.content + '\ny\n' }],
+      { title: 'd2', baseShas: { 'ai/Idea.md': cur.sha } },
+    );
     expect(r4.status).toBe('committed');
-    const r5 = await ctx.service.writeAsAgent(direct, [{ path: 'ai/Idea.md', content: cur.content + '\nz\n' }], { title: 'd3', baseShas: { 'ai/Idea.md': cur.sha } });
+    const r5 = await ctx.service.writeAsAgent(
+      direct,
+      [{ path: 'ai/Idea.md', content: cur.content + '\nz\n' }],
+      { title: 'd3', baseShas: { 'ai/Idea.md': cur.sha } },
+    );
     expect(r5.status).toBe('proposed');
   });
 
   it('enforces folder restrictions', async () => {
     const agent = ctx.agents.create({ name: 'scoped', folders: ['work'] });
-    await expect(ctx.service.writeAsAgent(agent, [{ path: 'private/x.md', content: 'x' }], { title: 't' })).rejects.toThrow(/no access/);
+    await expect(
+      ctx.service.writeAsAgent(agent, [{ path: 'private/x.md', content: 'x' }], { title: 't' }),
+    ).rejects.toThrow(/no access/);
   });
 
   it('blames AI paragraphs and reverts agent changes', async () => {
     await ctx.service.saveAsHuman('n.md', 'human para\n');
     const agent = ctx.agents.create({ name: 'bot', writeMode: 'direct' });
     const cur = await ctx.service.read('n.md');
-    await ctx.service.writeAsAgent(agent, [{ path: 'n.md', content: cur.content + '\nai para\n' }], { title: 'append' });
-    await ctx.service.saveAsHuman('n.md', (await ctx.service.read('n.md')).content.replace('human para', 'human para edited'));
+    await ctx.service.writeAsAgent(
+      agent,
+      [{ path: 'n.md', content: cur.content + '\nai para\n' }],
+      { title: 'append' },
+    );
+    await ctx.service.saveAsHuman(
+      'n.md',
+      (await ctx.service.read('n.md')).content.replace('human para', 'human para edited'),
+    );
     const blame = await ctx.service.blame('n.md');
     expect(blame.map((b) => [b.text.trim(), b.author.kind])).toEqual([
       ['human para edited', 'human'],
@@ -133,7 +169,9 @@ describe('NoteService', () => {
     await ctx.service.saveAsHuman('x.md', '---\nstatus: todo\ntags: [task]\n---\n# X\n');
     ctx.indexDb.exec('DELETE FROM notes; DELETE FROM meta;');
     await ctx.indexer.sync();
-    expect(ctx.indexer.viewNotes().find((n) => n.path === 'x.md')?.properties['status']).toBe('todo');
+    expect(ctx.indexer.viewNotes().find((n) => n.path === 'x.md')?.properties['status']).toBe(
+      'todo',
+    );
     await ctx.indexer.flushEmbeddings();
     const hits = await ctx.indexer.vectorSearch('X');
     expect(hits.length).toBeGreaterThan(0);

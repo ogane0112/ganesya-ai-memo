@@ -11,8 +11,20 @@ let ctx: AppContext;
 
 beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), 'gmemo-plugin-'));
-  await cp(new URL('../../../examples/plugins', import.meta.url).pathname, join(dir, 'plugins'), { recursive: true });
-  ctx = await createApp(loadConfig({ dataDir: dir, notesDir: join(dir, 'notes'), appDbFile: join(dir, 'app.db'), indexDbFile: join(dir, 'index.db'), pluginsDir: join(dir, 'plugins'), origin: 'http://localhost:8787', rpId: 'localhost' }));
+  await cp(new URL('../../../examples/plugins', import.meta.url).pathname, join(dir, 'plugins'), {
+    recursive: true,
+  });
+  ctx = await createApp(
+    loadConfig({
+      dataDir: dir,
+      notesDir: join(dir, 'notes'),
+      appDbFile: join(dir, 'app.db'),
+      indexDbFile: join(dir, 'index.db'),
+      pluginsDir: join(dir, 'plugins'),
+      origin: 'http://localhost:8787',
+      rpId: 'localhost',
+    }),
+  );
 });
 
 afterAll(async () => {
@@ -32,11 +44,15 @@ describe('plugins', () => {
   });
 
   it('serves plugin routes to the signed-in user', async () => {
-    ctx.appDb.prepare(`INSERT INTO users(id, username, created_at) VALUES ('u1', 'me', 'now')`).run();
+    ctx.appDb
+      .prepare(`INSERT INTO users(id, username, created_at) VALUES ('u1', 'me', 'now')`)
+      .run();
     const cookie = `gm_session=${ctx.auth.createSession('u1', 'passkey')}`;
     await ctx.notes.capture('hello');
     const app = createHttpApp(ctx);
-    const r = await app.request('http://localhost:8787/api/plugins/inbox-tools/count', { headers: { cookie } });
+    const r = await app.request('http://localhost:8787/api/plugins/inbox-tools/count', {
+      headers: { cookie },
+    });
     expect(await r.json()).toEqual({ inbox: 1 });
   });
 });

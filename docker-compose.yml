@@ -16,14 +16,14 @@ services:
     volumes:
       - gmemo-data:/data
     expose:
-      - "8787"
+      - '8787'
 
   caddy:
     image: caddy:2
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - '80:80'
+      - '443:443'
     environment:
       GMEMO_DOMAIN: ${GMEMO_DOMAIN}
     volumes:
@@ -36,7 +36,7 @@ services:
   # Optional local LLM. Start with: docker compose --profile ollama up -d
   ollama:
     image: ollama/ollama:latest
-    profiles: ["ollama"]
+    profiles: ['ollama']
     restart: unless-stopped
     volumes:
       - ollama:/root/.ollama

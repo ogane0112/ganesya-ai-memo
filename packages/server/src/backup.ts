@@ -27,7 +27,11 @@ function deriveKey(passphrase: string, salt: Buffer): Buffer {
   return scryptSync(passphrase, salt, 32, { N: 1 << 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
 }
 
-export async function createBackup(repo: NoteRepo, appDb: DB, passphrase?: string): Promise<Buffer> {
+export async function createBackup(
+  repo: NoteRepo,
+  appDb: DB,
+  passphrase?: string,
+): Promise<Buffer> {
   const tmp = await mkdtemp(join(tmpdir(), 'gmemo-backup-'));
   try {
     const bundle = join(tmp, 'notes.bundle');
@@ -38,8 +42,14 @@ export async function createBackup(repo: NoteRepo, appDb: DB, passphrase?: strin
       { name: 'notes.bundle', data: await readFile(bundle) },
       { name: 'app.db', data: await readFile(dbFile) },
     ];
-    const header: Header = { version: 1, createdAt: new Date().toISOString(), files: files.map((f) => ({ name: f.name, size: f.data.length })) };
-    const payload = gzipSync(Buffer.concat([Buffer.from(JSON.stringify(header) + '\n'), ...files.map((f) => f.data)]));
+    const header: Header = {
+      version: 1,
+      createdAt: new Date().toISOString(),
+      files: files.map((f) => ({ name: f.name, size: f.data.length })),
+    };
+    const payload = gzipSync(
+      Buffer.concat([Buffer.from(JSON.stringify(header) + '\n'), ...files.map((f) => f.data)]),
+    );
     if (!passphrase) return Buffer.concat([MAGIC_PLAIN, payload]);
     const salt = randomBytes(16);
     const iv = randomBytes(12);
@@ -51,7 +61,10 @@ export async function createBackup(repo: NoteRepo, appDb: DB, passphrase?: strin
   }
 }
 
-export function readBackup(archive: Buffer, passphrase?: string): { header: Header; files: Map<string, Buffer> } {
+export function readBackup(
+  archive: Buffer,
+  passphrase?: string,
+): { header: Header; files: Map<string, Buffer> } {
   const magic = archive.subarray(0, 8);
   let payload: Buffer;
   if (magic.equals(MAGIC_PLAIN)) payload = archive.subarray(8);
@@ -81,9 +94,14 @@ export function readBackup(archive: Buffer, passphrase?: string): { header: Head
 }
 
 /** Restore into an empty data directory. */
-export async function restoreBackup(archive: Buffer, dataDir: string, passphrase?: string): Promise<void> {
+export async function restoreBackup(
+  archive: Buffer,
+  dataDir: string,
+  passphrase?: string,
+): Promise<void> {
   const notesDir = join(dataDir, 'notes');
-  if (await stat(notesDir).catch(() => null)) throw new Error(`${notesDir} already exists; restore needs an empty data directory`);
+  if (await stat(notesDir).catch(() => null))
+    throw new Error(`${notesDir} already exists; restore needs an empty data directory`);
   const { files } = readBackup(archive, passphrase);
   const bundle = files.get('notes.bundle');
   const db = files.get('app.db');

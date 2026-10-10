@@ -86,17 +86,32 @@ export class OAuthService {
 
   register(body: unknown): Record<string, unknown> {
     const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
-    const redirectUris = Array.isArray(b['redirect_uris']) ? b['redirect_uris'].filter((u): u is string => typeof u === 'string') : [];
+    const redirectUris = Array.isArray(b['redirect_uris'])
+      ? b['redirect_uris'].filter((u): u is string => typeof u === 'string')
+      : [];
     if (redirectUris.length === 0 || !redirectUris.every(isAllowedRedirect)) {
-      throw new OAuthError('invalid_redirect_uri', 'redirect_uris must be https, loopback http, or a private-use scheme');
+      throw new OAuthError(
+        'invalid_redirect_uri',
+        'redirect_uris must be https, loopback http, or a private-use scheme',
+      );
     }
     const authMethod = b['token_endpoint_auth_method'];
     if (authMethod !== undefined && authMethod !== 'none') {
-      throw new OAuthError('invalid_client_metadata', 'only public clients (token_endpoint_auth_method=none) are supported');
+      throw new OAuthError(
+        'invalid_client_metadata',
+        'only public clients (token_endpoint_auth_method=none) are supported',
+      );
     }
-    const clientName = typeof b['client_name'] === 'string' && b['client_name'].trim() ? b['client_name'].trim().slice(0, 80) : 'MCP client';
+    const clientName =
+      typeof b['client_name'] === 'string' && b['client_name'].trim()
+        ? b['client_name'].trim().slice(0, 80)
+        : 'MCP client';
     const clientId = randomId('mcp_');
-    this.db.prepare('INSERT INTO oauth_clients(client_id, client_name, redirect_uris, created_at) VALUES (?, ?, ?, ?)').run(clientId, clientName, JSON.stringify(redirectUris), nowIso());
+    this.db
+      .prepare(
+        'INSERT INTO oauth_clients(client_id, client_name, redirect_uris, created_at) VALUES (?, ?, ?, ?)',
+      )
+      .run(clientId, clientName, JSON.stringify(redirectUris), nowIso());
     return {
       client_id: clientId,
       client_name: clientName,
@@ -110,13 +125,31 @@ export class OAuthService {
 
   client(clientId: string): OAuthClient | null {
     const r = this.db.prepare('SELECT * FROM oauth_clients WHERE client_id = ?').get(clientId) as
-      | { client_id: string; client_name: string; redirect_uris: string; created_at: string; agent_id: string | null }
+      | {
+          client_id: string;
+          client_name: string;
+          redirect_uris: string;
+          created_at: string;
+          agent_id: string | null;
+        }
       | undefined;
-    return r ? { clientId: r.client_id, clientName: r.client_name, redirectUris: JSON.parse(r.redirect_uris) as string[], createdAt: r.created_at, agentId: r.agent_id } : null;
+    return r
+      ? {
+          clientId: r.client_id,
+          clientName: r.client_name,
+          redirectUris: JSON.parse(r.redirect_uris) as string[],
+          createdAt: r.created_at,
+          agentId: r.agent_id,
+        }
+      : null;
   }
 
   clients(): OAuthClient[] {
-    return (this.db.prepare('SELECT client_id FROM oauth_clients ORDER BY created_at DESC').all() as { client_id: string }[]).map((r) => this.client(r.client_id)!);
+    return (
+      this.db.prepare('SELECT client_id FROM oauth_clients ORDER BY created_at DESC').all() as {
+        client_id: string;
+      }[]
+    ).map((r) => this.client(r.client_id)!);
   }
 
   deleteClient(clientId: string): void {
@@ -127,9 +160,12 @@ export class OAuthService {
   validateAuthorize(q: Record<string, string | undefined>): AuthorizeRequest {
     const client = q['client_id'] ? this.client(q['client_id']) : null;
     if (!client) throw new OAuthError('invalid_client', 'unknown client_id');
-    const redirectUri = q['redirect_uri'] ?? (client.redirectUris.length === 1 ? client.redirectUris[0] : undefined);
-    if (!redirectUri || !client.redirectUris.includes(redirectUri)) throw new OAuthError('invalid_request', 'redirect_uri does not match registration');
-    if (q['response_type'] !== 'code') throw new OAuthError('unsupported_response_type', 'response_type must be code');
+    const redirectUri =
+      q['redirect_uri'] ?? (client.redirectUris.length === 1 ? client.redirectUris[0] : undefined);
+    if (!redirectUri || !client.redirectUris.includes(redirectUri))
+      throw new OAuthError('invalid_request', 'redirect_uri does not match registration');
+    if (q['response_type'] !== 'code')
+      throw new OAuthError('unsupported_response_type', 'response_type must be code');
     if (!q['code_challenge'] || (q['code_challenge_method'] ?? 'S256') !== 'S256') {
       throw new OAuthError('invalid_request', 'PKCE with S256 is required');
     }
@@ -147,19 +183,37 @@ export class OAuthService {
    * The signed-in human approved the request. Links the client to an existing
    * agent or creates one with the chosen permissions, then returns the redirect.
    */
-  approve(req: AuthorizeRequest, choice: { agentId?: string; newAgent?: AgentInput; scope?: Scope[] }): string {
+  approve(
+    req: AuthorizeRequest,
+    choice: { agentId?: string; newAgent?: AgentInput; scope?: Scope[] },
+  ): string {
     const client = this.client(req.clientId);
     if (!client) throw new OAuthError('invalid_client', 'unknown client_id');
     let agentId = choice.agentId ?? client.agentId ?? undefined;
     if (!agentId || !this.agents.get(agentId)) {
       agentId = this.agents.create(choice.newAgent ?? { name: client.clientName }).id;
     }
-    this.db.prepare('UPDATE oauth_clients SET agent_id = ? WHERE client_id = ?').run(agentId, client.clientId);
-    const code = randomToken(32);
-    const scope = choice.scope?.length ? choice.scope.filter((s) => req.scope.includes(s) || s === 'notes:read') : req.scope;
     this.db
-      .prepare('INSERT INTO oauth_codes(code_hash, client_id, agent_id, redirect_uri, code_challenge, scope, resource, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(sha256(code), client.clientId, agentId, req.redirectUri, req.codeChallenge, scope.join(' '), req.resource ?? null, new Date(Date.now() + 5 * 60_000).toISOString());
+      .prepare('UPDATE oauth_clients SET agent_id = ? WHERE client_id = ?')
+      .run(agentId, client.clientId);
+    const code = randomToken(32);
+    const scope = choice.scope?.length
+      ? choice.scope.filter((s) => req.scope.includes(s) || s === 'notes:read')
+      : req.scope;
+    this.db
+      .prepare(
+        'INSERT INTO oauth_codes(code_hash, client_id, agent_id, redirect_uri, code_challenge, scope, resource, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      )
+      .run(
+        sha256(code),
+        client.clientId,
+        agentId,
+        req.redirectUri,
+        req.codeChallenge,
+        scope.join(' '),
+        req.resource ?? null,
+        new Date(Date.now() + 5 * 60_000).toISOString(),
+      );
     const url = new URL(req.redirectUri);
     url.searchParams.set('code', code);
     if (req.state !== undefined) url.searchParams.set('state', req.state);
@@ -177,19 +231,33 @@ export class OAuthService {
   token(form: Record<string, string | undefined>) {
     const grant = form['grant_type'];
     const clientId = form['client_id'];
-    if (!clientId || !this.client(clientId)) throw new OAuthError('invalid_client', 'unknown client_id', 401);
+    if (!clientId || !this.client(clientId))
+      throw new OAuthError('invalid_client', 'unknown client_id', 401);
     if (grant === 'authorization_code') {
       const code = form['code'] ?? '';
-      const row = this.db.prepare('SELECT * FROM oauth_codes WHERE code_hash = ?').get(sha256(code)) as
-        | { code_hash: string; client_id: string; agent_id: string; redirect_uri: string; code_challenge: string; scope: string; expires_at: string }
+      const row = this.db
+        .prepare('SELECT * FROM oauth_codes WHERE code_hash = ?')
+        .get(sha256(code)) as
+        | {
+            code_hash: string;
+            client_id: string;
+            agent_id: string;
+            redirect_uri: string;
+            code_challenge: string;
+            scope: string;
+            expires_at: string;
+          }
         | undefined;
       // Codes are single use.
       if (row) this.db.prepare('DELETE FROM oauth_codes WHERE code_hash = ?').run(row.code_hash);
-      if (!row || row.expires_at < nowIso() || row.client_id !== clientId) throw new OAuthError('invalid_grant', 'invalid or expired code');
-      if (form['redirect_uri'] !== undefined && form['redirect_uri'] !== row.redirect_uri) throw new OAuthError('invalid_grant', 'redirect_uri mismatch');
+      if (!row || row.expires_at < nowIso() || row.client_id !== clientId)
+        throw new OAuthError('invalid_grant', 'invalid or expired code');
+      if (form['redirect_uri'] !== undefined && form['redirect_uri'] !== row.redirect_uri)
+        throw new OAuthError('invalid_grant', 'redirect_uri mismatch');
       const verifier = form['code_verifier'] ?? '';
       const challenge = createHash('sha256').update(verifier).digest('base64url');
-      if (!verifier || !safeEqual(challenge, row.code_challenge)) throw new OAuthError('invalid_grant', 'PKCE verification failed');
+      if (!verifier || !safeEqual(challenge, row.code_challenge))
+        throw new OAuthError('invalid_grant', 'PKCE verification failed');
       return this.tokens.issueOAuthTokens(row.agent_id, clientId, parseScope(row.scope));
     }
     if (grant === 'refresh_token') {

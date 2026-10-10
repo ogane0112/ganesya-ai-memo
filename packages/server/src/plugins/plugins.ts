@@ -31,7 +31,11 @@ export interface PluginApi {
     list(folder?: string): { path: string; title: string; tags: string[] }[];
     search(query: string): Promise<{ path: string; title: string; snippet: string }[]>;
     /** Suggest changes. Recorded with the plugin as the AI author, subject to the plugin agent's settings. */
-    propose(changes: { path: string; content: string | null }[], title: string, description?: string): Promise<unknown>;
+    propose(
+      changes: { path: string; content: string | null }[],
+      title: string,
+      description?: string,
+    ): Promise<unknown>;
   };
   on(event: PluginEvent, handler: (payload: unknown) => void): void;
   registerRoute(route: PluginRoute): void;
@@ -69,9 +73,12 @@ export async function loadPlugins(dir: string, host: PluginHost): Promise<Loaded
       let main = 'index.js';
       const pkg = await readFile(join(pdir, 'package.json'), 'utf8').catch(() => null);
       if (pkg) main = (JSON.parse(pkg) as { main?: string }).main ?? main;
-      const mod = (await import(pathToFileURL(join(pdir, main)).href)) as { default?: GmemoPlugin | (() => GmemoPlugin) };
+      const mod = (await import(pathToFileURL(join(pdir, main)).href)) as {
+        default?: GmemoPlugin | (() => GmemoPlugin);
+      };
       const plugin = typeof mod.default === 'function' ? mod.default() : mod.default;
-      if (!plugin || typeof plugin.setup !== 'function') throw new Error('default export must be a plugin with setup()');
+      if (!plugin || typeof plugin.setup !== 'function')
+        throw new Error('default export must be a plugin with setup()');
       loaded.name = (plugin.name ?? entry).replace(/[^\w-]/g, '-');
       await plugin.setup(host.makeApi(loaded.name, loaded));
       console.log(`[plugins] loaded ${loaded.name}`);

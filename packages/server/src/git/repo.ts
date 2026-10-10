@@ -48,7 +48,10 @@ export class NoteRepo {
 
   constructor(readonly dir: string) {}
 
-  private run(args: string[], opts: { input?: string | Buffer; env?: Record<string, string>; okCodes?: number[] } = {}) {
+  private run(
+    args: string[],
+    opts: { input?: string | Buffer; env?: Record<string, string>; okCodes?: number[] } = {},
+  ) {
     return git(args, { cwd: this.dir, ...opts });
   }
 
@@ -84,12 +87,16 @@ export class NoteRepo {
   }
 
   async head(branch: string): Promise<string | null> {
-    const r = await this.run(['rev-parse', '--verify', '-q', `refs/heads/${branch}^{commit}`], { okCodes: [0, 1] });
+    const r = await this.run(['rev-parse', '--verify', '-q', `refs/heads/${branch}^{commit}`], {
+      okCodes: [0, 1],
+    });
     return r.code === 0 ? r.stdout.trim() : null;
   }
 
   async resolve(ref: string): Promise<string | null> {
-    const r = await this.run(['rev-parse', '--verify', '-q', `${ref}^{commit}`], { okCodes: [0, 1, 128] });
+    const r = await this.run(['rev-parse', '--verify', '-q', `${ref}^{commit}`], {
+      okCodes: [0, 1, 128],
+    });
     return r.code === 0 ? r.stdout.trim() : null;
   }
 
@@ -110,12 +117,16 @@ export class NoteRepo {
   }
 
   async blobId(ref: string, path: string): Promise<string | null> {
-    const r = await this.run(['rev-parse', '--verify', '-q', `${ref}:${path}`], { okCodes: [0, 1, 128] });
+    const r = await this.run(['rev-parse', '--verify', '-q', `${ref}:${path}`], {
+      okCodes: [0, 1, 128],
+    });
     return r.code === 0 ? r.stdout.trim() : null;
   }
 
   async hashContent(content: string | Buffer, write = false): Promise<string> {
-    const r = await this.run(['hash-object', ...(write ? ['-w'] : []), '--stdin'], { input: content });
+    const r = await this.run(['hash-object', ...(write ? ['-w'] : []), '--stdin'], {
+      input: content,
+    });
     return r.stdout.trim();
   }
 
@@ -133,7 +144,15 @@ export class NoteRepo {
   }
 
   async changedFiles(from: string | null, to: string): Promise<ChangedFile[]> {
-    const r = await this.run(['diff-tree', '-r', '-z', '--no-renames', '--name-status', from ?? EMPTY_TREE, to]);
+    const r = await this.run([
+      'diff-tree',
+      '-r',
+      '-z',
+      '--no-renames',
+      '--name-status',
+      from ?? EMPTY_TREE,
+      to,
+    ]);
     const parts = r.stdout.split('\0').filter(Boolean);
     const out: ChangedFile[] = [];
     for (let i = 0; i + 1 < parts.length; i += 2) {
@@ -153,7 +172,10 @@ export class NoteRepo {
     return r.code === 0;
   }
 
-  async log(ref: string, opts: { path?: string; limit?: number; firstParent?: boolean; since?: string } = {}): Promise<CommitInfo[]> {
+  async log(
+    ref: string,
+    opts: { path?: string; limit?: number; firstParent?: boolean; since?: string } = {},
+  ): Promise<CommitInfo[]> {
     const args = ['log', '-z', '--format=%H%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%b'];
     if (opts.firstParent) args.push('--first-parent');
     if (opts.limit) args.push(`-n${opts.limit}`);
@@ -166,15 +188,33 @@ export class NoteRepo {
       .split('\0')
       .filter((s) => s.trim())
       .map((rec) => {
-        const [sha = '', parents = '', authorName = '', authorEmail = '', date = '', subject = '', body = ''] = rec
-          .replace(/^\n/, '')
-          .split('\x1f');
-        return { sha, parents: parents.split(' ').filter(Boolean), authorName, authorEmail, date, subject, body: body.trim() };
+        const [
+          sha = '',
+          parents = '',
+          authorName = '',
+          authorEmail = '',
+          date = '',
+          subject = '',
+          body = '',
+        ] = rec.replace(/^\n/, '').split('\x1f');
+        return {
+          sha,
+          parents: parents.split(' ').filter(Boolean),
+          authorName,
+          authorEmail,
+          date,
+          subject,
+          body: body.trim(),
+        };
       });
   }
 
   async branches(prefix: string): Promise<{ name: string; sha: string }[]> {
-    const r = await this.run(['for-each-ref', '--format=%(refname:strip=2) %(objectname)', `refs/heads/${prefix}`]);
+    const r = await this.run([
+      'for-each-ref',
+      '--format=%(refname:strip=2) %(objectname)',
+      `refs/heads/${prefix}`,
+    ]);
     return r.stdout
       .split('\n')
       .filter(Boolean)
@@ -218,7 +258,9 @@ export class NoteRepo {
           await this.run(['update-index', '--force-remove', '--', ch.path], { env });
         } else {
           const sha = await this.hashContent(ch.content, true);
-          await this.run(['update-index', '--add', '--cacheinfo', `100644,${sha},${ch.path}`], { env });
+          await this.run(['update-index', '--add', '--cacheinfo', `100644,${sha},${ch.path}`], {
+            env,
+          });
         }
       }
       const tree = (await this.run(['write-tree'], { env })).stdout.trim();
@@ -226,15 +268,25 @@ export class NoteRepo {
         const parentTree = (await this.run(['rev-parse', `${parent}^{tree}`])).stdout.trim();
         if (parentTree === tree) return parent;
       }
-      const parentArgs = [parent, ...(opts.extraParents ?? [])].filter((p): p is string => !!p).flatMap((p) => ['-p', p]);
+      const parentArgs = [parent, ...(opts.extraParents ?? [])]
+        .filter((p): p is string => !!p)
+        .flatMap((p) => ['-p', p]);
       const commitEnv = {
         GIT_AUTHOR_NAME: author.name,
         GIT_AUTHOR_EMAIL: author.email,
         GIT_COMMITTER_NAME: 'gmemo',
         GIT_COMMITTER_EMAIL: 'system@gmemo.local',
       };
-      const sha = (await this.run(['commit-tree', tree, ...parentArgs, '-F', '-'], { input: message, env: commitEnv })).stdout.trim();
-      const r = await this.run(['update-ref', `refs/heads/${branch}`, sha, current ?? '0'.repeat(40)], { okCodes: [0, 128] });
+      const sha = (
+        await this.run(['commit-tree', tree, ...parentArgs, '-F', '-'], {
+          input: message,
+          env: commitEnv,
+        })
+      ).stdout.trim();
+      const r = await this.run(
+        ['update-ref', `refs/heads/${branch}`, sha, current ?? '0'.repeat(40)],
+        { okCodes: [0, 128] },
+      );
       if (r.code !== 0) throw new ConcurrentUpdateError(`${branch} moved during commit`);
       if (branch === MAIN) await this.syncWorktree(current, sha);
       return sha;
@@ -274,7 +326,9 @@ export class NoteRepo {
    * Commit edits made directly in the working tree (e.g. from Obsidian) as the
    * human user. Returns the new main sha and touched paths, or null if clean.
    */
-  async commitExternalChanges(author: GitIdentity): Promise<{ sha: string; paths: string[] } | null> {
+  async commitExternalChanges(
+    author: GitIdentity,
+  ): Promise<{ sha: string; paths: string[] } | null> {
     const status = await this.run(['status', '--porcelain=v1', '-z', '--untracked-files=all']);
     if (!status.stdout.trim()) return null;
     const before = await this.head(MAIN);
@@ -295,7 +349,9 @@ export class NoteRepo {
         },
       })
     ).stdout.trim();
-    const r = await this.run(['update-ref', `refs/heads/${MAIN}`, sha, before ?? '0'.repeat(40)], { okCodes: [0, 128] });
+    const r = await this.run(['update-ref', `refs/heads/${MAIN}`, sha, before ?? '0'.repeat(40)], {
+      okCodes: [0, 128],
+    });
     if (r.code !== 0) throw new ConcurrentUpdateError('main moved during external commit');
     const paths = (await this.changedFiles(before, sha)).map((c) => c.path);
     return { sha, paths };

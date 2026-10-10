@@ -5,13 +5,18 @@ export class PathError extends Error {}
  * Rejects absolute paths, `..`, the `.git` directory and control characters.
  */
 export function normalizeNotePath(input: string, { requireMarkdown = true } = {}): string {
-  const p = input.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/{2,}/g, '/').trim();
+  const p = input
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+    .replace(/\/{2,}/g, '/')
+    .trim();
   if (!p) throw new PathError('empty path');
   // eslint-disable-next-line no-control-regex
   if (/[\x00-\x1f]/.test(p)) throw new PathError('control characters in path');
   const parts = p.split('/');
   for (const part of parts) {
-    if (part === '' || part === '.' || part === '..') throw new PathError(`invalid path segment in ${input}`);
+    if (part === '' || part === '.' || part === '..')
+      throw new PathError(`invalid path segment in ${input}`);
     if (part.toLowerCase() === '.git') throw new PathError('access to .git is not allowed');
   }
   if (requireMarkdown && !/\.md$/i.test(p)) throw new PathError('notes must be .md files');

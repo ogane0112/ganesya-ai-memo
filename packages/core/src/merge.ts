@@ -16,8 +16,7 @@ export interface BlockConflict {
 }
 
 export type MergeSegment =
-  | { type: 'stable'; text: string }
-  | { type: 'conflict'; index: number; conflict: BlockConflict };
+  { type: 'stable'; text: string } | { type: 'conflict'; index: number; conflict: BlockConflict };
 
 export interface NoteMergeResult {
   clean: boolean;
@@ -96,13 +95,22 @@ function blocksText(blocks: Block[]): string {
  * Three-way merge of whole notes: frontmatter by key, body by paragraph block.
  * `null` stands for "file does not exist" on that side.
  */
-export function mergeNotes(base: string | null, ours: string | null, theirs: string | null): NoteMergeResult {
+export function mergeNotes(
+  base: string | null,
+  ours: string | null,
+  theirs: string | null,
+): NoteMergeResult {
   const b = parseNoteLenient(base ?? '');
   const o = parseNoteLenient(ours ?? '');
   const t = parseNoteLenient(theirs ?? '');
 
   const fm = mergeFrontmatter(b.frontmatter, o.frontmatter, t.frontmatter);
-  const regions = diff3(splitBlocks(b.body), splitBlocks(o.body), splitBlocks(t.body), (x, y) => x.key === y.key);
+  const regions = diff3(
+    splitBlocks(b.body),
+    splitBlocks(o.body),
+    splitBlocks(t.body),
+    (x, y) => x.key === y.key,
+  );
 
   const segments: MergeSegment[] = [];
   let conflictIndex = 0;
@@ -117,7 +125,11 @@ export function mergeNotes(base: string | null, ours: string | null, theirs: str
       segments.push({
         type: 'conflict',
         index: conflictIndex++,
-        conflict: { base: blocksText(r.base), ours: blocksText(r.ours), theirs: blocksText(r.theirs) },
+        conflict: {
+          base: blocksText(r.base),
+          ours: blocksText(r.ours),
+          theirs: blocksText(r.theirs),
+        },
       });
     }
   }
@@ -146,7 +158,12 @@ function pick(c: BlockConflict, choice: Choice): string {
   if (choice === 'ours') return c.ours;
   if (choice === 'theirs') return c.theirs;
   if (choice === 'both') {
-    return [c.ours, c.theirs].map((s) => s.trimEnd()).filter(Boolean).join('\n\n') + '\n';
+    return (
+      [c.ours, c.theirs]
+        .map((s) => s.trimEnd())
+        .filter(Boolean)
+        .join('\n\n') + '\n'
+    );
   }
   return choice.custom;
 }
@@ -162,7 +179,8 @@ export function renderMerge(result: NoteMergeResult, resolution: Resolution): st
   }
   const parts: Block[] = [];
   for (const s of result.segments) {
-    const text = s.type === 'stable' ? s.text : pick(s.conflict, resolution.blocks?.[s.index] ?? 'ours');
+    const text =
+      s.type === 'stable' ? s.text : pick(s.conflict, resolution.blocks?.[s.index] ?? 'ours');
     if (text.trim() === '') continue;
     parts.push(...splitBlocks(text));
   }
@@ -170,14 +188,17 @@ export function renderMerge(result: NoteMergeResult, resolution: Resolution): st
 }
 
 /** Render with git-style conflict markers (used by the git merge driver). */
-export function renderWithMarkers(result: NoteMergeResult, oursLabel = 'ours', theirsLabel = 'theirs'): string {
+export function renderWithMarkers(
+  result: NoteMergeResult,
+  oursLabel = 'ours',
+  theirsLabel = 'theirs',
+): string {
   const fm: Frontmatter = { ...result.frontmatter };
   let body = '';
   for (const s of result.segments) {
     if (s.type === 'stable') body += ensureBreak(s.text);
     else {
-      body +=
-        `<<<<<<< ${oursLabel}\n${ensureNl(s.conflict.ours)}=======\n${ensureNl(s.conflict.theirs)}>>>>>>> ${theirsLabel}\n\n`;
+      body += `<<<<<<< ${oursLabel}\n${ensureNl(s.conflict.ours)}=======\n${ensureNl(s.conflict.theirs)}>>>>>>> ${theirsLabel}\n\n`;
     }
   }
   let text = serializeNote(fm, body.replace(/\n+$/, '\n'));

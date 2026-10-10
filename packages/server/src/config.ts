@@ -49,10 +49,13 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
   const rpId = env('GMEMO_RP_ID') ?? new URL(origin).hostname;
 
   const localUrl = env('GMEMO_LOCAL_LLM_URL');
-  const externalProvider = env('GMEMO_EXTERNAL_LLM_PROVIDER') as LlmEndpointConfig['provider'] | undefined;
+  const externalProvider = env('GMEMO_EXTERNAL_LLM_PROVIDER') as
+    LlmEndpointConfig['provider'] | undefined;
   const local: LlmEndpointConfig | undefined = localUrl
     ? {
-        provider: (env('GMEMO_LOCAL_LLM_PROVIDER') as LlmEndpointConfig['provider'] | undefined) ?? 'ollama',
+        provider:
+          (env('GMEMO_LOCAL_LLM_PROVIDER') as LlmEndpointConfig['provider'] | undefined) ??
+          'ollama',
         baseUrl: localUrl.replace(/\/+$/, ''),
         model: env('GMEMO_LOCAL_LLM_MODEL') ?? 'qwen2.5:7b',
         ...(env('GMEMO_LOCAL_LLM_API_KEY') ? { apiKey: env('GMEMO_LOCAL_LLM_API_KEY')! } : {}),
@@ -63,10 +66,16 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
         provider: externalProvider,
         baseUrl: (
           env('GMEMO_EXTERNAL_LLM_URL') ??
-          (externalProvider === 'anthropic' ? 'https://api.anthropic.com' : 'https://api.openai.com/v1')
+          (externalProvider === 'anthropic'
+            ? 'https://api.anthropic.com'
+            : 'https://api.openai.com/v1')
         ).replace(/\/+$/, ''),
-        model: env('GMEMO_EXTERNAL_LLM_MODEL') ?? (externalProvider === 'anthropic' ? 'claude-sonnet-5-5' : 'gpt-4.1-mini'),
-        ...(env('GMEMO_EXTERNAL_LLM_API_KEY') ? { apiKey: env('GMEMO_EXTERNAL_LLM_API_KEY')! } : {}),
+        model:
+          env('GMEMO_EXTERNAL_LLM_MODEL') ??
+          (externalProvider === 'anthropic' ? 'claude-sonnet-5-5' : 'gpt-4.1-mini'),
+        ...(env('GMEMO_EXTERNAL_LLM_API_KEY')
+          ? { apiKey: env('GMEMO_EXTERNAL_LLM_API_KEY')! }
+          : {}),
       }
     : undefined;
 
@@ -88,7 +97,9 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     llm: {
       ...(local ? { local } : {}),
       ...(external ? { external } : {}),
-      ...(env('GMEMO_LOCAL_EMBED_MODEL') ? { localEmbedModel: env('GMEMO_LOCAL_EMBED_MODEL')! } : {}),
+      ...(env('GMEMO_LOCAL_EMBED_MODEL')
+        ? { localEmbedModel: env('GMEMO_LOCAL_EMBED_MODEL')! }
+        : {}),
     },
     insecureDev: env('GMEMO_INSECURE_DEV') === '1',
     ...overrides,
@@ -101,7 +112,9 @@ export function configWarnings(cfg: Config): string[] {
   const warnings: string[] = [];
   const url = new URL(cfg.origin);
   if (url.protocol !== 'https:' && url.hostname !== 'localhost' && !cfg.insecureDev) {
-    warnings.push(`GMEMO_ORIGIN (${cfg.origin}) is not HTTPS. Passkeys only work over HTTPS (or on localhost).`);
+    warnings.push(
+      `GMEMO_ORIGIN (${cfg.origin}) is not HTTPS. Passkeys only work over HTTPS (or on localhost).`,
+    );
   }
   if (/^\d+\.\d+\.\d+\.\d+$/.test(url.hostname) || url.hostname.includes(':')) {
     warnings.push('Passkeys cannot be bound to an IP address. Use a domain name for GMEMO_ORIGIN.');

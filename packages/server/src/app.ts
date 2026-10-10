@@ -15,7 +15,12 @@ import { APP_MIGRATIONS, type DB, INDEX_MIGRATIONS, openDatabase } from './db/db
 import { NoteRepo } from './git/repo.js';
 import type { HumanActor } from './notes/actor.js';
 import { NoteService } from './notes/service.js';
-import { type LoadedPlugin, loadPlugins, type PluginApi, type PluginEvent } from './plugins/plugins.js';
+import {
+  type LoadedPlugin,
+  loadPlugins,
+  type PluginApi,
+  type PluginEvent,
+} from './plugins/plugins.js';
 import { type Embedder, HashingEmbedder, LocalModelEmbedder } from './search/embedder.js';
 import { Indexer } from './search/indexer.js';
 
@@ -54,7 +59,10 @@ export function mergeDriverCommand(): string {
   return `${runner} ${JSON.stringify(cli)} merge-driver %O %A %B %P`;
 }
 
-export async function createApp(cfg: Config, opts: { embedder?: Embedder; loadPlugins?: boolean } = {}): Promise<AppContext> {
+export async function createApp(
+  cfg: Config,
+  opts: { embedder?: Embedder; loadPlugins?: boolean } = {},
+): Promise<AppContext> {
   await mkdir(cfg.dataDir, { recursive: true });
   const appDb = openDatabase(cfg.appDbFile, APP_MIGRATIONS);
   const indexDb = openDatabase(cfg.indexDbFile, INDEX_MIGRATIONS);
@@ -64,7 +72,10 @@ export async function createApp(cfg: Config, opts: { embedder?: Embedder; loadPl
   const auth = new AuthService(appDb, cfg);
   const human = (): HumanActor => ({ kind: 'human', name: auth.user()?.username ?? 'me' });
   const embedder =
-    opts.embedder ?? (cfg.llm.local && cfg.llm.localEmbedModel ? new LocalModelEmbedder(cfg.llm.local, cfg.llm.localEmbedModel) : new HashingEmbedder());
+    opts.embedder ??
+    (cfg.llm.local && cfg.llm.localEmbedModel
+      ? new LocalModelEmbedder(cfg.llm.local, cfg.llm.localEmbedModel)
+      : new HashingEmbedder());
 
   // Assigned right below; the indexer only reads the policy lazily.
   // eslint-disable-next-line prefer-const
@@ -105,17 +116,26 @@ export async function createApp(cfg: Config, opts: { embedder?: Embedder; loadPl
   ai.setExtraRules(ctx.extraRules);
 
   if (opts.loadPlugins !== false) {
-    ctx.plugins = await loadPlugins(cfg.pluginsDir, { makeApi: (name, sink) => pluginApi(ctx, name, sink) });
+    ctx.plugins = await loadPlugins(cfg.pluginsDir, {
+      makeApi: (name, sink) => pluginApi(ctx, name, sink),
+    });
   }
   return ctx;
 }
 
 function pluginAgent(ctx: AppContext, name: string): Agent {
   const agentName = `plugin:${name}`;
-  return ctx.agents.getByName(agentName) ?? ctx.agents.create({ name: agentName, description: `Plugin ${name}`, writeMode: 'propose' });
+  return (
+    ctx.agents.getByName(agentName) ??
+    ctx.agents.create({ name: agentName, description: `Plugin ${name}`, writeMode: 'propose' })
+  );
 }
 
-function pluginApi(ctx: AppContext, name: string, sink: Pick<LoadedPlugin, 'routes' | 'tools'>): PluginApi {
+function pluginApi(
+  ctx: AppContext,
+  name: string,
+  sink: Pick<LoadedPlugin, 'routes' | 'tools'>,
+): PluginApi {
   return {
     name,
     z,
@@ -128,9 +148,20 @@ function pluginApi(ctx: AppContext, name: string, sink: Pick<LoadedPlugin, 'rout
           return null;
         }
       },
-      list: (folder) => ctx.indexer.listNotes(folder).map((n) => ({ path: n.path, title: n.title, tags: n.tags })),
-      search: async (q) => (await ctx.indexer.search(q)).map((h) => ({ path: h.path, title: h.title, snippet: h.snippet })),
-      propose: (changes, title, description) => ctx.notes.writeAsAgent(pluginAgent(ctx, name), changes, { title, ...(description ? { description } : {}), mode: 'propose' }),
+      list: (folder) =>
+        ctx.indexer.listNotes(folder).map((n) => ({ path: n.path, title: n.title, tags: n.tags })),
+      search: async (q) =>
+        (await ctx.indexer.search(q)).map((h) => ({
+          path: h.path,
+          title: h.title,
+          snippet: h.snippet,
+        })),
+      propose: (changes, title, description) =>
+        ctx.notes.writeAsAgent(pluginAgent(ctx, name), changes, {
+          title,
+          ...(description ? { description } : {}),
+          mode: 'propose',
+        }),
     },
     on(event: PluginEvent, handler) {
       ctx.notes.events.on(event, (p: unknown) => {

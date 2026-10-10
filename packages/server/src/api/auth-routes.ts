@@ -7,8 +7,18 @@ export function authRoutes(ctx: AppContext) {
   const app = new Hono<Env>();
   const secure = ctx.cfg.origin.startsWith('https://');
 
-  const setSession = (c: Parameters<typeof setCookie>[0], token: string, days = ctx.cfg.sessionDays) =>
-    setCookie(c, SESSION_COOKIE, token, { httpOnly: true, secure, sameSite: 'Lax', path: '/', maxAge: days * 86400 });
+  const setSession = (
+    c: Parameters<typeof setCookie>[0],
+    token: string,
+    days = ctx.cfg.sessionDays,
+  ) =>
+    setCookie(c, SESSION_COOKIE, token, {
+      httpOnly: true,
+      secure,
+      sameSite: 'Lax',
+      path: '/',
+      maxAge: days * 86400,
+    });
 
   app.get('/state', (c) => {
     const s = c.get('session');
@@ -35,7 +45,12 @@ export function authRoutes(ctx: AppContext) {
   });
 
   app.post('/register/verify', async (c) => {
-    const b = await jsonBody<{ challengeId: string; response: never; name?: string; setupToken?: string }>(c);
+    const b = await jsonBody<{
+      challengeId: string;
+      response: never;
+      name?: string;
+      setupToken?: string;
+    }>(c);
     const res = await ctx.auth.verifyRegistration({
       session: c.get('session'),
       challengeId: str(b.challengeId, 'challengeId'),
@@ -51,7 +66,10 @@ export function authRoutes(ctx: AppContext) {
 
   app.post('/login/verify', async (c) => {
     const b = await jsonBody<{ challengeId: string; response: never }>(c);
-    const token = await ctx.auth.verifyAuthentication(str(b.challengeId, 'challengeId'), b.response);
+    const token = await ctx.auth.verifyAuthentication(
+      str(b.challengeId, 'challengeId'),
+      b.response,
+    );
     setSession(c, token);
     return c.json({ ok: true });
   });

@@ -12,9 +12,7 @@ const TAG_RE = /(?:^|[\s(])#([\p{L}\p{N}_/-]*[\p{L}_/-][\p{L}\p{N}_/-]*)/gu;
 
 /** Remove fenced code blocks and inline code so links inside code are ignored. */
 export function stripCode(body: string): string {
-  return body
-    .replace(/^(```|~~~)[^\n]*\n[\s\S]*?^\1[ \t]*$/gm, '')
-    .replace(/`[^`\n]*`/g, '');
+  return body.replace(/^(```|~~~)[^\n]*\n[\s\S]*?^\1[ \t]*$/gm, '').replace(/`[^`\n]*`/g, '');
 }
 
 export function extractLinks(body: string): WikiLink[] {
@@ -49,12 +47,7 @@ export function extractTags(body: string, frontmatterTags?: unknown): string[] {
 
 /** Normalize a link target / note path to a comparable key (Obsidian-style, case-insensitive). */
 export function linkKey(target: string): string {
-  return target
-    .replace(/\\/g, '/')
-    .replace(/^\/+/, '')
-    .replace(/\.md$/i, '')
-    .trim()
-    .toLowerCase();
+  return target.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\.md$/i, '').trim().toLowerCase();
 }
 
 /**
@@ -78,12 +71,15 @@ export function renameLinks(body: string, oldPath: string, newPath: string): str
   const oldBase = oldKey.split('/').pop() ?? oldKey;
   const newName = newPath.replace(/\.md$/i, '');
   const newBase = newName.split('/').pop() ?? newName;
-  return body.replace(WIKILINK_RE, (whole, bang: string, target: string, heading?: string, alias?: string) => {
-    const k = linkKey(target);
-    let replacement: string | undefined;
-    if (k === oldKey) replacement = target.includes('/') ? newName : newBase;
-    else if (k === oldBase && !target.includes('/')) replacement = newBase;
-    if (replacement === undefined) return whole;
-    return `${bang}[[${replacement}${heading !== undefined ? '#' + heading : ''}${alias !== undefined ? '|' + alias : ''}]]`;
-  });
+  return body.replace(
+    WIKILINK_RE,
+    (whole, bang: string, target: string, heading?: string, alias?: string) => {
+      const k = linkKey(target);
+      let replacement: string | undefined;
+      if (k === oldKey) replacement = target.includes('/') ? newName : newBase;
+      else if (k === oldBase && !target.includes('/')) replacement = newBase;
+      if (replacement === undefined) return whole;
+      return `${bang}[[${replacement}${heading !== undefined ? '#' + heading : ''}${alias !== undefined ? '|' + alias : ''}]]`;
+    },
+  );
 }

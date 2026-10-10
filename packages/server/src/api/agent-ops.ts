@@ -21,7 +21,12 @@ export class AgentOps {
   }
 
   canSeeSync(agent: Agent, path: string, policy: WorkspacePolicy): boolean {
-    return this.lens.canSee(agent, path, this.ctx.indexer.getMeta(path)?.frontmatter ?? null, policy);
+    return this.lens.canSee(
+      agent,
+      path,
+      this.ctx.indexer.getMeta(path)?.frontmatter ?? null,
+      policy,
+    );
   }
 
   async filter<T>(agent: Agent, items: T[], pathOf: (t: T) => string): Promise<T[]> {
@@ -44,14 +49,24 @@ export class AgentOps {
     }
     const out = this.lens.outgoing(agent, doc.content, policy);
     if (out.blocked) {
-      throw new ForbiddenError(`${path} contains sensitive information (${publicFindingLabel(out.findings)}); blocked by policy`);
+      throw new ForbiddenError(
+        `${path} contains sensitive information (${publicFindingLabel(out.findings)}); blocked by policy`,
+      );
     }
-    return { path, content: out.text, sha: doc.sha, commit: doc.commit, maskedFindings: out.findings.length };
+    return {
+      path,
+      content: out.text,
+      sha: doc.sha,
+      commit: doc.commit,
+      maskedFindings: out.findings.length,
+    };
   }
 
   async search(agent: Agent, query: string, limit = 20) {
     const policy = await this.policy();
-    const hits = (await this.ctx.indexer.search(query, limit * 2)).filter((h) => this.canSeeSync(agent, h.path, policy)).slice(0, limit);
+    const hits = (await this.ctx.indexer.search(query, limit * 2))
+      .filter((h) => this.canSeeSync(agent, h.path, policy))
+      .slice(0, limit);
     return hits.map((h) => ({ ...h, snippet: this.lens.outgoing(agent, h.snippet, policy).text }));
   }
 
@@ -66,7 +81,13 @@ export class AgentOps {
   async write(
     principal: Principal,
     changes: { path: string; content: string | null }[],
-    opts: { title: string; description?: string; baseShas?: Record<string, string | null>; baseCommit?: string; mode?: 'direct' | 'propose' },
+    opts: {
+      title: string;
+      description?: string;
+      baseShas?: Record<string, string | null>;
+      baseCommit?: string;
+      mode?: 'direct' | 'propose';
+    },
   ): Promise<SaveResult> {
     const caps = capabilities(principal);
     if (!caps.canPropose) throw new ForbiddenError('this token cannot write');
@@ -74,9 +95,13 @@ export class AgentOps {
     for (const c of changes) {
       const path = normalizeNotePath(c.path, { requireMarkdown: false });
       const exists = this.ctx.indexer.getMeta(path) !== null;
-      if (exists && !this.canSeeSync(principal.agent, path, policy)) throw new ForbiddenError(`${path} is not available to this agent`);
+      if (exists && !this.canSeeSync(principal.agent, path, policy))
+        throw new ForbiddenError(`${path} is not available to this agent`);
     }
-    const restored = changes.map((c) => ({ path: c.path, content: c.content === null ? null : this.lens.incoming(c.content) }));
+    const restored = changes.map((c) => ({
+      path: c.path,
+      content: c.content === null ? null : this.lens.incoming(c.content),
+    }));
     return this.ctx.notes.writeAsAgent(principal.agent, restored, {
       ...opts,
       mode: caps.canWriteDirect && opts.mode !== 'propose' ? 'direct' : 'propose',
@@ -93,7 +118,12 @@ export class AgentOps {
     const files = await this.ctx.notes.proposalFiles(id);
     return {
       proposal: p,
-      files: files.map((f) => ({ path: f.path, status: f.status, mainChanged: f.mainChanged, clean: f.merge?.clean ?? !f.deleteConflict })),
+      files: files.map((f) => ({
+        path: f.path,
+        status: f.status,
+        mainChanged: f.mainChanged,
+        clean: f.merge?.clean ?? !f.deleteConflict,
+      })),
     };
   }
 }

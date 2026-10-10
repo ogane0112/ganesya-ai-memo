@@ -57,7 +57,9 @@ export class AgentStore {
   constructor(private readonly db: DB) {}
 
   list(): Agent[] {
-    return (this.db.prepare('SELECT * FROM agents ORDER BY created_at').all() as AgentRow[]).map(fromRow);
+    return (this.db.prepare('SELECT * FROM agents ORDER BY created_at').all() as AgentRow[]).map(
+      fromRow,
+    );
   }
 
   get(id: string): Agent | null {
@@ -66,7 +68,8 @@ export class AgentStore {
   }
 
   getByName(name: string): Agent | null {
-    const r = this.db.prepare('SELECT * FROM agents WHERE name = ?').get(name) as AgentRow | undefined;
+    const r = this.db.prepare('SELECT * FROM agents WHERE name = ?').get(name) as
+      AgentRow | undefined;
     return r ? fromRow(r) : null;
   }
 
@@ -120,13 +123,21 @@ export class AgentStore {
   /** Revoke an agent: all its tokens stop working immediately. */
   revoke(id: string): void {
     this.db.transaction(() => {
-      this.db.prepare('UPDATE agents SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL').run(nowIso(), id);
-      this.db.prepare('UPDATE tokens SET revoked_at = ? WHERE agent_id = ? AND revoked_at IS NULL').run(nowIso(), id);
+      this.db
+        .prepare('UPDATE agents SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL')
+        .run(nowIso(), id);
+      this.db
+        .prepare('UPDATE tokens SET revoked_at = ? WHERE agent_id = ? AND revoked_at IS NULL')
+        .run(nowIso(), id);
     })();
   }
 }
 
 export function sanitizeAgentName(name: string): string {
-  const s = name.replace(/[<>\n\r\t@]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
+  const s = name
+    .replace(/[<>\n\r\t@]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 60);
   return s || 'agent';
 }

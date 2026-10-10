@@ -60,7 +60,11 @@ export function splitBlocks(body: string): Block[] {
         const l = lines[i] ?? '';
         raw += l;
         i++;
-        if (l.trimStart().startsWith(marker[0]!.repeat(marker.length)) && l.trim().replace(/[`~]/g, '') === '') break;
+        if (
+          l.trimStart().startsWith(marker[0]!.repeat(marker.length)) &&
+          l.trim().replace(/[`~]/g, '') === ''
+        )
+          break;
       }
       push(raw, 'code');
       continue;
@@ -87,7 +91,11 @@ export function splitBlocks(body: string): Block[] {
       continue;
     }
 
-    const kind: BlockKind = QUOTE_RE.test(text) ? 'quote' : TABLE_RE.test(text) ? 'table' : 'paragraph';
+    const kind: BlockKind = QUOTE_RE.test(text)
+      ? 'quote'
+      : TABLE_RE.test(text)
+        ? 'table'
+        : 'paragraph';
     let raw = line;
     i++;
     while (i < lines.length) {

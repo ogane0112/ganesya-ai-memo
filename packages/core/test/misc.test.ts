@@ -25,7 +25,9 @@ describe('frontmatter', () => {
     const p = parseNote('---\ntitle: Hello\ncreated_by: ai\n---\nbody\n');
     expect(p.frontmatter).toEqual({ title: 'Hello', created_by: 'ai' });
     expect(p.body).toBe('body\n');
-    expect(serializeNote(p.frontmatter, p.body)).toBe('---\ntitle: Hello\ncreated_by: ai\n---\nbody\n');
+    expect(serializeNote(p.frontmatter, p.body)).toBe(
+      '---\ntitle: Hello\ncreated_by: ai\n---\nbody\n',
+    );
   });
   it('handles notes without frontmatter', () => {
     expect(parseNote('# hi').hasFrontmatter).toBe(false);
@@ -38,7 +40,9 @@ describe('frontmatter', () => {
 
 describe('links', () => {
   it('extracts wiki links but not inside code', () => {
-    const links = extractLinks('See [[Note A]] and [[dir/B#Head|alias]] ![[img.png]]\n\n```\n[[not]]\n```\n`[[no]]`');
+    const links = extractLinks(
+      'See [[Note A]] and [[dir/B#Head|alias]] ![[img.png]]\n\n```\n[[not]]\n```\n`[[no]]`',
+    );
     expect(links.map((l) => l.target)).toEqual(['Note A', 'dir/B', 'img.png']);
     expect(links[1]).toMatchObject({ heading: 'Head', alias: 'alias' });
     expect(links[2]?.embed).toBe(true);
@@ -51,10 +55,16 @@ describe('links', () => {
     expect(resolveLink('missing', paths)).toBeUndefined();
   });
   it('renames links', () => {
-    expect(renameLinks('x [[Old]] [[Old#h|a]] [[Other]]', 'Old.md', 'dir/New.md')).toBe('x [[New]] [[New#h|a]] [[Other]]');
+    expect(renameLinks('x [[Old]] [[Old#h|a]] [[Other]]', 'Old.md', 'dir/New.md')).toBe(
+      'x [[New]] [[New#h|a]] [[Other]]',
+    );
   });
   it('extracts tags', () => {
-    expect(extractTags('hello #todo and #日本語 #123 `#code`', ['Work'])).toEqual(['todo', '日本語', 'work']);
+    expect(extractTags('hello #todo and #日本語 #123 `#code`', ['Work'])).toEqual([
+      'todo',
+      '日本語',
+      'work',
+    ]);
   });
 });
 
@@ -70,7 +80,15 @@ describe('sensitive', () => {
       'anthropic sk-ant-' + 'b'.repeat(30),
     ].join('\n');
     const rules = scanText(text).map((f) => f.rule);
-    expect(rules).toEqual(['aws-access-key', 'github-token', 'password-assignment', 'credit-card', 'phone-jp', 'email', 'anthropic-key']);
+    expect(rules).toEqual([
+      'aws-access-key',
+      'github-token',
+      'password-assignment',
+      'credit-card',
+      'phone-jp',
+      'email',
+      'anthropic-key',
+    ]);
   });
   it('validates my number check digit', () => {
     expect(isMyNumber('123456789018')).toBe(true);
@@ -92,7 +110,9 @@ describe('sensitive', () => {
 });
 
 describe('policy', () => {
-  const policy = normalizePolicy({ ai: { default: 'external', folders: { 'private/': 'none', work: 'local' } } });
+  const policy = normalizePolicy({
+    ai: { default: 'external', folders: { 'private/': 'none', work: 'local' } },
+  });
   it('resolves by longest folder prefix and frontmatter', () => {
     expect(effectiveAccess(policy, 'a.md')).toBe('external');
     expect(effectiveAccess(policy, 'private/x.md')).toBe('none');
@@ -105,15 +125,32 @@ describe('policy', () => {
 
 describe('views', () => {
   const notes = [
-    { path: 'p/a.md', title: 'A', tags: ['task'], properties: { status: 'todo', due: '2026-10-12', prio: 2 } },
-    { path: 'p/b.md', title: 'B', tags: ['task'], properties: { status: 'done', due: '2026-10-11', prio: 1 } },
+    {
+      path: 'p/a.md',
+      title: 'A',
+      tags: ['task'],
+      properties: { status: 'todo', due: '2026-10-12', prio: 2 },
+    },
+    {
+      path: 'p/b.md',
+      title: 'B',
+      tags: ['task'],
+      properties: { status: 'done', due: '2026-10-11', prio: 1 },
+    },
     { path: 'q/c.md', title: 'C', tags: [], properties: { status: 'todo' } },
   ];
   it('filters, sorts and groups', () => {
-    const v = parseView('tasks', 'name: Tasks\ntype: kanban\nfolder: p\nsort: [{property: prio, direction: desc}]\ngroups: [todo, doing, done]');
+    const v = parseView(
+      'tasks',
+      'name: Tasks\ntype: kanban\nfolder: p\nsort: [{property: prio, direction: desc}]\ngroups: [todo, doing, done]',
+    );
     const rows = applyView(v, notes);
     expect(rows.map((r) => r.title)).toEqual(['A', 'B']);
-    expect(groupRows(v, rows).map((g) => [g.key, g.rows.length])).toEqual([['todo', 1], ['doing', 0], ['done', 1]]);
+    expect(groupRows(v, rows).map((g) => [g.key, g.rows.length])).toEqual([
+      ['todo', 1],
+      ['doing', 0],
+      ['done', 1],
+    ]);
     const v2 = parseView('x', 'filters: [{property: due, op: lt, value: "2026-10-12"}]');
     expect(applyView(v2, notes).map((r) => r.title)).toEqual(['B']);
   });
@@ -127,7 +164,11 @@ describe('blame', () => {
       { text: 'p1\n\np2\n', author: human, commit: 'c1', date: 'd1' },
       { text: 'p1\n\np2 edited\n\np3\n', author: ai, commit: 'c2', date: 'd2' },
     ]);
-    expect(res.map((r) => [r.author.name, r.commit])).toEqual([['me', 'c1'], ['claude', 'c2'], ['claude', 'c2']]);
+    expect(res.map((r) => [r.author.name, r.commit])).toEqual([
+      ['me', 'c1'],
+      ['claude', 'c2'],
+      ['claude', 'c2'],
+    ]);
   });
 });
 

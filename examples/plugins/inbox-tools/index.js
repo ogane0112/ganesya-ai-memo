@@ -22,7 +22,11 @@ export default {
       inputSchema: { limit: z.number().int().min(1).max(100).optional() },
       handler: ({ limit }) => {
         const notes = api.notes.list('Inbox').slice(-(limit ?? 20));
-        return JSON.stringify(notes.map((n) => ({ path: n.path, title: n.title })), null, 2);
+        return JSON.stringify(
+          notes.map((n) => ({ path: n.path, title: n.title })),
+          null,
+          2,
+        );
       },
     });
 

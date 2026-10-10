@@ -30,5 +30,7 @@ export function authorKindFromEmail(email: string): 'human' | 'ai' | 'system' {
 }
 
 export function agentIdFromEmail(email: string): string | null {
-  return email.endsWith('@' + AGENT_EMAIL_DOMAIN) ? email.slice(0, -(AGENT_EMAIL_DOMAIN.length + 1)) : null;
+  return email.endsWith('@' + AGENT_EMAIL_DOMAIN)
+    ? email.slice(0, -(AGENT_EMAIL_DOMAIN.length + 1))
+    : null;
 }

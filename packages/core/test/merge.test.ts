@@ -1,12 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import { diff3, diffHunks, joinBlocks, mergeNotes, renderMerge, renderWithMarkers, splitBlocks } from '../src/index.js';
+import {
+  diff3,
+  diffHunks,
+  joinBlocks,
+  mergeNotes,
+  renderMerge,
+  renderWithMarkers,
+  splitBlocks,
+} from '../src/index.js';
 
 describe('splitBlocks', () => {
   it('round-trips raw text', () => {
-    const body = '# Title\n\npara one\nline two\n\n- a\n- b\n  cont\n\n```js\nx\n\ny\n```\n\n> quote\n\n| a | b |\n|---|---|\n';
+    const body =
+      '# Title\n\npara one\nline two\n\n- a\n- b\n  cont\n\n```js\nx\n\ny\n```\n\n> quote\n\n| a | b |\n|---|---|\n';
     const blocks = splitBlocks(body);
     expect(blocks.map((b) => b.raw).join('')).toBe(body);
-    expect(blocks.map((b) => b.kind)).toEqual(['heading', 'paragraph', 'list', 'list', 'code', 'quote', 'table']);
+    expect(blocks.map((b) => b.kind)).toEqual([
+      'heading',
+      'paragraph',
+      'list',
+      'list',
+      'code',
+      'quote',
+      'table',
+    ]);
   });
   it('keeps leading blank lines', () => {
     const blocks = splitBlocks('\n\nhello\n');
@@ -21,7 +38,9 @@ describe('splitBlocks', () => {
 
 describe('diff', () => {
   it('finds hunks', () => {
-    expect(diffHunks(['a', 'b', 'c'], ['a', 'x', 'c'])).toEqual([{ oStart: 1, oLen: 1, nStart: 1, nLen: 1 }]);
+    expect(diffHunks(['a', 'b', 'c'], ['a', 'x', 'c'])).toEqual([
+      { oStart: 1, oLen: 1, nStart: 1, nLen: 1 },
+    ]);
     expect(diffHunks([], ['a'])).toEqual([{ oStart: 0, oLen: 0, nStart: 0, nLen: 1 }]);
   });
   it('diff3 merges adjacent edits without conflict', () => {
@@ -49,7 +68,10 @@ describe('mergeNotes', () => {
   const base = '---\ntitle: T\nstatus: todo\ntags: [a]\n---\n# T\n\nPara 1\n\nPara 2\n\nPara 3\n';
   it('merges frontmatter by key and body by paragraph', () => {
     const ours = base.replace('status: todo', 'status: doing').replace('Para 1', 'Para 1 (human)');
-    const theirs = base.replace('title: T', 'title: T2').replace('Para 3', 'Para 3 (ai)').replace('tags: [a]', 'tags: [a, b]');
+    const theirs = base
+      .replace('title: T', 'title: T2')
+      .replace('Para 3', 'Para 3 (ai)')
+      .replace('tags: [a]', 'tags: [a, b]');
     const r = mergeNotes(base, ours, theirs);
     expect(r.clean).toBe(true);
     expect(r.frontmatter).toEqual({ title: 'T2', status: 'doing', tags: ['a', 'b'] });
@@ -75,7 +97,11 @@ describe('mergeNotes', () => {
     expect(renderWithMarkers(r)).toContain('<<<<<<< ours');
   });
   it('merges tag arrays as sets', () => {
-    const r = mergeNotes('---\ntags: [a, b]\n---\n', '---\ntags: [a, b, c]\n---\n', '---\ntags: [b, d]\n---\n');
+    const r = mergeNotes(
+      '---\ntags: [a, b]\n---\n',
+      '---\ntags: [a, b, c]\n---\n',
+      '---\ntags: [b, d]\n---\n',
+    );
     expect(r.frontmatter['tags']).toEqual(['b', 'c', 'd']);
   });
   it('handles a missing base (both created)', () => {

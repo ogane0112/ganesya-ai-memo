@@ -4,16 +4,16 @@
 
 ## 技術スタック
 
-| 領域 | 採用 | 理由 |
-| --- | --- | --- |
-| 言語 | TypeScript(全体) | フロントとサーバーでマージ・機密検出・ビューのロジックを共有できる(`packages/core`) |
-| バックエンド | Node.js 22 + Hono | 軽量、Web標準のRequest/Responseで書けてMCP SDKのWeb標準トランスポートと相性がよい |
-| DB | SQLite(better-sqlite3) | セルフホストで運用が楽。FTS5のtrigramで日本語全文検索ができる |
-| Git操作 | git CLI(plumbing) | 本物のgitと完全互換。一時インデックスと `commit-tree` で作業ツリーに触れずに任意ブランチへコミットできる。マージドライバーもそのまま使える |
-| 認証 | @simplewebauthn/server | パスキーの定番実装 |
-| MCP | 公式 TypeScript SDK(Streamable HTTP、ステートレス) | OAuthの保護リソースとして動かしやすい |
-| フロントエンド | React + Vite + vite-plugin-pwa | PWA(オフライン、共有ターゲット)を素直に作れる |
-| エディタ | CodeMirror 6 | Markdownがそのまま正のデータなので、WYSIWYGではなくプレーンテキストエディタ。スマホでも軽い |
+| 領域           | 採用                                               | 理由                                                                                                                                       |
+| -------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| 言語           | TypeScript(全体)                                   | フロントとサーバーでマージ・機密検出・ビューのロジックを共有できる(`packages/core`)                                                        |
+| バックエンド   | Node.js 22 + Hono                                  | 軽量、Web標準のRequest/Responseで書けてMCP SDKのWeb標準トランスポートと相性がよい                                                          |
+| DB             | SQLite(better-sqlite3)                             | セルフホストで運用が楽。FTS5のtrigramで日本語全文検索ができる                                                                              |
+| Git操作        | git CLI(plumbing)                                  | 本物のgitと完全互換。一時インデックスと `commit-tree` で作業ツリーに触れずに任意ブランチへコミットできる。マージドライバーもそのまま使える |
+| 認証           | @simplewebauthn/server                             | パスキーの定番実装                                                                                                                         |
+| MCP            | 公式 TypeScript SDK(Streamable HTTP、ステートレス) | OAuthの保護リソースとして動かしやすい                                                                                                      |
+| フロントエンド | React + Vite + vite-plugin-pwa                     | PWA(オフライン、共有ターゲット)を素直に作れる                                                                                              |
+| エディタ       | CodeMirror 6                                       | Markdownがそのまま正のデータなので、WYSIWYGではなくプレーンテキストエディタ。スマホでも軽い                                                |
 
 ## 段落(ブロック)単位の差分・マージ
 

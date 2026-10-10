@@ -80,12 +80,17 @@ export class Indexer {
   ) {}
 
   indexedCommit(): string | null {
-    const row = this.db.prepare(`SELECT value FROM meta WHERE key = 'commit'`).get() as { value: string } | undefined;
+    const row = this.db.prepare(`SELECT value FROM meta WHERE key = 'commit'`).get() as
+      { value: string } | undefined;
     return row?.value ?? null;
   }
 
   private setIndexedCommit(sha: string) {
-    this.db.prepare(`INSERT INTO meta(key, value) VALUES ('commit', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(sha);
+    this.db
+      .prepare(
+        `INSERT INTO meta(key, value) VALUES ('commit', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      )
+      .run(sha);
   }
 
   /** Bring the index up to date with main (incrementally when possible). */
@@ -110,10 +115,17 @@ export class Indexer {
     const files = head ? await this.repo.listFiles(head) : [];
     const keepVectors = this.embedder.id;
     this.db.transaction(() => {
-      this.db.exec('DELETE FROM notes; DELETE FROM notes_fts; DELETE FROM links; DELETE FROM tags;');
+      this.db.exec(
+        'DELETE FROM notes; DELETE FROM notes_fts; DELETE FROM links; DELETE FROM tags;',
+      );
       this.db.prepare('DELETE FROM chunks WHERE model != ?').run(keepVectors);
     })();
-    if (head) await this.updatePaths(files.map((f) => f.path), head, true);
+    if (head)
+      await this.updatePaths(
+        files.map((f) => f.path),
+        head,
+        true,
+      );
   }
 
   async updatePaths(paths: string[], head: string, full = false): Promise<void> {
@@ -135,13 +147,26 @@ export class Indexer {
           .prepare(
             `INSERT INTO notes(path, title, frontmatter, body, sha, created_by, ai_agent, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           )
-          .run(path, title, JSON.stringify(fm), parsed.body, '', createdBy, aiAgent, log.get(path) ?? null);
-        this.db.prepare(`INSERT INTO notes_fts(path, title, body) VALUES (?, ?, ?)`).run(path, title, parsed.body);
+          .run(
+            path,
+            title,
+            JSON.stringify(fm),
+            parsed.body,
+            '',
+            createdBy,
+            aiAgent,
+            log.get(path) ?? null,
+          );
+        this.db
+          .prepare(`INSERT INTO notes_fts(path, title, body) VALUES (?, ?, ?)`)
+          .run(path, title, parsed.body);
         for (const tag of extractTags(parsed.body, fm['tags'])) {
           this.db.prepare(`INSERT INTO tags(path, tag) VALUES (?, ?)`).run(path, tag);
         }
         for (const l of extractLinks(parsed.body)) {
-          this.db.prepare(`INSERT INTO links(src, target, target_path) VALUES (?, ?, NULL)`).run(path, l.target);
+          this.db
+            .prepare(`INSERT INTO links(src, target, target_path) VALUES (?, ?, NULL)`)
+            .run(path, l.target);
         }
         this.embedQueue.add(path);
       }
@@ -161,8 +186,13 @@ export class Indexer {
   }
 
   private resolveAllLinks() {
-    const paths = (this.db.prepare('SELECT path FROM notes').all() as { path: string }[]).map((r) => r.path);
-    const rows = this.db.prepare('SELECT rowid, target FROM links').all() as { rowid: number; target: string }[];
+    const paths = (this.db.prepare('SELECT path FROM notes').all() as { path: string }[]).map(
+      (r) => r.path,
+    );
+    const rows = this.db.prepare('SELECT rowid, target FROM links').all() as {
+      rowid: number;
+      target: string;
+    }[];
     const cache = new Map<string, string | null>();
     const upd = this.db.prepare('UPDATE links SET target_path = ? WHERE rowid = ?');
     for (const r of rows) {
@@ -184,7 +214,11 @@ export class Indexer {
     // One pass over history instead of one `git log` per file.
     const commits = await this.repo.log(head, { limit: 2000, firstParent: true });
     const missing = new Set(
-      (this.db.prepare('SELECT path FROM notes WHERE updated_at IS NULL').all() as { path: string }[]).map((r) => r.path),
+      (
+        this.db.prepare('SELECT path FROM notes WHERE updated_at IS NULL').all() as {
+          path: string;
+        }[]
+      ).map((r) => r.path),
     );
     const upd = this.db.prepare('UPDATE notes SET updated_at = ? WHERE path = ?');
     for (const c of commits) {
@@ -204,9 +238,14 @@ export class Indexer {
       while (this.embedQueue.size) {
         const path = this.embedQueue.values().next().value as string;
         this.embedQueue.delete(path);
-        const row = this.db.prepare('SELECT * FROM notes WHERE path = ?').get(path) as NoteRow | undefined;
+        const row = this.db.prepare('SELECT * FROM notes WHERE path = ?').get(path) as
+          NoteRow | undefined;
         if (!row) continue;
-        const access = effectiveAccess(this.policy(), path, JSON.parse(row.frontmatter) as Record<string, unknown>);
+        const access = effectiveAccess(
+          this.policy(),
+          path,
+          JSON.parse(row.frontmatter) as Record<string, unknown>,
+        );
         if (access === 'none' && this.embedder.location !== 'builtin') continue;
         const chunks = chunkBody(`${row.title}\n\n${row.body}`);
         let vectors: Float32Array[];
@@ -218,8 +257,12 @@ export class Indexer {
         }
         this.db.transaction(() => {
           this.db.prepare('DELETE FROM chunks WHERE path = ?').run(path);
-          const ins = this.db.prepare('INSERT INTO chunks(path, idx, text, model, vector) VALUES (?, ?, ?, ?, ?)');
-          chunks.forEach((t, i) => ins.run(path, i, t, this.embedder.id, Buffer.from(vectors[i]!.buffer)));
+          const ins = this.db.prepare(
+            'INSERT INTO chunks(path, idx, text, model, vector) VALUES (?, ?, ?, ?, ?)',
+          );
+          chunks.forEach((t, i) =>
+            ins.run(path, i, t, this.embedder.id, Buffer.from(vectors[i]!.buffer)),
+          );
         })();
       }
     } finally {
@@ -240,7 +283,9 @@ export class Indexer {
   listNotes(folder?: string): NoteSummary[] {
     const rows = (
       folder
-        ? this.db.prepare(`SELECT * FROM notes WHERE path LIKE ? ESCAPE '\\' ORDER BY updated_at DESC`).all(likePrefix(folder))
+        ? this.db
+            .prepare(`SELECT * FROM notes WHERE path LIKE ? ESCAPE '\\' ORDER BY updated_at DESC`)
+            .all(likePrefix(folder))
         : this.db.prepare('SELECT * FROM notes ORDER BY updated_at DESC').all()
     ) as NoteRow[];
     const tags = this.tagsByPath();
@@ -256,7 +301,10 @@ export class Indexer {
 
   private tagsByPath(): Map<string, string[]> {
     const out = new Map<string, string[]>();
-    for (const r of this.db.prepare('SELECT path, tag FROM tags').all() as { path: string; tag: string }[]) {
+    for (const r of this.db.prepare('SELECT path, tag FROM tags').all() as {
+      path: string;
+      tag: string;
+    }[]) {
       const list = out.get(r.path) ?? [];
       list.push(r.tag);
       out.set(r.path, list);
@@ -266,21 +314,28 @@ export class Indexer {
 
   viewNotes(): ViewNote[] {
     const tags = this.tagsByPath();
-    return (this.db.prepare('SELECT path, title, frontmatter FROM notes').all() as NoteRow[]).map((r) => ({
-      path: r.path,
-      title: r.title,
-      tags: tags.get(r.path) ?? [],
-      properties: JSON.parse(r.frontmatter) as Record<string, unknown>,
-    }));
+    return (this.db.prepare('SELECT path, title, frontmatter FROM notes').all() as NoteRow[]).map(
+      (r) => ({
+        path: r.path,
+        title: r.title,
+        tags: tags.get(r.path) ?? [],
+        properties: JSON.parse(r.frontmatter) as Record<string, unknown>,
+      }),
+    );
   }
 
   getMeta(path: string): { title: string; frontmatter: Record<string, unknown> } | null {
-    const r = this.db.prepare('SELECT title, frontmatter FROM notes WHERE path = ?').get(path) as NoteRow | undefined;
-    return r ? { title: r.title, frontmatter: JSON.parse(r.frontmatter) as Record<string, unknown> } : null;
+    const r = this.db.prepare('SELECT title, frontmatter FROM notes WHERE path = ?').get(path) as
+      NoteRow | undefined;
+    return r
+      ? { title: r.title, frontmatter: JSON.parse(r.frontmatter) as Record<string, unknown> }
+      : null;
   }
 
   allPaths(): string[] {
-    return (this.db.prepare('SELECT path FROM notes').all() as { path: string }[]).map((r) => r.path);
+    return (this.db.prepare('SELECT path FROM notes').all() as { path: string }[]).map(
+      (r) => r.path,
+    );
   }
 
   backlinks(path: string): { path: string; title: string; context: string }[] {
@@ -292,27 +347,42 @@ export class Indexer {
       .all(path, path) as { path: string; title: string; body: string; target: string }[];
     return rows.map((r) => {
       const i = r.body.indexOf(`[[${r.target}`);
-      const context = i >= 0 ? r.body.slice(Math.max(0, i - 60), i + r.target.length + 80).replace(/\s+/g, ' ') : '';
+      const context =
+        i >= 0
+          ? r.body.slice(Math.max(0, i - 60), i + r.target.length + 80).replace(/\s+/g, ' ')
+          : '';
       return { path: r.path, title: r.title, context };
     });
   }
 
   outgoingLinks(path: string): { target: string; path: string | null }[] {
-    return (this.db.prepare('SELECT target, target_path FROM links WHERE src = ?').all(path) as { target: string; target_path: string | null }[]).map(
-      (r) => ({ target: r.target, path: r.target_path }),
-    );
+    return (
+      this.db.prepare('SELECT target, target_path FROM links WHERE src = ?').all(path) as {
+        target: string;
+        target_path: string | null;
+      }[]
+    ).map((r) => ({ target: r.target, path: r.target_path }));
   }
 
-  graph(): { nodes: { id: string; title: string; createdBy: string | null; tags: string[] }[]; edges: { source: string; target: string }[] } {
+  graph(): {
+    nodes: { id: string; title: string; createdBy: string | null; tags: string[] }[];
+    edges: { source: string; target: string }[];
+  } {
     const tags = this.tagsByPath();
-    const nodes = (this.db.prepare('SELECT path, title, created_by FROM notes').all() as NoteRow[]).map((r) => ({
+    const nodes = (
+      this.db.prepare('SELECT path, title, created_by FROM notes').all() as NoteRow[]
+    ).map((r) => ({
       id: r.path,
       title: r.title,
       createdBy: r.created_by,
       tags: tags.get(r.path) ?? [],
     }));
     const edges = (
-      this.db.prepare('SELECT DISTINCT src, target_path FROM links WHERE target_path IS NOT NULL AND src != target_path').all() as {
+      this.db
+        .prepare(
+          'SELECT DISTINCT src, target_path FROM links WHERE target_path IS NOT NULL AND src != target_path',
+        )
+        .all() as {
         src: string;
         target_path: string;
       }[]
@@ -321,7 +391,9 @@ export class Indexer {
   }
 
   tags(): { tag: string; count: number }[] {
-    return this.db.prepare('SELECT tag, COUNT(*) AS count FROM tags GROUP BY tag ORDER BY count DESC').all() as { tag: string; count: number }[];
+    return this.db
+      .prepare('SELECT tag, COUNT(*) AS count FROM tags GROUP BY tag ORDER BY count DESC')
+      .all() as { tag: string; count: number }[];
   }
 
   textSearch(query: string, limit = 20): SearchHit[] {
@@ -344,28 +416,55 @@ export class Indexer {
       // Trigram FTS needs ≥3 characters; fall back to LIKE for short queries (common in Japanese).
       rows = (
         this.db
-          .prepare(`SELECT path, title, body FROM notes WHERE title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\' LIMIT ?`)
-          .all(likeContains(q), likeContains(q), limit) as { path: string; title: string; body: string }[]
+          .prepare(
+            `SELECT path, title, body FROM notes WHERE title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\' LIMIT ?`,
+          )
+          .all(likeContains(q), likeContains(q), limit) as {
+          path: string;
+          title: string;
+          body: string;
+        }[]
       ).map((r, i) => {
         const idx = r.body.indexOf(q);
-        const snippet = idx >= 0 ? '…' + r.body.slice(Math.max(0, idx - 30), idx) + '«' + q + '»' + r.body.slice(idx + q.length, idx + q.length + 30) + '…' : r.body.slice(0, 60);
+        const snippet =
+          idx >= 0
+            ? '…' +
+              r.body.slice(Math.max(0, idx - 30), idx) +
+              '«' +
+              q +
+              '»' +
+              r.body.slice(idx + q.length, idx + q.length + 30) +
+              '…'
+            : r.body.slice(0, 60);
         return { path: r.path, title: r.title, snippet, rank: i };
       });
     }
-    return rows.map((r, i) => ({ path: r.path, title: r.title, snippet: r.snippet.replace(/\s+/g, ' '), score: 1 / (i + 1), matchedBy: ['text'] }));
+    return rows.map((r, i) => ({
+      path: r.path,
+      title: r.title,
+      snippet: r.snippet.replace(/\s+/g, ' '),
+      score: 1 / (i + 1),
+      matchedBy: ['text'],
+    }));
   }
 
   async vectorSearch(query: string, limit = 20): Promise<(SearchHit & { chunk: string })[]> {
     const [qv] = await this.embedder.embed([query]);
     if (!qv) return [];
-    const rows = this.db.prepare('SELECT c.path, c.text, c.vector, n.title FROM chunks c JOIN notes n ON n.path = c.path WHERE c.model = ?').all(this.embedder.id) as {
+    const rows = this.db
+      .prepare(
+        'SELECT c.path, c.text, c.vector, n.title FROM chunks c JOIN notes n ON n.path = c.path WHERE c.model = ?',
+      )
+      .all(this.embedder.id) as {
       path: string;
       text: string;
       vector: Buffer;
       title: string;
     }[];
     const scored = rows.map((r) => {
-      const v = new Float32Array(r.vector.buffer.slice(r.vector.byteOffset, r.vector.byteOffset + r.vector.byteLength));
+      const v = new Float32Array(
+        r.vector.buffer.slice(r.vector.byteOffset, r.vector.byteOffset + r.vector.byteLength),
+      );
       return { path: r.path, title: r.title, chunk: r.text, score: dot(qv, v) };
     });
     scored.sort((a, b) => b.score - a.score);
@@ -374,7 +473,11 @@ export class Indexer {
     for (const s of scored) {
       if (seen.has(s.path)) continue;
       seen.add(s.path);
-      out.push({ ...s, snippet: s.chunk.slice(0, 160).replace(/\s+/g, ' '), matchedBy: ['vector'] });
+      out.push({
+        ...s,
+        snippet: s.chunk.slice(0, 160).replace(/\s+/g, ' '),
+        matchedBy: ['vector'],
+      });
       if (out.length >= limit) break;
     }
     return out;
@@ -396,12 +499,18 @@ export class Indexer {
         } else fused.set(h.path, { ...h, score });
       });
     add(text, 1.2);
-    add(vec.filter((v) => v.score > 0.2), 1);
+    add(
+      vec.filter((v) => v.score > 0.2),
+      1,
+    );
     return [...fused.values()].sort((a, b) => b.score - a.score).slice(0, limit);
   }
 
   /** Chunks most relevant to a question (for "ask your notes"). */
-  async retrieve(question: string, limit = 8): Promise<{ path: string; title: string; text: string; access: AiAccess }[]> {
+  async retrieve(
+    question: string,
+    limit = 8,
+  ): Promise<{ path: string; title: string; text: string; access: AiAccess }[]> {
     const vec = await this.vectorSearch(question, limit).catch(() => []);
     const text = this.textSearch(question, limit);
     const out: { path: string; title: string; text: string; access: AiAccess }[] = [];
@@ -411,8 +520,19 @@ export class Indexer {
       if (seen.has(h.path) || out.length >= limit) continue;
       seen.add(h.path);
       const meta = this.getMeta(h.path);
-      const body = 'chunk' in h ? (h as { chunk: string }).chunk : (this.db.prepare('SELECT body FROM notes WHERE path = ?').get(h.path) as { body: string } | undefined)?.body.slice(0, 1800) ?? '';
-      out.push({ path: h.path, title: h.title, text: body, access: effectiveAccess(policy, h.path, meta?.frontmatter ?? {}) });
+      const body =
+        'chunk' in h
+          ? (h as { chunk: string }).chunk
+          : ((
+              this.db.prepare('SELECT body FROM notes WHERE path = ?').get(h.path) as
+                { body: string } | undefined
+            )?.body.slice(0, 1800) ?? '');
+      out.push({
+        path: h.path,
+        title: h.title,
+        text: body,
+        access: effectiveAccess(policy, h.path, meta?.frontmatter ?? {}),
+      });
     }
     return out;
   }

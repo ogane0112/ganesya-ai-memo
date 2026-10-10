@@ -3,7 +3,8 @@
  * Nothing here talks to the network. Detection is an aid, not a guarantee.
  */
 
-export type FindingCategory = 'secret' | 'credential' | 'pii' | 'financial' | 'dictionary' | 'entity';
+export type FindingCategory =
+  'secret' | 'credential' | 'pii' | 'financial' | 'dictionary' | 'entity';
 
 export interface Finding {
   rule: string;
@@ -70,30 +71,117 @@ function entropy(s: string): number {
 
 /** Built-in rules. Patterns follow common secret-scanner (gitleaks-style) conventions. */
 export const BUILTIN_RULES: readonly Rule[] = [
-  { id: 'private-key', category: 'secret', label: '秘密鍵', pattern: /-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY(?: BLOCK)?-----[\s\S]*?-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY(?: BLOCK)?-----/g },
-  { id: 'aws-access-key', category: 'secret', label: 'AWSアクセスキー', pattern: /\b(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b/g },
-  { id: 'github-token', category: 'secret', label: 'GitHubトークン', pattern: /\b(?:gh[pousr]_[A-Za-z0-9]{36,255}|github_pat_[A-Za-z0-9_]{22,255})\b/g },
-  { id: 'gitlab-token', category: 'secret', label: 'GitLabトークン', pattern: /\bglpat-[A-Za-z0-9_-]{20,}\b/g },
-  { id: 'anthropic-key', category: 'secret', label: 'Anthropic APIキー', pattern: /\bsk-ant-[A-Za-z0-9_-]{20,}\b/g },
-  { id: 'openai-key', category: 'secret', label: 'OpenAI APIキー', pattern: /\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{20,}\b/g, validate: (v) => !v.startsWith('sk-ant-') },
-  { id: 'slack-token', category: 'secret', label: 'Slackトークン', pattern: /\bxox[abposr]-[A-Za-z0-9-]{10,}\b/g },
-  { id: 'slack-webhook', category: 'secret', label: 'Slack Webhook', pattern: /https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9/]+/g },
-  { id: 'google-api-key', category: 'secret', label: 'Google APIキー', pattern: /\bAIza[0-9A-Za-z_-]{35}\b/g },
-  { id: 'stripe-key', category: 'secret', label: 'Stripeキー', pattern: /\b(?:sk|rk)_(?:live|test)_[0-9A-Za-z]{16,}\b/g },
-  { id: 'jwt', category: 'credential', label: 'JWT', pattern: /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g },
-  { id: 'url-credentials', category: 'credential', label: 'URL内の認証情報', pattern: /\b[a-z][a-z0-9+.-]*:\/\/[^\s:/@]+:([^\s:/@]+)@/gi, group: 1 },
+  {
+    id: 'private-key',
+    category: 'secret',
+    label: '秘密鍵',
+    pattern:
+      /-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY(?: BLOCK)?-----[\s\S]*?-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY(?: BLOCK)?-----/g,
+  },
+  {
+    id: 'aws-access-key',
+    category: 'secret',
+    label: 'AWSアクセスキー',
+    pattern: /\b(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b/g,
+  },
+  {
+    id: 'github-token',
+    category: 'secret',
+    label: 'GitHubトークン',
+    pattern: /\b(?:gh[pousr]_[A-Za-z0-9]{36,255}|github_pat_[A-Za-z0-9_]{22,255})\b/g,
+  },
+  {
+    id: 'gitlab-token',
+    category: 'secret',
+    label: 'GitLabトークン',
+    pattern: /\bglpat-[A-Za-z0-9_-]{20,}\b/g,
+  },
+  {
+    id: 'anthropic-key',
+    category: 'secret',
+    label: 'Anthropic APIキー',
+    pattern: /\bsk-ant-[A-Za-z0-9_-]{20,}\b/g,
+  },
+  {
+    id: 'openai-key',
+    category: 'secret',
+    label: 'OpenAI APIキー',
+    pattern: /\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{20,}\b/g,
+    validate: (v) => !v.startsWith('sk-ant-'),
+  },
+  {
+    id: 'slack-token',
+    category: 'secret',
+    label: 'Slackトークン',
+    pattern: /\bxox[abposr]-[A-Za-z0-9-]{10,}\b/g,
+  },
+  {
+    id: 'slack-webhook',
+    category: 'secret',
+    label: 'Slack Webhook',
+    pattern: /https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9/]+/g,
+  },
+  {
+    id: 'google-api-key',
+    category: 'secret',
+    label: 'Google APIキー',
+    pattern: /\bAIza[0-9A-Za-z_-]{35}\b/g,
+  },
+  {
+    id: 'stripe-key',
+    category: 'secret',
+    label: 'Stripeキー',
+    pattern: /\b(?:sk|rk)_(?:live|test)_[0-9A-Za-z]{16,}\b/g,
+  },
+  {
+    id: 'jwt',
+    category: 'credential',
+    label: 'JWT',
+    pattern: /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g,
+  },
+  {
+    id: 'url-credentials',
+    category: 'credential',
+    label: 'URL内の認証情報',
+    pattern: /\b[a-z][a-z0-9+.-]*:\/\/[^\s:/@]+:([^\s:/@]+)@/gi,
+    group: 1,
+  },
   {
     id: 'password-assignment',
     category: 'credential',
     label: 'パスワードらしき文字列',
-    pattern: /(?:password|passwd|pwd|passphrase|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|パスワード|暗証番号)\s*[:=：]\s*["']?([^\s"'`]{6,})/gi,
+    pattern:
+      /(?:password|passwd|pwd|passphrase|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|パスワード|暗証番号)\s*[:=：]\s*["']?([^\s"'`]{6,})/gi,
     group: 1,
     validate: (v) => entropy(v) >= 2.5 && !/^\[SECRET_[0-9a-z]+\]$/.test(v),
   },
-  { id: 'credit-card', category: 'financial', label: 'クレジットカード番号', pattern: /\b(?:\d[ -]?){12,18}\d\b/g, validate: luhn },
-  { id: 'my-number', category: 'pii', label: 'マイナンバー', pattern: /(?<!\d)\d{4}[ -]?\d{4}[ -]?\d{4}(?!\d)/g, validate: isMyNumber },
-  { id: 'phone-jp', category: 'pii', label: '電話番号', pattern: /(?<![\d-])(?:\+81[ -]?|0)(?:\d{1,4}[ -]\d{1,4}[ -]\d{3,4}|[789]0\d{8}|\d{9})(?![\d-])/g },
-  { id: 'email', category: 'pii', label: 'メールアドレス', pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g },
+  {
+    id: 'credit-card',
+    category: 'financial',
+    label: 'クレジットカード番号',
+    pattern: /\b(?:\d[ -]?){12,18}\d\b/g,
+    validate: luhn,
+  },
+  {
+    id: 'my-number',
+    category: 'pii',
+    label: 'マイナンバー',
+    pattern: /(?<!\d)\d{4}[ -]?\d{4}[ -]?\d{4}(?!\d)/g,
+    validate: isMyNumber,
+  },
+  {
+    id: 'phone-jp',
+    category: 'pii',
+    label: '電話番号',
+    pattern:
+      /(?<![\d-])(?:\+81[ -]?|0)(?:\d{1,4}[ -]\d{1,4}[ -]\d{3,4}|[789]0\d{8}|\d{9})(?![\d-])/g,
+  },
+  {
+    id: 'email',
+    category: 'pii',
+    label: 'メールアドレス',
+    pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
+  },
 ];
 
 /** FNV-1a based fingerprint. Not a security hash — only used to remember allow-listed values. */
@@ -125,16 +213,26 @@ function escapeRe(s: string): string {
 export function scanText(text: string, opts: ScanOptions = {}): Finding[] {
   const allow = opts.allow instanceof Set ? opts.allow : new Set(opts.allow ?? []);
   const disabled = new Set(opts.disabledRules ?? []);
-  const rules: Rule[] = [...BUILTIN_RULES, ...(opts.extraRules ?? [])].filter((r) => !disabled.has(r.id));
+  const rules: Rule[] = [...BUILTIN_RULES, ...(opts.extraRules ?? [])].filter(
+    (r) => !disabled.has(r.id),
+  );
   for (const word of opts.dictionary ?? []) {
     const w = word.trim();
     if (!w) continue;
-    rules.push({ id: 'dictionary', category: 'dictionary', label: `辞書: ${w}`, pattern: new RegExp(escapeRe(w), 'giu') });
+    rules.push({
+      id: 'dictionary',
+      category: 'dictionary',
+      label: `辞書: ${w}`,
+      pattern: new RegExp(escapeRe(w), 'giu'),
+    });
   }
 
   const found: Finding[] = [];
   for (const rule of rules) {
-    const re = new RegExp(rule.pattern.source, rule.pattern.flags.includes('g') ? rule.pattern.flags : rule.pattern.flags + 'g');
+    const re = new RegExp(
+      rule.pattern.source,
+      rule.pattern.flags.includes('g') ? rule.pattern.flags : rule.pattern.flags + 'g',
+    );
     for (const m of text.matchAll(re)) {
       const g = rule.group ?? 0;
       const value = m[g];
@@ -144,7 +242,15 @@ export function scanText(text: string, opts: ScanOptions = {}): Finding[] {
       const start = (m.index ?? 0) + offset;
       const fp = fingerprint(value);
       if (allow.has(fp)) continue;
-      found.push({ rule: rule.id, category: rule.category, label: rule.label, start, end: start + value.length, value, fingerprint: fp });
+      found.push({
+        rule: rule.id,
+        category: rule.category,
+        label: rule.label,
+        start,
+        end: start + value.length,
+        value,
+        fingerprint: fp,
+      });
     }
   }
   return dedupe(found);

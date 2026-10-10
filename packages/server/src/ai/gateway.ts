@@ -1,4 +1,13 @@
-import { type AiAccess, type Finding, fingerprint, maskText, type Rule, scanText, unmaskText, type WorkspacePolicy } from '@gmemo/core';
+import {
+  type AiAccess,
+  type Finding,
+  fingerprint,
+  maskText,
+  type Rule,
+  scanText,
+  unmaskText,
+  type WorkspacePolicy,
+} from '@gmemo/core';
 import { type DB, nowIso } from '../db/db.js';
 import { type ChatMessage, type LlmClient, parseJsonLoose } from './llm.js';
 
@@ -41,7 +50,10 @@ export type PublicFinding = Omit<Finding, 'value'> & { preview: string };
 
 export function publicFinding(f: Finding): PublicFinding {
   const { value, ...rest } = f;
-  const preview = value.length <= 4 ? '•'.repeat(value.length) : `${value.slice(0, 2)}${'•'.repeat(Math.min(8, value.length - 4))}${value.slice(-2)}`;
+  const preview =
+    value.length <= 4
+      ? '•'.repeat(value.length)
+      : `${value.slice(0, 2)}${'•'.repeat(Math.min(8, value.length - 4))}${value.slice(-2)}`;
   return { ...rest, preview };
 }
 
@@ -72,7 +84,10 @@ export class AiGateway {
     const externalOk = !!this.external && policy.externalAcknowledged;
     if (prefer === 'external') {
       if (!this.external) throw new AiUnavailableError('外部AIが設定されていません');
-      if (!policy.externalAcknowledged) throw new AiUnavailableError('外部AIはまだ有効化されていません(設定画面で確認してください)');
+      if (!policy.externalAcknowledged)
+        throw new AiUnavailableError(
+          '外部AIはまだ有効化されていません(設定画面で確認してください)',
+        );
       return this.external;
     }
     if (prefer === 'local' || !externalOk) {
@@ -94,7 +109,8 @@ export class AiGateway {
     if (policy.sensitive.useLocalModel && this.local) {
       const allow = new Set(policy.sensitive.allow);
       for (const f of await this.detectEntities(text).catch(() => [])) {
-        if (!allow.has(f.fingerprint) && !findings.some((x) => f.start < x.end && x.start < f.end)) findings.push(f);
+        if (!allow.has(f.fingerprint) && !findings.some((x) => f.start < x.end && x.start < f.end))
+          findings.push(f);
       }
       findings.sort((a, b) => a.start - b.start);
     }
@@ -111,15 +127,30 @@ export class AiGateway {
       json: true,
       maxTokens: 800,
     });
-    const parsed = parseJsonLoose(reply) as { entities?: { text?: unknown; type?: unknown }[] } | null;
-    const labels: Record<string, string> = { person: '人名', address: '住所', organization: '社名・団体名', project: 'プロジェクト名' };
+    const parsed = parseJsonLoose(reply) as {
+      entities?: { text?: unknown; type?: unknown }[];
+    } | null;
+    const labels: Record<string, string> = {
+      person: '人名',
+      address: '住所',
+      organization: '社名・団体名',
+      project: 'プロジェクト名',
+    };
     const out: Finding[] = [];
     for (const e of parsed?.entities ?? []) {
       if (typeof e.text !== 'string' || e.text.length < 2) continue;
       const type = typeof e.type === 'string' ? e.type : 'entity';
       let idx = text.indexOf(e.text);
       while (idx >= 0) {
-        out.push({ rule: `local-model:${type}`, category: 'entity', label: labels[type] ?? '固有名詞', start: idx, end: idx + e.text.length, value: e.text, fingerprint: fingerprint(e.text) });
+        out.push({
+          rule: `local-model:${type}`,
+          category: 'entity',
+          label: labels[type] ?? '固有名詞',
+          start: idx,
+          end: idx + e.text.length,
+          value: e.text,
+          fingerprint: fingerprint(e.text),
+        });
         idx = text.indexOf(e.text, idx + e.text.length);
       }
     }
@@ -141,11 +172,14 @@ export class AiGateway {
     purpose: string;
   }): Promise<GatewayResult> {
     const client = this.pickTarget(input.prefer, input.policy);
-    const allowed = (a: AiAccess) => (client.location === 'external' ? a === 'external' : a !== 'none');
+    const allowed = (a: AiAccess) =>
+      client.location === 'external' ? a === 'external' : a !== 'none';
     const used = input.contexts.filter((c) => allowed(c.access));
     const excluded = input.contexts.filter((c) => !allowed(c.access)).map((c) => c.path);
 
-    const contextBlock = used.map((c, i) => `[${i + 1}] ${c.title} (${c.path})\n${c.text}`).join('\n\n---\n\n');
+    const contextBlock = used
+      .map((c, i) => `[${i + 1}] ${c.title} (${c.path})\n${c.text}`)
+      .join('\n\n---\n\n');
     let system = input.system + (contextBlock ? `\n\n# Notes\n\n${contextBlock}` : '');
     let messages = input.messages;
     const findings: Finding[] = [];
@@ -158,15 +192,23 @@ export class AiGateway {
       if (findings.length) {
         const mode = input.policy.sensitive.mode;
         if (mode === 'block') {
-          this.audit('egress-blocked', input.actor, { purpose: input.purpose, target: client.label, paths: used.map((u) => u.path), findings: findings.length });
+          this.audit('egress-blocked', input.actor, {
+            purpose: input.purpose,
+            target: client.label,
+            paths: used.map((u) => u.path),
+            findings: findings.length,
+          });
           throw new SensitiveBlockedError(findings);
         }
         if (mode === 'warn' && !input.confirmSensitive) throw new SensitiveWarningError(findings);
         if (mode === 'mask') {
           mapping = {};
-          const maskOne = async (t: string) => maskText(t, await this.scan(t, input.policy), mapping).text;
+          const maskOne = async (t: string) =>
+            maskText(t, await this.scan(t, input.policy), mapping).text;
           system = await maskOne(system);
-          messages = await Promise.all(messages.map(async (m) => ({ ...m, content: await maskOne(m.content) })));
+          messages = await Promise.all(
+            messages.map(async (m) => ({ ...m, content: await maskOne(m.content) })),
+          );
           masked = true;
         }
       }
@@ -194,11 +236,19 @@ export class AiGateway {
   }
 
   audit(kind: string, actor: string, detail: Record<string, unknown>): void {
-    this.db.prepare('INSERT INTO audit(at, kind, actor, detail) VALUES (?, ?, ?, ?)').run(nowIso(), kind, actor, JSON.stringify(detail));
+    this.db
+      .prepare('INSERT INTO audit(at, kind, actor, detail) VALUES (?, ?, ?, ?)')
+      .run(nowIso(), kind, actor, JSON.stringify(detail));
   }
 
-  auditLog(limit = 100): { at: string; kind: string; actor: string; detail: Record<string, unknown> }[] {
-    return (this.db.prepare('SELECT at, kind, actor, detail FROM audit ORDER BY id DESC LIMIT ?').all(limit) as { at: string; kind: string; actor: string; detail: string }[]).map((r) => ({
+  auditLog(
+    limit = 100,
+  ): { at: string; kind: string; actor: string; detail: Record<string, unknown> }[] {
+    return (
+      this.db
+        .prepare('SELECT at, kind, actor, detail FROM audit ORDER BY id DESC LIMIT ?')
+        .all(limit) as { at: string; kind: string; actor: string; detail: string }[]
+    ).map((r) => ({
       ...r,
       detail: JSON.parse(r.detail) as Record<string, unknown>,
     }));

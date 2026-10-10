@@ -41,17 +41,17 @@ MCPに対応したクライアント(Claude など)に、サーバーURL `https:
 
 ## ドキュメント
 
-| | |
-| --- | --- |
-| [セットアップ](docs/setup.md) | Docker、HTTPS、パスキーの制約、バックアップ |
-| [設定](docs/configuration.md) | 環境変数一覧、LLMの設定 |
+|                                         |                                                     |
+| --------------------------------------- | --------------------------------------------------- |
+| [セットアップ](docs/setup.md)           | Docker、HTTPS、パスキーの制約、バックアップ         |
+| [設定](docs/configuration.md)           | 環境変数一覧、LLMの設定                             |
 | [AIエージェント連携](docs/ai-agents.md) | MCP、OAuth、トークン、提案と承認、iOSショートカット |
-| [利用上の注意](docs/usage-notes.md) | 機密検出の限界、外部AIへの送信、データの扱い |
-| [セキュリティ](docs/security.md) | 脅威モデル、E2EEを採用しない理由、保存データ |
-| [アーキテクチャ](docs/architecture.md) | データ設計、マージモデル、インデックス |
-| [REST API](docs/api.md) | エンドポイント一覧 |
-| [プラグイン](docs/plugins.md) | 拡張API |
-| [設計判断](docs/decisions.md) | 要件定義の未決事項をどう決めたか |
+| [利用上の注意](docs/usage-notes.md)     | 機密検出の限界、外部AIへの送信、データの扱い        |
+| [セキュリティ](docs/security.md)        | 脅威モデル、E2EEを採用しない理由、保存データ        |
+| [アーキテクチャ](docs/architecture.md)  | データ設計、マージモデル、インデックス              |
+| [REST API](docs/api.md)                 | エンドポイント一覧                                  |
+| [プラグイン](docs/plugins.md)           | 拡張API                                             |
+| [設計判断](docs/decisions.md)           | 要件定義の未決事項をどう決めたか                    |
 
 ## 構成
 

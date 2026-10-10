@@ -39,7 +39,9 @@ async function main(argv: string[]) {
       const ctx = await createApp(cfg);
       if (ctx.auth.needsSetup()) {
         const token = ctx.auth.issueSetupToken();
-        console.log('\n  No passkey is registered yet. Open the app and use this one-time setup token:\n');
+        console.log(
+          '\n  No passkey is registered yet. Open the app and use this one-time setup token:\n',
+        );
         console.log(`    ${token}\n`);
         console.log(`    ${cfg.origin}/setup?token=${encodeURIComponent(token)}\n`);
       }
@@ -67,10 +69,15 @@ async function main(argv: string[]) {
         const sub = args[0];
         if (sub === 'reset-passkeys') {
           const token = ctx.auth.adminReset();
-          console.log('All passkeys and sessions were removed. Register a new passkey with this setup token:');
+          console.log(
+            'All passkeys and sessions were removed. Register a new passkey with this setup token:',
+          );
           console.log(`  ${token}\n  ${ctx.cfg.origin}/setup?token=${encodeURIComponent(token)}`);
         } else if (sub === 'setup-token') {
-          if (!ctx.auth.needsSetup()) console.log('Note: a passkey already exists; the token is only accepted after reset-passkeys.');
+          if (!ctx.auth.needsSetup())
+            console.log(
+              'Note: a passkey already exists; the token is only accepted after reset-passkeys.',
+            );
           console.log(ctx.auth.issueSetupToken());
         } else if (sub === 'recovery-codes') {
           console.log(ctx.auth.replaceRecoveryCodes().join('\n'));

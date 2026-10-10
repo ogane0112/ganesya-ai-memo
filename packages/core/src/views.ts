@@ -6,7 +6,17 @@ import { parse } from 'yaml';
  */
 export type ViewType = 'table' | 'kanban' | 'calendar' | 'list';
 
-export type FilterOp = 'eq' | 'neq' | 'contains' | 'not_contains' | 'exists' | 'not_exists' | 'gt' | 'gte' | 'lt' | 'lte';
+export type FilterOp =
+  | 'eq'
+  | 'neq'
+  | 'contains'
+  | 'not_contains'
+  | 'exists'
+  | 'not_exists'
+  | 'gt'
+  | 'gte'
+  | 'lt'
+  | 'lte';
 
 export interface ViewFilter {
   /** Property name. Special: `$path`, `$title`, `$tags`, `$folder`. */
@@ -47,7 +57,18 @@ export interface ViewNote {
   properties: Record<string, unknown>;
 }
 
-const OPS: FilterOp[] = ['eq', 'neq', 'contains', 'not_contains', 'exists', 'not_exists', 'gt', 'gte', 'lt', 'lte'];
+const OPS: FilterOp[] = [
+  'eq',
+  'neq',
+  'contains',
+  'not_contains',
+  'exists',
+  'not_exists',
+  'gt',
+  'gte',
+  'lt',
+  'lte',
+];
 const TYPES: ViewType[] = ['table', 'kanban', 'calendar', 'list'];
 
 export class ViewError extends Error {}
@@ -72,15 +93,23 @@ export function normalizeView(id: string, raw: unknown): ViewDefinition {
     if (!f || typeof f !== 'object') continue;
     const fr = f as Record<string, unknown>;
     const op = (fr['op'] ?? 'eq') as FilterOp;
-    if (typeof fr['property'] !== 'string' || !OPS.includes(op)) throw new ViewError('invalid filter');
+    if (typeof fr['property'] !== 'string' || !OPS.includes(op))
+      throw new ViewError('invalid filter');
     filters.push({ property: fr['property'], op, value: fr['value'] });
   }
   const sort: ViewSort[] = [];
   for (const s of Array.isArray(r['sort']) ? r['sort'] : []) {
     if (typeof s === 'string') sort.push({ property: s, direction: 'asc' });
-    else if (s && typeof s === 'object' && typeof (s as Record<string, unknown>)['property'] === 'string') {
+    else if (
+      s &&
+      typeof s === 'object' &&
+      typeof (s as Record<string, unknown>)['property'] === 'string'
+    ) {
       const sr = s as Record<string, unknown>;
-      sort.push({ property: sr['property'] as string, direction: sr['direction'] === 'desc' ? 'desc' : 'asc' });
+      sort.push({
+        property: sr['property'] as string,
+        direction: sr['direction'] === 'desc' ? 'desc' : 'asc',
+      });
     }
   }
   const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
@@ -90,7 +119,9 @@ export function normalizeView(id: string, raw: unknown): ViewDefinition {
     type,
     filters,
     sort,
-    columns: Array.isArray(r['columns']) ? r['columns'].filter((c): c is string => typeof c === 'string') : ['$title'],
+    columns: Array.isArray(r['columns'])
+      ? r['columns'].filter((c): c is string => typeof c === 'string')
+      : ['$title'],
   };
   const folder = str(r['folder']);
   const tag = str(r['tag']);
@@ -138,15 +169,21 @@ function matches(note: ViewNote, f: ViewFilter): boolean {
     case 'not_exists':
       return !exists;
     case 'eq':
-      return Array.isArray(v) ? v.some((x) => String(x) === String(f.value)) : String(v ?? '') === String(f.value ?? '');
+      return Array.isArray(v)
+        ? v.some((x) => String(x) === String(f.value))
+        : String(v ?? '') === String(f.value ?? '');
     case 'neq':
-      return Array.isArray(v) ? !v.some((x) => String(x) === String(f.value)) : String(v ?? '') !== String(f.value ?? '');
+      return Array.isArray(v)
+        ? !v.some((x) => String(x) === String(f.value))
+        : String(v ?? '') !== String(f.value ?? '');
     case 'contains':
     case 'not_contains': {
       const needle = String(f.value ?? '').toLowerCase();
       const hit = Array.isArray(v)
         ? v.some((x) => String(x).toLowerCase() === needle)
-        : String(v ?? '').toLowerCase().includes(needle);
+        : String(v ?? '')
+            .toLowerCase()
+            .includes(needle);
       return f.op === 'contains' ? hit : !hit;
     }
     case 'gt':
@@ -180,7 +217,10 @@ export function applyView(view: ViewDefinition, notes: readonly ViewNote[]): Vie
 }
 
 /** Group rows for kanban. Notes without a value go to the "" group. */
-export function groupRows(view: ViewDefinition, rows: readonly ViewNote[]): { key: string; rows: ViewNote[] }[] {
+export function groupRows(
+  view: ViewDefinition,
+  rows: readonly ViewNote[],
+): { key: string; rows: ViewNote[] }[] {
   const prop = view.groupBy ?? 'status';
   const groups = new Map<string, ViewNote[]>();
   for (const g of view.groups ?? []) groups.set(g, []);

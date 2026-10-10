@@ -9,7 +9,11 @@ import { capabilities, type Principal } from '../auth/tokens.js';
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
 
 function ok(value: unknown): ToolResult {
-  return { content: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value, null, 2) }] };
+  return {
+    content: [
+      { type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value, null, 2) },
+    ],
+  };
 }
 
 function fail(e: unknown): ToolResult {
@@ -25,7 +29,10 @@ const INSTRUCTIONS = `This server holds the user's personal Markdown notes (Obsi
 
 /** Build an MCP server bound to one authenticated agent. */
 export function buildMcpServer(ctx: AppContext, ops: AgentOps, principal: Principal): McpServer {
-  const server = new McpServer({ name: 'ganesya-ai-memo', version: '0.1.0' }, { instructions: INSTRUCTIONS });
+  const server = new McpServer(
+    { name: 'ganesya-ai-memo', version: '0.1.0' },
+    { instructions: INSTRUCTIONS },
+  );
   const agent = principal.agent;
   const caps = capabilities(principal);
 
@@ -44,11 +51,17 @@ export function buildMcpServer(ctx: AppContext, ops: AgentOps, principal: Princi
       'search_notes',
       {
         title: 'Search notes',
-        description: 'Hybrid full-text + semantic search over the notes you may access. Returns paths, titles and snippets.',
-        inputSchema: { query: z.string().describe('Search words or a question'), limit: z.number().int().min(1).max(50).optional() },
+        description:
+          'Hybrid full-text + semantic search over the notes you may access. Returns paths, titles and snippets.',
+        inputSchema: {
+          query: z.string().describe('Search words or a question'),
+          limit: z.number().int().min(1).max(50).optional(),
+        },
         annotations: { readOnlyHint: true },
       },
-      wrap(async ({ query, limit }: { query: string; limit?: number }) => ops.search(agent, query, limit ?? 10)),
+      wrap(async ({ query, limit }: { query: string; limit?: number }) =>
+        ops.search(agent, query, limit ?? 10),
+      ),
     );
 
     server.registerTool(
@@ -59,14 +72,17 @@ export function buildMcpServer(ctx: AppContext, ops: AgentOps, principal: Princi
         inputSchema: { folder: z.string().optional() },
         annotations: { readOnlyHint: true },
       },
-      wrap(async ({ folder }: { folder?: string }) => (await ops.list(agent, folder)).slice(0, 500)),
+      wrap(async ({ folder }: { folder?: string }) =>
+        (await ops.list(agent, folder)).slice(0, 500),
+      ),
     );
 
     server.registerTool(
       'read_note',
       {
         title: 'Read a note',
-        description: 'Read the full Markdown of a note. Returns content plus sha/commit to pass back when writing.',
+        description:
+          'Read the full Markdown of a note. Returns content plus sha/commit to pass back when writing.',
         inputSchema: { path: z.string().describe('e.g. "Projects/Plan.md"') },
         annotations: { readOnlyHint: true },
       },
@@ -88,7 +104,8 @@ export function buildMcpServer(ctx: AppContext, ops: AgentOps, principal: Princi
       'query_view',
       {
         title: 'Query a database view',
-        description: 'Run a saved view (table/kanban/calendar defined in .views/*.yaml) and return matching notes with their properties. Call without id to list views.',
+        description:
+          'Run a saved view (table/kanban/calendar defined in .views/*.yaml) and return matching notes with their properties. Call without id to list views.',
         inputSchema: { id: z.string().optional() },
         annotations: { readOnlyHint: true },
       },
@@ -118,16 +135,25 @@ export function buildMcpServer(ctx: AppContext, ops: AgentOps, principal: Princi
           title: z.string().describe('Short summary of the change'),
           description: z.string().optional().describe('Why / what changed'),
           changes: z.array(changeSchema).min(1),
-          base_shas: z.record(z.string(), z.string().nullable()).optional().describe('path → sha from read_note (null for new files)'),
+          base_shas: z
+            .record(z.string(), z.string().nullable())
+            .optional()
+            .describe('path → sha from read_note (null for new files)'),
         },
       },
-      wrap(async (a: { title: string; description?: string; changes: { path: string; content: string | null }[]; base_shas?: Record<string, string | null> }) =>
-        ops.write(principal, a.changes, {
-          title: a.title,
-          ...(a.description ? { description: a.description } : {}),
-          ...(a.base_shas ? { baseShas: a.base_shas } : {}),
-          mode: 'propose',
-        }),
+      wrap(
+        async (a: {
+          title: string;
+          description?: string;
+          changes: { path: string; content: string | null }[];
+          base_shas?: Record<string, string | null>;
+        }) =>
+          ops.write(principal, a.changes, {
+            title: a.title,
+            ...(a.description ? { description: a.description } : {}),
+            ...(a.base_shas ? { baseShas: a.base_shas } : {}),
+            mode: 'propose',
+          }),
       ),
     );
 
@@ -141,16 +167,21 @@ export function buildMcpServer(ctx: AppContext, ops: AgentOps, principal: Princi
         inputSchema: {
           path: z.string(),
           content: z.string(),
-          base_sha: z.string().nullable().optional().describe('sha from read_note; null when creating a new note'),
+          base_sha: z
+            .string()
+            .nullable()
+            .optional()
+            .describe('sha from read_note; null when creating a new note'),
           summary: z.string().optional(),
         },
       },
-      wrap(async (a: { path: string; content: string; base_sha?: string | null; summary?: string }) =>
-        ops.write(principal, [{ path: a.path, content: a.content }], {
-          title: a.summary ?? `Update ${a.path}`,
-          ...(a.base_sha !== undefined ? { baseShas: { [a.path]: a.base_sha } } : {}),
-          mode: 'direct',
-        }),
+      wrap(
+        async (a: { path: string; content: string; base_sha?: string | null; summary?: string }) =>
+          ops.write(principal, [{ path: a.path, content: a.content }], {
+            title: a.summary ?? `Update ${a.path}`,
+            ...(a.base_sha !== undefined ? { baseShas: { [a.path]: a.base_sha } } : {}),
+            mode: 'direct',
+          }),
       ),
     );
 
@@ -163,7 +194,9 @@ export function buildMcpServer(ctx: AppContext, ops: AgentOps, principal: Princi
         annotations: { readOnlyHint: true },
       },
       wrap(async ({ status }: { status?: 'open' | 'merged' | 'rejected' }) =>
-        ops.proposals(agent, status).map((p) => ({ id: p.id, title: p.title, status: p.status, created_at: p.created_at })),
+        ops
+          .proposals(agent, status)
+          .map((p) => ({ id: p.id, title: p.title, status: p.status, created_at: p.created_at })),
       ),
     );
 
@@ -171,7 +204,8 @@ export function buildMcpServer(ctx: AppContext, ops: AgentOps, principal: Princi
       'get_proposal',
       {
         title: 'Proposal status',
-        description: 'Details of one of your proposals, including whether each file still merges cleanly.',
+        description:
+          'Details of one of your proposals, including whether each file still merges cleanly.',
         inputSchema: { id: z.string() },
         annotations: { readOnlyHint: true },
       },
@@ -192,9 +226,17 @@ export function buildMcpServer(ctx: AppContext, ops: AgentOps, principal: Princi
 }
 
 /** Handle one MCP HTTP request (stateless Streamable HTTP). */
-export async function handleMcp(ctx: AppContext, ops: AgentOps, principal: Principal, req: Request): Promise<Response> {
+export async function handleMcp(
+  ctx: AppContext,
+  ops: AgentOps,
+  principal: Principal,
+  req: Request,
+): Promise<Response> {
   const server = buildMcpServer(ctx, ops, principal);
-  const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+  const transport = new WebStandardStreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+    enableJsonResponse: true,
+  });
   await server.connect(transport);
   try {
     return await transport.handleRequest(req);

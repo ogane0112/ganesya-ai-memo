@@ -57,18 +57,36 @@ export function createHttpApp(ctx: AppContext) {
   });
 
   // ---- OAuth for MCP clients -------------------------------------------------
-  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type, mcp-protocol-version' };
-  app.get('/.well-known/oauth-authorization-server', (c) => c.json(ctx.oauth.metadata(), 200, cors));
-  app.get('/.well-known/oauth-protected-resource', (c) => c.json(ctx.oauth.resourceMetadata(), 200, cors));
-  app.get('/.well-known/oauth-protected-resource/mcp', (c) => c.json(ctx.oauth.resourceMetadata(), 200, cors));
-  app.options('/oauth/*', (c) => c.body(null, 204, { ...cors, 'access-control-allow-methods': 'POST, GET, OPTIONS' }));
-  app.options('/mcp', (c) => c.body(null, 204, { ...cors, 'access-control-allow-methods': 'POST, GET, DELETE, OPTIONS', 'access-control-expose-headers': 'mcp-session-id, www-authenticate' }));
+  const cors = {
+    'access-control-allow-origin': '*',
+    'access-control-allow-headers': 'authorization, content-type, mcp-protocol-version',
+  };
+  app.get('/.well-known/oauth-authorization-server', (c) =>
+    c.json(ctx.oauth.metadata(), 200, cors),
+  );
+  app.get('/.well-known/oauth-protected-resource', (c) =>
+    c.json(ctx.oauth.resourceMetadata(), 200, cors),
+  );
+  app.get('/.well-known/oauth-protected-resource/mcp', (c) =>
+    c.json(ctx.oauth.resourceMetadata(), 200, cors),
+  );
+  app.options('/oauth/*', (c) =>
+    c.body(null, 204, { ...cors, 'access-control-allow-methods': 'POST, GET, OPTIONS' }),
+  );
+  app.options('/mcp', (c) =>
+    c.body(null, 204, {
+      ...cors,
+      'access-control-allow-methods': 'POST, GET, DELETE, OPTIONS',
+      'access-control-expose-headers': 'mcp-session-id, www-authenticate',
+    }),
+  );
 
   app.post('/oauth/register', async (c) => {
     try {
       return c.json(ctx.oauth.register(await c.req.json().catch(() => ({}))), 201, cors);
     } catch (e) {
-      if (e instanceof OAuthError) return c.json({ error: e.error, error_description: e.description }, 400, cors);
+      if (e instanceof OAuthError)
+        return c.json({ error: e.error, error_description: e.description }, 400, cors);
       throw e;
     }
   });
@@ -82,7 +100,9 @@ export function createHttpApp(ctx: AppContext) {
       throw e;
     }
     // The web app renders the consent screen (and asks for a passkey sign-in first).
-    return c.redirect(`/oauth/consent?${new URLSearchParams(q as Record<string, string>).toString()}`);
+    return c.redirect(
+      `/oauth/consent?${new URLSearchParams(q as Record<string, string>).toString()}`,
+    );
   });
 
   app.post('/oauth/token', async (c) => {
@@ -93,7 +113,8 @@ export function createHttpApp(ctx: AppContext) {
     try {
       return c.json(ctx.oauth.token(form), 200, { ...cors, 'cache-control': 'no-store' });
     } catch (e) {
-      if (e instanceof OAuthError) return c.json({ error: e.error, error_description: e.description }, e.status as 400, cors);
+      if (e instanceof OAuthError)
+        return c.json({ error: e.error, error_description: e.description }, e.status as 400, cors);
       throw e;
     }
   });
@@ -113,7 +134,8 @@ export function createHttpApp(ctx: AppContext) {
         'WWW-Authenticate': `Bearer resource_metadata="${ctx.cfg.origin}/.well-known/oauth-protected-resource"`,
       });
     }
-    if (c.req.method === 'GET' || c.req.method === 'DELETE') return c.body(null, 405, { ...cors, allow: 'POST' });
+    if (c.req.method === 'GET' || c.req.method === 'DELETE')
+      return c.body(null, 405, { ...cors, allow: 'POST' });
     const res = await handleMcp(ctx, ops, principal, c.req.raw);
     const headers = new Headers(res.headers);
     for (const [k, v] of Object.entries(cors)) headers.set(k, v);
@@ -128,7 +150,10 @@ export function createHttpApp(ctx: AppContext) {
       const rel = normalize(decodeURIComponent(c.req.path)).replace(/^[/\\]+/, '');
       const file = join(webDir, rel);
       const inside = !relative(webDir, file).startsWith('..');
-      const target = inside && rel && existsSync(file) && !file.endsWith('/') ? file : join(webDir, 'index.html');
+      const target =
+        inside && rel && existsSync(file) && !file.endsWith('/')
+          ? file
+          : join(webDir, 'index.html');
       const data = await readFile(target).catch(() => readFile(join(webDir, 'index.html')));
       const ext = target.slice(target.lastIndexOf('.') + 1);
       const immutable = rel.startsWith('assets/');
@@ -146,7 +171,9 @@ export function createHttpApp(ctx: AppContext) {
       });
     });
   } else {
-    app.get('/', (c) => c.text('Web app is not built. Run `npm run build` (packages/web) or use the API.'));
+    app.get('/', (c) =>
+      c.text('Web app is not built. Run `npm run build` (packages/web) or use the API.'),
+    );
   }
 
   return app;
