@@ -659,12 +659,12 @@ export class NoteService {
   }
 
   async saveViewFile(id: string, text: string): Promise<void> {
-    if (!/^[\w\-　-鿿]+$/.test(id)) throw new ForbiddenError('invalid view id');
+    if (!/^[\w\-\u3000-\u9fff]+$/.test(id)) throw new ForbiddenError('invalid view id');
     await this.commitAs(this.human(), [{ path: `${VIEWS_DIR}/${id}.yaml`, content: text }], `Save view ${id}`);
   }
 
   async deleteViewFile(id: string): Promise<void> {
-    if (!/^[\w\-　-鿿]+$/.test(id)) throw new ForbiddenError('invalid view id');
+    if (!/^[\w\-\u3000-\u9fff]+$/.test(id)) throw new ForbiddenError('invalid view id');
     await this.commitAs(this.human(), [{ path: `${VIEWS_DIR}/${id}.yaml`, content: null }], `Delete view ${id}`);
   }
 }

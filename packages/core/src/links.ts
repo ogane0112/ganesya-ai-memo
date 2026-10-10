@@ -7,7 +7,7 @@ export interface WikiLink {
   embed: boolean;
 }
 
-const WIKILINK_RE = /(!?)\[\[([^\[\]\n|#]+)(?:#([^\[\]\n|]*))?(?:\|([^\[\]\n]*))?\]\]/g;
+const WIKILINK_RE = /(!?)\[\[([^[\]\n|#]+)(?:#([^[\]\n|]*))?(?:\|([^[\]\n]*))?\]\]/g;
 const TAG_RE = /(?:^|[\s(])#([\p{L}\p{N}_/-]*[\p{L}_/-][\p{L}\p{N}_/-]*)/gu;
 
 /** Remove fenced code blocks and inline code so links inside code are ignored. */

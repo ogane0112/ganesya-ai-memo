@@ -148,7 +148,7 @@ export class AiGateway {
     const contextBlock = used.map((c, i) => `[${i + 1}] ${c.title} (${c.path})\n${c.text}`).join('\n\n---\n\n');
     let system = input.system + (contextBlock ? `\n\n# Notes\n\n${contextBlock}` : '');
     let messages = input.messages;
-    let findings: Finding[] = [];
+    const findings: Finding[] = [];
     let mapping: Record<string, string> = {};
     let masked = false;
 

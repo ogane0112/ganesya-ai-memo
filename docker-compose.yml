@@ -1,0 +1,48 @@
+# Production-style setup: the app behind Caddy, which obtains an HTTPS
+# certificate automatically. Passkeys require HTTPS and a domain name.
+#
+#   1. Point a DNS record (e.g. notes.example.com) at this server.
+#   2. cp .env.example .env  and set GMEMO_DOMAIN.
+#   3. docker compose up -d && docker compose logs app   (copy the setup URL)
+services:
+  app:
+    build: .
+    image: ganesya-ai-memo:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      GMEMO_ORIGIN: https://${GMEMO_DOMAIN}
+      GMEMO_RP_ID: ${GMEMO_DOMAIN}
+    volumes:
+      - gmemo-data:/data
+    expose:
+      - "8787"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      GMEMO_DOMAIN: ${GMEMO_DOMAIN}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+
+  # Optional local LLM. Start with: docker compose --profile ollama up -d
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ollama"]
+    restart: unless-stopped
+    volumes:
+      - ollama:/root/.ollama
+
+volumes:
+  gmemo-data:
+  caddy-data:
+  caddy-config:
+  ollama:

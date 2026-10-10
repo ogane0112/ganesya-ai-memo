@@ -201,7 +201,7 @@ export function notesRoutes(ctx: AppContext, ops: AgentOps) {
     const file = form.get('file');
     if (!(file instanceof File)) throw new HTTPException(400, { message: 'file required' });
     if (file.size > MAX_ATTACHMENT_BYTES) throw new HTTPException(413, { message: 'file too large' });
-    const safe = file.name.replace(/[^\w.\-　-鿿]/g, '_').slice(-80) || 'file';
+    const safe = file.name.replace(/[^\w.\-\u3000-\u9fff]/g, '_').slice(-80) || 'file';
     const path = `attachments/${new Date().toISOString().slice(0, 10)}-${Date.now().toString(36)}-${safe}`;
     await notes.commitAs(ctx.human(), [{ path, content: Buffer.from(await file.arrayBuffer()) }], `Attach ${safe}`);
     return c.json({ path, markdown: /\.(png|jpe?g|gif|webp|svg)$/i.test(safe) ? `![[${path}]]` : `[[${path}]]` });

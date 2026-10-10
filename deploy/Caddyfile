@@ -1,0 +1,7 @@
+{$GMEMO_DOMAIN} {
+	encode zstd gzip
+	# No access logs by default: the app is designed not to keep IP addresses.
+	reverse_proxy app:8787 {
+		flush_interval -1
+	}
+}

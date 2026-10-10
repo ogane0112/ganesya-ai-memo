@@ -2,6 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Rule } from '@gmemo/core';
+import { z } from 'zod';
 import { AiGateway } from './ai/gateway.js';
 import { createLlmClient } from './ai/llm.js';
 import { type Agent, AgentStore } from './auth/agents.js';
@@ -59,6 +60,8 @@ export async function createApp(cfg: Config, opts: { embedder?: Embedder; loadPl
   const embedder =
     opts.embedder ?? (cfg.llm.local && cfg.llm.localEmbedModel ? new LocalModelEmbedder(cfg.llm.local, cfg.llm.localEmbedModel) : new HashingEmbedder());
 
+  // Assigned right below; the indexer only reads the policy lazily.
+  // eslint-disable-next-line prefer-const
   let notes!: NoteService;
   const indexer = new Indexer(indexDb, repo, embedder, () => notes.currentPolicy());
   notes = new NoteService(repo, appDb, indexer, human);
@@ -109,6 +112,7 @@ function pluginAgent(ctx: AppContext, name: string): Agent {
 function pluginApi(ctx: AppContext, name: string, sink: Pick<LoadedPlugin, 'routes' | 'tools'>): PluginApi {
   return {
     name,
+    z,
     notes: {
       async read(path) {
         try {

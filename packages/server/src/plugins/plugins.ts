@@ -2,7 +2,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Rule } from '@gmemo/core';
-import type { z } from 'zod';
+import { z } from 'zod';
 import type { Agent } from '../auth/agents.js';
 
 export type PluginEvent = 'change' | 'proposal';
@@ -24,6 +24,8 @@ export interface PluginMcpTool {
 /** What a plugin can do. Plugins run in-process with full trust: install only code you trust. */
 export interface PluginApi {
   readonly name: string;
+  /** The server's zod, for MCP tool input schemas. */
+  readonly z: typeof z;
   notes: {
     read(path: string): Promise<{ path: string; content: string; sha: string } | null>;
     list(folder?: string): { path: string; title: string; tags: string[] }[];

@@ -14,6 +14,7 @@ export async function setup() {
   await repo.init();
   const appDb = openDatabase(':memory:', APP_MIGRATIONS);
   const indexDb = openDatabase(':memory:', INDEX_MIGRATIONS);
+  // eslint-disable-next-line prefer-const
   let service!: NoteService;
   const indexer = new Indexer(indexDb, repo, new HashingEmbedder(), () => service.currentPolicy());
   service = new NoteService(repo, appDb, indexer, () => ({ kind: 'human', name: 'me' }));

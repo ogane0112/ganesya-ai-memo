@@ -30,6 +30,7 @@ export function inFolders(path: string, folders: readonly string[] | undefined):
 /** Turn a title into a safe file name. */
 export function slugifyTitle(title: string): string {
   const s = title
+    // eslint-disable-next-line no-control-regex
     .replace(/[\\/:*?"<>|#^[\]\x00-\x1f]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
