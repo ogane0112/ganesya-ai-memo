@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "..",
+    "noEmit": true,
+    "declaration": false,
+    "paths": { "@gmemo/core": ["../core/src/index.ts"] }
+  },
+  "include": ["src", "test"]
+}
