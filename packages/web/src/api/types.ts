@@ -1,3 +1,5 @@
+import type { UiPrefs } from '../lib/theme';
+
 /**
  * Types mirrored from the server's JSON responses (packages/server). Shared
  * shapes that live in @gmemo/core are imported from there.
@@ -31,6 +33,8 @@ export interface AuthState {
   origin: string;
   recoveryCodesRemaining: number | null;
   passkeyCount: number | null;
+  /** Display preferences (null when signed out). */
+  prefs?: UiPrefs | null;
 }
 
 export interface PasskeyInfo {

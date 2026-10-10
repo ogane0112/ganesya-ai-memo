@@ -2,6 +2,7 @@ import { normalizePolicy } from '@gmemo/core';
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import type { AppContext } from '../app.js';
+import { loadPrefs, savePrefs } from '../auth/prefs.js';
 import type { AgentInput } from '../auth/agents.js';
 import { parseScope, type Scope } from '../auth/tokens.js';
 import { createBackup } from '../backup.js';
@@ -131,6 +132,11 @@ export function adminRoutes(ctx: AppContext) {
   });
 
   // ---- workspace policy ----------------------------------------------------
+
+  // ---- display preferences --------------------------------------------------
+
+  app.get('/preferences', (c) => c.json(loadPrefs(ctx.appDb)));
+  app.put('/preferences', async (c) => c.json(savePrefs(ctx.appDb, await jsonBody(c))));
 
   app.get('/policy', async (c) => c.json(await ctx.notes.loadPolicy()));
 

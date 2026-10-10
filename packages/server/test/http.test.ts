@@ -453,6 +453,27 @@ describe('HTTP API', () => {
     expect((await req('/api/notes', { bearer: token })).status).toBe(403);
   });
 
+  it('stores display preferences for all devices', async () => {
+    const state0 = (await (await req('/api/auth/state')).json()) as {
+      prefs: { accent: string; mode: string };
+    };
+    expect(state0.prefs).toEqual({ accent: 'green', mode: 'system' });
+    const saved = (await (
+      await req('/api/admin/preferences', {
+        method: 'PUT',
+        json: { accent: 'sakura', mode: 'dark', evil: 1 },
+      })
+    ).json()) as Record<string, unknown>;
+    expect(saved).toEqual({ accent: 'sakura', mode: 'dark' });
+    const bad = (await (
+      await req('/api/admin/preferences', {
+        method: 'PUT',
+        json: { accent: 'red;x', mode: 'neon' },
+      })
+    ).json()) as Record<string, unknown>;
+    expect(bad).toEqual({ accent: 'green', mode: 'system' });
+  });
+
   it('creates an encrypted backup', async () => {
     const r = await req('/api/admin/backup', {
       method: 'POST',

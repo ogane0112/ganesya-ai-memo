@@ -2,6 +2,7 @@ import { NavLink, Navigate, useParams } from 'react-router-dom';
 import { PageHeader } from '../../components/ui';
 import { useDocumentTitle } from '../../lib/hooks';
 import { AgentsSettings } from './Agents';
+import { AppearanceSettings } from './Appearance';
 import { AiPolicySettings, AuditLog } from './AiPolicy';
 import { CalendarSettings } from './Calendar';
 import { DataSettings } from './Data';
@@ -9,6 +10,7 @@ import { McpSettings } from './Mcp';
 import { SecuritySettings } from './Security';
 
 const SECTIONS = [
+  { id: 'appearance', label: '見た目', el: <AppearanceSettings /> },
   { id: 'security', label: 'パスキー', el: <SecuritySettings /> },
   { id: 'agents', label: 'AIエージェント', el: <AgentsSettings /> },
   { id: 'mcp', label: 'MCP接続', el: <McpSettings /> },
@@ -22,7 +24,7 @@ export function SettingsPage() {
   const { section } = useParams();
   const current = SECTIONS.find((s) => s.id === section);
   useDocumentTitle(current ? `設定: ${current.label}` : '設定');
-  if (!current) return <Navigate to="/settings/security" replace />;
+  if (!current) return <Navigate to="/settings/appearance" replace />;
   return (
     <div className="page">
       <PageHeader title="設定" />

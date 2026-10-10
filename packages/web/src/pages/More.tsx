@@ -12,7 +12,7 @@ const ITEMS = [
     to: '/settings',
     icon: 'settings',
     label: '設定',
-    desc: 'パスキー・AIエージェント・AIポリシー・バックアップ',
+    desc: '見た目・パスキー・AIエージェント・AIポリシー・バックアップ',
   },
 ];
 

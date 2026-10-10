@@ -11,6 +11,7 @@ import {
 import { api, NetworkError, onUnauthorized } from '../api/client';
 import type { AuthState, NoteSummary } from '../api/types';
 import type { QueueState } from '../lib/queue';
+import { applyPrefs, normalizePrefs } from '../lib/theme';
 import { syncQueue } from '../lib/sync';
 
 const AUTH_CACHE = 'gmemo.lastAuth';
@@ -71,6 +72,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const refreshAuth = useCallback(async () => {
     try {
       const s = await api.authState();
+      if (s.prefs) applyPrefs(normalizePrefs(s.prefs));
       setAuth(s);
       setOfflineAuth(false);
       writeCachedAuth(s);

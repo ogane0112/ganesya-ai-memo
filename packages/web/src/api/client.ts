@@ -30,6 +30,7 @@ import type {
   ViewRows,
   WorkspacePolicy,
 } from './types';
+import type { UiPrefs } from '../lib/theme';
 
 /** An HTTP error from the API, carrying the status code and the parsed JSON body. */
 export class ApiError extends Error {
@@ -255,6 +256,8 @@ export const api = {
   allowFinding: (fingerprint: string) => post<Ok>('/api/admin/policy/allow', { fingerprint }),
   reindex: () => post<Ok>('/api/admin/reindex'),
   plugins: () => get<PluginInfo[]>('/api/admin/plugins'),
+  preferences: () => get<UiPrefs>('/api/admin/preferences'),
+  savePreferences: (p: UiPrefs) => put<UiPrefs>('/api/admin/preferences', p),
   // ---- calendar ------------------------------------------------------------
   calendarEvents: (from: string, to: string) =>
     get<{ timeZone: string; events: ExternalEvent[] }>(`/api/calendar/events${qs({ from, to })}`),

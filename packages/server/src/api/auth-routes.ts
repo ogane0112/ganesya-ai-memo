@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { deleteCookie, setCookie } from 'hono/cookie';
 import type { AppContext } from '../app.js';
+import { loadPrefs } from '../auth/prefs.js';
 import { type Env, jsonBody, requireHuman, SESSION_COOKIE, str } from './http.js';
 
 export function authRoutes(ctx: AppContext) {
@@ -30,6 +31,7 @@ export function authRoutes(ctx: AppContext) {
       origin: ctx.cfg.origin,
       recoveryCodesRemaining: s ? ctx.auth.remainingRecoveryCodes() : null,
       passkeyCount: s ? ctx.auth.passkeys().length : null,
+      prefs: s ? loadPrefs(ctx.appDb) : null,
     });
   });
 

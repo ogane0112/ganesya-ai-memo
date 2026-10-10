@@ -8,6 +8,10 @@ import '@fontsource/zen-maru-gothic/500.css';
 import '@fontsource/zen-maru-gothic/700.css';
 import '@fontsource-variable/jetbrains-mono';
 import './styles/app.css';
+import { applyPrefs, cachedPrefs } from './lib/theme';
+
+// Apply this device's last known colors before the first render (no flash).
+applyPrefs(cachedPrefs());
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
