@@ -107,6 +107,7 @@ dateProperty: due # calendar
 | PATCH / DELETE | `/api/admin/agents/:id`        | 設定変更・失効                                 |
 | POST           | `/api/admin/agents/:id/tokens` | トークン発行 `{ scope, label, expiresInDays }` |
 | DELETE         | `/api/admin/tokens/:id`        | トークン失効                                   |
+| GET / PUT      | `/api/admin/preferences`       | 見た目の設定 `{ accent, mode }`(全端末で共有)  |
 | GET / PUT      | `/api/admin/policy`            | AIポリシー                                     |
 | POST           | `/api/admin/policy/allow`      | 検出結果を「問題なし」にする `{ fingerprint }` |
 | POST           | `/api/admin/backup`            | バックアップのダウンロード `{ passphrase? }`   |
