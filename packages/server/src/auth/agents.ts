@@ -15,6 +15,8 @@ export interface Agent {
   autoMerge: boolean;
   /** Restrict auto-merge to these folders. Empty = everywhere the agent can write. */
   autoMergeFolders: string[];
+  /** Where the agent's model runs. External agents only see notes allowed for external AI. */
+  location: 'external' | 'local';
   createdAt: string;
   revokedAt: string | null;
 }
@@ -28,6 +30,7 @@ interface AgentRow {
   folders: string;
   auto_merge: number;
   auto_merge_folders: string;
+  location: 'external' | 'local';
   created_at: string;
   revoked_at: string | null;
 }
@@ -42,6 +45,7 @@ function fromRow(r: AgentRow): Agent {
     folders: JSON.parse(r.folders) as string[],
     autoMerge: !!r.auto_merge,
     autoMergeFolders: JSON.parse(r.auto_merge_folders) as string[],
+    location: r.location,
     createdAt: r.created_at,
     revokedAt: r.revoked_at,
   };
@@ -73,8 +77,8 @@ export class AgentStore {
     const id = randomId('ag_');
     this.db
       .prepare(
-        `INSERT INTO agents(id, name, description, can_read, write_mode, folders, auto_merge, auto_merge_folders, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO agents(id, name, description, can_read, write_mode, folders, auto_merge, auto_merge_folders, location, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -85,6 +89,7 @@ export class AgentStore {
         JSON.stringify(input.folders ?? []),
         input.autoMerge ? 1 : 0,
         JSON.stringify(input.autoMergeFolders ?? []),
+        input.location === 'local' ? 'local' : 'external',
         nowIso(),
       );
     return this.get(id)!;
@@ -96,7 +101,7 @@ export class AgentStore {
     const next = { ...cur, ...patch };
     this.db
       .prepare(
-        `UPDATE agents SET name = ?, description = ?, can_read = ?, write_mode = ?, folders = ?, auto_merge = ?, auto_merge_folders = ? WHERE id = ?`,
+        `UPDATE agents SET name = ?, description = ?, can_read = ?, write_mode = ?, folders = ?, auto_merge = ?, auto_merge_folders = ?, location = ? WHERE id = ?`,
       )
       .run(
         patch.name ? sanitizeAgentName(patch.name) : cur.name,
@@ -106,6 +111,7 @@ export class AgentStore {
         JSON.stringify(next.folders),
         next.autoMerge ? 1 : 0,
         JSON.stringify(next.autoMergeFolders),
+        next.location,
         id,
       );
     return this.get(id);

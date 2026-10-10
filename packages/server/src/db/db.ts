@@ -126,6 +126,16 @@ export const APP_MIGRATIONS: readonly string[] = [
     detail TEXT NOT NULL DEFAULT '{}'
   );
   `,
+  // v2: where an agent's model runs (governs folder AI policy and masking), and
+  // placeholders handed to external agents in place of detected secrets.
+  `
+  ALTER TABLE agents ADD COLUMN location TEXT NOT NULL DEFAULT 'external' CHECK (location IN ('external','local'));
+  CREATE TABLE secret_placeholders (
+    placeholder TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  `,
 ];
 
 export const INDEX_MIGRATIONS: readonly string[] = [

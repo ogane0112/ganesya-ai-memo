@@ -88,7 +88,7 @@ export const BUILTIN_RULES: readonly Rule[] = [
     label: 'パスワードらしき文字列',
     pattern: /(?:password|passwd|pwd|passphrase|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|パスワード|暗証番号)\s*[:=：]\s*["']?([^\s"'`]{6,})/gi,
     group: 1,
-    validate: (v) => entropy(v) >= 2.5 && !/^\[SECRET_\d+\]$/.test(v),
+    validate: (v) => entropy(v) >= 2.5 && !/^\[SECRET_[0-9a-z]+\]$/.test(v),
   },
   { id: 'credit-card', category: 'financial', label: 'クレジットカード番号', pattern: /\b(?:\d[ -]?){12,18}\d\b/g, validate: luhn },
   { id: 'my-number', category: 'pii', label: 'マイナンバー', pattern: /(?<!\d)\d{4}[ -]?\d{4}[ -]?\d{4}(?!\d)/g, validate: isMyNumber },
@@ -172,7 +172,12 @@ export interface MaskResult {
  * Replace findings with `[SECRET_n]` placeholders. The same value always gets the
  * same placeholder, and an existing mapping can be extended across several texts.
  */
-export function maskText(text: string, findings: readonly Finding[], mapping: Record<string, string> = {}): MaskResult {
+export function maskText(
+  text: string,
+  findings: readonly Finding[],
+  mapping: Record<string, string> = {},
+  placeholder: (f: Finding, n: number) => string = (_f, n) => `[SECRET_${n}]`,
+): MaskResult {
   const reverse = new Map(Object.entries(mapping).map(([k, v]) => [v, k]));
   let n = Object.keys(mapping).length;
   let out = '';
@@ -181,7 +186,7 @@ export function maskText(text: string, findings: readonly Finding[], mapping: Re
     if (f.start < pos) continue;
     let ph = reverse.get(f.value);
     if (!ph) {
-      ph = `[SECRET_${++n}]`;
+      ph = placeholder(f, ++n);
       reverse.set(f.value, ph);
       mapping[ph] = f.value;
     }
@@ -194,5 +199,5 @@ export function maskText(text: string, findings: readonly Finding[], mapping: Re
 
 /** Restore placeholders in a model response using the local mapping. */
 export function unmaskText(text: string, mapping: Readonly<Record<string, string>>): string {
-  return text.replace(/\[SECRET_(\d+)\]/g, (ph) => mapping[ph] ?? ph);
+  return text.replace(/\[SECRET_[0-9a-z]+\]/g, (ph) => mapping[ph] ?? ph);
 }
