@@ -19,11 +19,13 @@
 ```sh
 npm ci && npm run build -w @gmemo/core && npm run build -w @gmemo/web
 cd packages/server
-npx wrangler d1 create gmemo                 # 表示された database_id を wrangler.toml へ
-npx wrangler secret put GMEMO_SETUP_TOKEN    # 最初の(管理者)アカウント作成用
-npx wrangler secret put GMEMO_SECRET_KEY     # GitHubトークンの暗号化キー
-npx wrangler deploy
+npx cf auth login
+GMEMO_ORIGIN=https://gmemo.<サブドメイン>.workers.dev npx cf deploy   # D1 も自動で作られる
+npx cf workers secrets update GMEMO_SETUP_TOKEN --worker gmemo --text '<長いランダム文字列>'
+npx cf workers secrets update GMEMO_SECRET_KEY  --worker gmemo --text '<長いランダム文字列>'
 ```
+
+Cloudflare の新しいCLI `cf`(ベータ)を使います。Wrangler でもデプロイできます(手順は同じページ)。
 
 自分のサーバー(Node.js / Docker)で動かすこともできます:[セルフホスト](docs/setup.md)。
 
@@ -36,7 +38,7 @@ npm run dev -w @gmemo/web                        # Web (Vite :5173、/api など
 npm test && npm run typecheck && npm run lint
 ```
 
-Workers の実行環境で試すときは `cd packages/server && npx wrangler dev`([手順](docs/deploy-cloudflare.md#ローカルで試す))。
+Workers の実行環境で試すときは `cd packages/server && npx cf dev`([手順](docs/deploy-cloudflare.md#ローカルで試す))。
 
 `localhost` はHTTPSなしでもパスキーが使えるので、開発はそのまま行えます。
 

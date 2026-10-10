@@ -13,11 +13,13 @@
     "test": "vitest run",
     "dev": "tsx watch src/cli.ts serve",
     "start": "node dist/cli.js serve",
-    "dev:worker": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "dev:worker": "cf dev",
+    "deploy": "cf deploy",
+    "postinstall": "node scripts/link-wrangler.mjs"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
+    "cf": "^1.0.0-beta.14",
     "tsx": "^4.23.15",
     "wrangler": "^4.139.0"
   },

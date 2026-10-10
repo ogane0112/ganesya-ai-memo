@@ -11,6 +11,7 @@ export default tseslint.config(
       '**/coverage/**',
       'packages/web/dev-dist/**',
       '**/.wrangler/**',
+      '**/.cloudflare/**',
       'examples/**/node_modules/**',
     ],
   },

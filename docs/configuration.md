@@ -1,6 +1,6 @@
 # 設定
 
-設定は環境変数で行います。Cloudflare Workers では `wrangler.toml` の `[vars]`(秘密の値は `wrangler secret put`)、Node.js / Docker では環境変数か `.env` です。
+設定は環境変数で行います。Cloudflare Workers では `packages/server/cloudflare.config.ts`(環境変数で上書き可。秘密の値は `cf workers secrets update`)、Node.js / Docker では環境変数か `.env` です。
 
 各ユーザーのAIポリシー(フォルダごとの外部AI送信、機密検出のモードや辞書)は画面から設定し、そのユーザーのノート内 `.gmemo/policy.yaml` に保存されます。
 
@@ -30,7 +30,7 @@
 | `GMEMO_HOST`     | `0.0.0.0`           | 待ち受けアドレス                               |
 | `GMEMO_WEB_DIR`  | `packages/web/dist` | Webアプリのビルド出力                          |
 
-Cloudflare Workers では、データベースは `wrangler.toml` の D1 バインディング(`DB`)、Webアプリは静的アセット(`ASSETS`)です。
+Cloudflare Workers では、データベースは `cloudflare.config.ts` の D1 バインディング(`DB`)、Webアプリは静的アセット(`ASSETS`)です。
 
 ## ローカルLLM
 
