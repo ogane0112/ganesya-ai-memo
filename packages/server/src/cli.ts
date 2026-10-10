@@ -20,8 +20,9 @@ async function main(argv: string[]) {
   const cfg = loadNodeConfig();
   switch (cmd) {
     case 'serve': {
-      for (const w of configWarnings(cfg)) console.warn(`[warn] ${w}`);
+      // After the platform exists: it fills in a generated GMEMO_SECRET_KEY.
       const { platform, db } = await createNodePlatform(cfg);
+      for (const w of configWarnings(cfg)) console.warn(`[warn] ${w}`);
       if ((await platform.auth.needsSetup()) && !cfg.setupToken) {
         const token = await platform.auth.issueSetupToken();
         console.log(

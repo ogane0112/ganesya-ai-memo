@@ -1,45 +1,46 @@
 # REST API
 
-すべて JSON。人間はパスキーでログインしたクッキーセッション、エージェントは `Authorization: Bearer <token>` で呼びます。エージェントから呼んだ場合、結果はそのエージェントのフォルダ制限・AIポリシー・マスキングが適用されたものになります。
+すべて JSON。人間はパスキーでログインしたクッキーセッション、エージェントは `Authorization: Bearer <token>` で呼びます。どちらの場合も、操作できるのはそのアカウント(トークンの持ち主)のノートだけです。エージェントから呼んだ場合、結果はそのエージェントのフォルダ制限・AIポリシー・マスキングが適用されたものになります。
 
-エラーは `{ "error": "..." }` と次のステータスで返ります:400(入力不正)、401(未認証)、403(権限なし)、404、409(競合。`details` に未解決の箇所)、413(大きすぎる)、422(機密情報によりブロック、`findings` 付き)、428(機密情報の送信確認が必要、`findings` 付き)、503(AI未設定)。
+エラーは `{ "error": "..." }` と次のステータスで返ります:400(入力不正)、401(未認証)、403(権限なし)、404、409(競合。`details` に未解決の箇所。GitHub保存の接続エラーは `code: "storage"`)、413(大きすぎる)、422(機密情報によりブロック、`findings` 付き)、428(機密情報の送信確認が必要、`findings` 付き)、503(AI未設定)。
 
 ## 認証(人間)
 
-| メソッド             | パス                                                 | 内容                                                                              |
-| -------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------- |
-| GET                  | `/api/auth/state`                                    | セットアップ要否、ログイン状態                                                    |
-| POST                 | `/api/auth/register/options`                         | パスキー登録開始 `{ setupToken?, username? }`                                     |
-| POST                 | `/api/auth/register/verify`                          | 登録完了 `{ challengeId, response, name?, setupToken? }` → 初回は `recoveryCodes` |
-| POST                 | `/api/auth/login/options` / `/api/auth/login/verify` | パスキーでログイン                                                                |
-| POST                 | `/api/auth/recovery`                                 | リカバリーコードでログイン `{ code }`                                             |
-| POST                 | `/api/auth/logout` / `/api/auth/logout-all`          | ログアウト                                                                        |
-| GET / PATCH / DELETE | `/api/auth/passkeys[/:id]`                           | パスキーの一覧・名前変更・削除                                                    |
-| POST                 | `/api/auth/recovery-codes`                           | リカバリーコードの再発行                                                          |
+| メソッド             | パス                                                 | 内容                                                                                                        |
+| -------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| GET                  | `/api/auth/state`                                    | セットアップ要否、登録方法(`signup`)、ログイン状態                                                          |
+| POST                 | `/api/auth/register/options`                         | パスキー登録開始。新規アカウントは `{ username, setupToken? \| inviteCode? }`、ログイン中ならパスキーの追加 |
+| POST                 | `/api/auth/register/verify`                          | 登録完了 `{ challengeId, response, name? }` → 新規アカウントは `recoveryCodes` を返し、ログイン状態になる   |
+| POST                 | `/api/auth/login/options` / `/api/auth/login/verify` | パスキーでログイン                                                                                          |
+| POST                 | `/api/auth/recovery`                                 | リカバリーコードでログイン `{ username, code }`                                                             |
+| POST                 | `/api/auth/delete-account`                           | 自分のアカウントとこのサービス内のデータを削除 `{ username }`(確認用)                                       |
+| POST                 | `/api/auth/logout` / `/api/auth/logout-all`          | ログアウト                                                                                                  |
+| GET / PATCH / DELETE | `/api/auth/passkeys[/:id]`                           | パスキーの一覧・名前変更・削除                                                                              |
+| POST                 | `/api/auth/recovery-codes`                           | リカバリーコードの再発行                                                                                    |
 
 ## ノート
 
-| メソッド | パス                                       | 人間 | エージェント      | 内容                                                                              |
-| -------- | ------------------------------------------ | ---- | ----------------- | --------------------------------------------------------------------------------- |
-| GET      | `/api/notes?folder=`                       | ✓    | read              | 一覧                                                                              |
-| GET      | `/api/note?path=&commit=`                  | ✓    | read              | 本文、`sha`、`commit`、フロントマター                                             |
-| PUT      | `/api/note`                                | ✓    | propose           | 保存 `{ path, content, baseSha?, baseCommit?, device?, message? }` → `SaveResult` |
-| DELETE   | `/api/note?path=`                          | ✓    | propose           | 削除(エージェントは提案)                                                          |
-| POST     | `/api/changes`                             |      | propose           | 複数ファイルの変更 `{ title, description?, changes, baseShas?, mode? }`           |
-| POST     | `/api/note/rename`                         | ✓    |                   | 名前変更とリンクの書き換え `{ from, to }`                                         |
-| POST     | `/api/note/editing`                        | ✓    |                   | 編集中の通知 `{ path, active }`                                                   |
-| GET      | `/api/note/backlinks?path=`                | ✓    | read              | バックリンクと発リンク                                                            |
-| GET      | `/api/note/history?path=`                  | ✓    | read              | 履歴                                                                              |
-| GET      | `/api/note/blame?path=`                    | ✓    | read              | 段落ごとの作成者                                                                  |
-| GET      | `/api/file?path=`                          | ✓    | read              | 添付ファイル                                                                      |
-| POST     | `/api/attachments`                         | ✓    |                   | 添付のアップロード(multipart `file`)                                              |
-| POST     | `/api/capture`                             | ✓    | capture / propose | クイックメモ `{ text, title?, folder?, url? }`                                    |
-| GET      | `/api/search?q=&mode=hybrid\|text\|vector` | ✓    | read              | 検索                                                                              |
-| GET      | `/api/tags` / `/api/graph`                 | ✓    | read              | タグ、リンクグラフ                                                                |
-| GET      | `/api/history?agentId=`                    | ✓    |                   | 全体の履歴                                                                        |
-| POST     | `/api/revert` / `/api/revert-agent`        | ✓    |                   | コミット / エージェントの変更を取り消す                                           |
-| POST     | `/api/sync`                                | ✓    |                   | アプリ外の編集を今すぐ取り込む                                                    |
-| GET      | `/api/events`                              | ✓    |                   | Server-Sent Events(`change`, `proposal`)                                          |
+| メソッド | パス                                       | 人間 | エージェント      | 内容                                                                                    |
+| -------- | ------------------------------------------ | ---- | ----------------- | --------------------------------------------------------------------------------------- |
+| GET      | `/api/notes?folder=`                       | ✓    | read              | 一覧                                                                                    |
+| GET      | `/api/note?path=&commit=`                  | ✓    | read              | 本文、`sha`、`commit`、フロントマター                                                   |
+| PUT      | `/api/note`                                | ✓    | propose           | 保存 `{ path, content, baseSha?, baseCommit?, device?, message? }` → `SaveResult`       |
+| DELETE   | `/api/note?path=`                          | ✓    | propose           | 削除(エージェントは提案)                                                                |
+| POST     | `/api/changes`                             |      | propose           | 複数ファイルの変更 `{ title, description?, changes, baseShas?, mode? }`                 |
+| POST     | `/api/note/rename`                         | ✓    |                   | 名前変更とリンクの書き換え `{ from, to }`                                               |
+| POST     | `/api/note/editing`                        | ✓    |                   | 編集中の通知 `{ path, active }`                                                         |
+| GET      | `/api/note/backlinks?path=`                | ✓    | read              | バックリンクと発リンク                                                                  |
+| GET      | `/api/note/history?path=`                  | ✓    | read              | 履歴                                                                                    |
+| GET      | `/api/note/blame?path=`                    | ✓    | read              | 段落ごとの作成者                                                                        |
+| GET      | `/api/file?path=`                          | ✓    | read              | 添付ファイル                                                                            |
+| POST     | `/api/attachments`                         | ✓    |                   | 添付のアップロード(multipart `file`)                                                    |
+| POST     | `/api/capture`                             | ✓    | capture / propose | クイックメモ `{ text, title?, folder?, url? }`                                          |
+| GET      | `/api/search?q=&mode=hybrid\|text\|vector` | ✓    | read              | 検索                                                                                    |
+| GET      | `/api/tags` / `/api/graph`                 | ✓    | read              | タグ、リンクグラフ                                                                      |
+| GET      | `/api/history?agentId=`                    | ✓    |                   | 全体の履歴                                                                              |
+| POST     | `/api/revert` / `/api/revert-agent`        | ✓    |                   | コミット / エージェントの変更を取り消す                                                 |
+| POST     | `/api/sync`                                | ✓    |                   | GitHubへのアプリ外のpushを今すぐ取り込む                                                |
+| GET      | `/api/poll?since=<commit>`                 | ✓    |                   | 変更の確認 `{ head, openProposals, paths }`(`paths` は since からの変更、不明なら null) |
 
 `SaveResult` は `{ status: 'committed', commit, sha, merged }`、`{ status: 'unchanged' }`、`{ status: 'proposed', proposalId, reason, merged? }` のいずれかです。
 
@@ -99,20 +100,32 @@ dateProperty: due # calendar
 | DELETE         | `/api/admin/calendar/feeds/:id`                      | 公開URLを無効にする                                                                      |
 | GET            | `/cal/<token>.ics`                                   | 公開フィード(認証なし、トークンで保護)                                                   |
 
-## 管理(人間のみ)
+## 設定(本人のみ)
 
-| メソッド       | パス                           | 内容                                           |
-| -------------- | ------------------------------ | ---------------------------------------------- |
-| GET / POST     | `/api/admin/agents`            | エージェント一覧・作成                         |
-| PATCH / DELETE | `/api/admin/agents/:id`        | 設定変更・失効                                 |
-| POST           | `/api/admin/agents/:id/tokens` | トークン発行 `{ scope, label, expiresInDays }` |
-| DELETE         | `/api/admin/tokens/:id`        | トークン失効                                   |
-| GET / PUT      | `/api/admin/preferences`       | 見た目の設定 `{ accent, mode }`(全端末で共有)  |
-| GET / PUT      | `/api/admin/policy`            | AIポリシー                                     |
-| POST           | `/api/admin/policy/allow`      | 検出結果を「問題なし」にする `{ fingerprint }` |
-| POST           | `/api/admin/backup`            | バックアップのダウンロード `{ passphrase? }`   |
-| POST           | `/api/admin/reindex`           | インデックス再構築                             |
-| GET            | `/api/admin/plugins`           | プラグインの状態                               |
+| メソッド       | パス                           | 内容                                                                                          |
+| -------------- | ------------------------------ | --------------------------------------------------------------------------------------------- |
+| GET / POST     | `/api/admin/agents`            | エージェント一覧・作成                                                                        |
+| PATCH / DELETE | `/api/admin/agents/:id`        | 設定変更・失効                                                                                |
+| POST           | `/api/admin/agents/:id/tokens` | トークン発行 `{ scope, label, expiresInDays }`                                                |
+| DELETE         | `/api/admin/tokens/:id`        | トークン失効                                                                                  |
+| GET / PUT      | `/api/admin/preferences`       | 見た目の設定 `{ accent, mode }`(全端末で共有)                                                 |
+| GET / PUT      | `/api/admin/policy`            | AIポリシー                                                                                    |
+| POST           | `/api/admin/policy/allow`      | 検出結果を「問題なし」にする `{ fingerprint }`                                                |
+| GET            | `/api/admin/export`            | 全ノート(最新の状態)の .tar.gz                                                                |
+| POST           | `/api/admin/reindex`           | インデックス再構築                                                                            |
+| GET / PUT      | `/api/admin/storage`           | 保存先 `{ storage: 'builtin' \| 'github', github?: { owner, repo, branch?, token? }, copy? }` |
+| DELETE         | `/api/admin/storage/github`    | 保存したGitHub接続(トークン)を削除                                                            |
+| DELETE         | `/api/admin/oauth-clients/:id` | MCPクライアントの接続を解除(トークンも失効)                                                   |
+
+## サーバー管理(管理者のみ)
+
+| メソッド   | パス                         | 内容                                                         |
+| ---------- | ---------------------------- | ------------------------------------------------------------ |
+| GET        | `/api/admin/users`           | アカウント一覧と登録方法                                     |
+| DELETE     | `/api/admin/users/:id`       | アカウントの削除                                             |
+| POST       | `/api/admin/users/:id/reset` | サインアウトさせ、新しいリカバリーコードを発行 → `{ codes }` |
+| GET / POST | `/api/admin/invites`         | 招待の一覧・作成 `{ days? }` → `{ code, url }`(一度だけ)     |
+| DELETE     | `/api/admin/invites/:id`     | 未使用の招待を取り消す                                       |
 
 ## OAuth / MCP
 
