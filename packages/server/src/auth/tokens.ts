@@ -1,6 +1,6 @@
-import { type DB, nowIso } from '../db/db.js';
+import { type Db, nowIso } from '../db/db.js';
 import { randomToken, sha256 } from '../util/crypto.js';
-import type { Agent, AgentStore } from './agents.js';
+import { type Agent, agentById } from './agents.js';
 
 export const SCOPES = ['notes:read', 'notes:propose', 'notes:write', 'notes:capture'] as const;
 export type Scope = (typeof SCOPES)[number];
@@ -20,6 +20,7 @@ export interface TokenInfo {
 }
 
 export interface Principal {
+  userId: string;
   agent: Agent;
   scope: Set<Scope>;
   tokenId: string;
@@ -28,6 +29,7 @@ export interface Principal {
 interface TokenRow {
   hash: string;
   kind: 'access' | 'refresh' | 'pat';
+  user_id: string;
   agent_id: string;
   client_id: string | null;
   scope: string;
@@ -52,115 +54,84 @@ const PREFIX = { access: 'gma_', refresh: 'gmr_', pat: 'gmp_' } as const;
  */
 export class TokenService {
   constructor(
-    private readonly db: DB,
-    private readonly agents: AgentStore,
+    private readonly db: Db,
     private readonly accessMinutes: number,
   ) {}
 
-  private insert(
+  private async insert(
     kind: TokenRow['kind'],
+    userId: string,
     agentId: string,
     scope: Scope[],
     opts: { clientId?: string | null; label?: string; expiresAt?: string | null },
   ) {
     const token = PREFIX[kind] + randomToken(32);
-    this.db
-      .prepare(
-        'INSERT INTO tokens(hash, kind, agent_id, client_id, scope, label, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      )
-      .run(
-        sha256(token),
-        kind,
-        agentId,
-        opts.clientId ?? null,
-        scope.join(' '),
-        opts.label ?? '',
-        nowIso(),
-        opts.expiresAt ?? null,
-      );
+    await this.db.run(
+      'INSERT INTO tokens(hash, kind, user_id, agent_id, client_id, scope, label, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      await sha256(token),
+      kind,
+      userId,
+      agentId,
+      opts.clientId ?? null,
+      scope.join(' '),
+      opts.label ?? '',
+      nowIso(),
+      opts.expiresAt ?? null,
+    );
     return token;
   }
 
-  createPat(agentId: string, scope: Scope[], label: string, expiresInDays?: number): string {
-    const expiresAt = expiresInDays
-      ? new Date(Date.now() + expiresInDays * 86400_000).toISOString()
-      : null;
-    return this.insert('pat', agentId, scope, { label, expiresAt });
+  createPat(userId: string, agentId: string, scope: Scope[], label: string, expiresInDays?: number): Promise<string> {
+    const expiresAt = expiresInDays ? new Date(Date.now() + expiresInDays * 86400_000).toISOString() : null;
+    return this.insert('pat', userId, agentId, scope, { label, expiresAt });
   }
 
-  issueOAuthTokens(agentId: string, clientId: string, scope: Scope[]) {
-    const access = this.insert('access', agentId, scope, {
+  async issueOAuthTokens(userId: string, agentId: string, clientId: string, scope: Scope[]) {
+    const access = await this.insert('access', userId, agentId, scope, {
       clientId,
       expiresAt: new Date(Date.now() + this.accessMinutes * 60_000).toISOString(),
     });
-    const refresh = this.insert('refresh', agentId, scope, {
+    const refresh = await this.insert('refresh', userId, agentId, scope, {
       clientId,
       expiresAt: new Date(Date.now() + 90 * 86400_000).toISOString(),
     });
-    return {
-      access_token: access,
-      refresh_token: refresh,
-      token_type: 'Bearer',
-      expires_in: this.accessMinutes * 60,
-      scope: scope.join(' '),
-    };
+    return { access_token: access, refresh_token: refresh, token_type: 'Bearer', expires_in: this.accessMinutes * 60, scope: scope.join(' ') };
   }
 
   /** Exchange a refresh token (rotated: the old one is revoked). */
-  refresh(refreshToken: string, clientId: string) {
-    const row = this.db
-      .prepare(`SELECT * FROM tokens WHERE hash = ? AND kind = 'refresh'`)
-      .get(sha256(refreshToken)) as TokenRow | undefined;
-    if (
-      !row ||
-      row.revoked_at ||
-      row.client_id !== clientId ||
-      (row.expires_at && row.expires_at < nowIso())
-    )
-      return null;
-    const agent = this.agents.get(row.agent_id);
+  async refresh(refreshToken: string, clientId: string) {
+    const hash = await sha256(refreshToken);
+    const row = await this.db.first<TokenRow>(`SELECT * FROM tokens WHERE hash = ? AND kind = 'refresh'`, hash);
+    if (!row || row.revoked_at || row.client_id !== clientId || (row.expires_at && row.expires_at < nowIso())) return null;
+    const agent = await agentById(this.db, row.agent_id);
     if (!agent || agent.revokedAt) return null;
-    this.db.prepare('UPDATE tokens SET revoked_at = ? WHERE hash = ?').run(nowIso(), row.hash);
-    return this.issueOAuthTokens(row.agent_id, clientId, parseScope(row.scope));
+    const r = await this.db.run('UPDATE tokens SET revoked_at = ? WHERE hash = ? AND revoked_at IS NULL', nowIso(), hash);
+    if (r.changes !== 1) return null; // used concurrently
+    return this.issueOAuthTokens(row.user_id, row.agent_id, clientId, parseScope(row.scope));
   }
 
-  verify(bearer: string | undefined): Principal | null {
-    if (!bearer || !(bearer.startsWith(PREFIX.access) || bearer.startsWith(PREFIX.pat)))
-      return null;
-    const hash = sha256(bearer);
-    const row = this.db.prepare('SELECT * FROM tokens WHERE hash = ?').get(hash) as
-      TokenRow | undefined;
+  async verify(bearer: string | undefined): Promise<Principal | null> {
+    if (!bearer || !(bearer.startsWith(PREFIX.access) || bearer.startsWith(PREFIX.pat))) return null;
+    const hash = await sha256(bearer);
+    const row = await this.db.first<TokenRow>('SELECT * FROM tokens WHERE hash = ?', hash);
     if (!row || row.kind === 'refresh' || row.revoked_at) return null;
     if (row.expires_at && row.expires_at < nowIso()) return null;
-    const agent = this.agents.get(row.agent_id);
-    if (!agent || agent.revokedAt) return null;
-    this.db.prepare('UPDATE tokens SET last_used_at = ? WHERE hash = ?').run(nowIso(), hash);
-    return { agent, scope: new Set(parseScope(row.scope)), tokenId: hash.slice(0, 12) };
+    const agent = await agentById(this.db, row.agent_id);
+    if (!agent || agent.revokedAt || agent.userId !== row.user_id) return null;
+    await this.db.run('UPDATE tokens SET last_used_at = ? WHERE hash = ?', nowIso(), hash);
+    return { userId: row.user_id, agent, scope: new Set(parseScope(row.scope)), tokenId: hash.slice(0, 12) };
   }
 
-  revokeToken(rawOrId: string): void {
-    if (rawOrId.length > 12)
-      this.db
-        .prepare('UPDATE tokens SET revoked_at = ? WHERE hash = ?')
-        .run(nowIso(), sha256(rawOrId));
-    else
-      this.db
-        .prepare(`UPDATE tokens SET revoked_at = ? WHERE substr(hash, 1, 12) = ?`)
-        .run(nowIso(), rawOrId);
+  /** Revoke by raw token (anyone holding it) or by short id (owner only). */
+  async revokeToken(rawOrId: string, userId?: string): Promise<void> {
+    if (rawOrId.length > 12) await this.db.run('UPDATE tokens SET revoked_at = ? WHERE hash = ?', nowIso(), await sha256(rawOrId));
+    else if (userId) await this.db.run(`UPDATE tokens SET revoked_at = ? WHERE substr(hash, 1, 12) = ? AND user_id = ?`, nowIso(), rawOrId, userId);
   }
 
-  list(agentId?: string): TokenInfo[] {
-    const rows = (
-      agentId
-        ? this.db
-            .prepare(
-              `SELECT * FROM tokens WHERE agent_id = ? AND kind != 'refresh' ORDER BY created_at DESC`,
-            )
-            .all(agentId)
-        : this.db
-            .prepare(`SELECT * FROM tokens WHERE kind != 'refresh' ORDER BY created_at DESC`)
-            .all()
-    ) as TokenRow[];
+  async list(userId: string, agentId?: string): Promise<TokenInfo[]> {
+    const rows = agentId
+      ? await this.db.all<TokenRow>(`SELECT * FROM tokens WHERE user_id = ? AND agent_id = ? AND kind != 'refresh' ORDER BY created_at DESC`, userId, agentId)
+      : await this.db.all<TokenRow>(`SELECT * FROM tokens WHERE user_id = ? AND kind != 'refresh' ORDER BY created_at DESC`, userId);
     return rows.map((r) => ({
       id: r.hash.slice(0, 12),
       kind: r.kind,
@@ -176,21 +147,20 @@ export class TokenService {
   }
 
   /** Remove expired/revoked rows older than 30 days. */
-  prune(): void {
+  async prune(): Promise<void> {
     const cutoff = new Date(Date.now() - 30 * 86400_000).toISOString();
-    this.db
-      .prepare(
-        'DELETE FROM tokens WHERE (revoked_at IS NOT NULL AND revoked_at < ?) OR (expires_at IS NOT NULL AND expires_at < ?)',
-      )
-      .run(cutoff, cutoff);
+    await this.db.run(
+      'DELETE FROM tokens WHERE (revoked_at IS NOT NULL AND revoked_at < ?) OR (expires_at IS NOT NULL AND expires_at < ?)',
+      cutoff,
+      cutoff,
+    );
   }
 }
 
 /** What a principal may actually do: token scope intersected with agent settings. */
 export function capabilities(p: Principal) {
   const canRead = p.agent.canRead && p.scope.has('notes:read');
-  const canPropose =
-    p.agent.writeMode !== 'none' && (p.scope.has('notes:propose') || p.scope.has('notes:write'));
+  const canPropose = p.agent.writeMode !== 'none' && (p.scope.has('notes:propose') || p.scope.has('notes:write'));
   const canWriteDirect = p.agent.writeMode === 'direct' && p.scope.has('notes:write');
   return { canRead, canPropose, canWriteDirect };
 }
