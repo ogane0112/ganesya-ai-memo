@@ -51,7 +51,13 @@ export default defineConfig({
         },
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+        // Japanese font subsets (~120 files) load on demand and are cached at runtime;
+        // only the Latin Inter subsets are precached.
+        globPatterns: [
+          '**/*.{js,css,html,svg,png,ico}',
+          'assets/inter-latin-*.woff2',
+          'assets/jetbrains-mono-latin-*.woff2',
+        ],
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [
           /^\/api\//,
@@ -61,6 +67,16 @@ export default defineConfig({
         ],
         cleanupOutdatedCaches: true,
         runtimeCaching: [
+          {
+            urlPattern: ({ url, request }) =>
+              request.destination === 'font' && url.origin === self.location.origin,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'gmemo-fonts',
+              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [200] },
+            },
+          },
           {
             urlPattern: ({ url, request }) =>
               request.method === 'GET' &&
@@ -108,6 +124,8 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: true,
     chunkSizeWarningLimit: 700,
+    // Never inline fonts as data: URLs; the CSP only allows same-origin fonts.
+    assetsInlineLimit: (file: string) => (file.endsWith('.woff2') ? false : undefined),
     rollupOptions: {
       output: {
         manualChunks(id) {
