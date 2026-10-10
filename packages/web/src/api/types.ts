@@ -248,3 +248,40 @@ export interface PluginInfo {
   routes: string[];
   tools: string[];
 }
+
+// ---- calendar ---------------------------------------------------------------
+
+export interface CalendarFeed {
+  id: string;
+  viewId: string;
+  label: string;
+  includeLinks: boolean;
+  createdAt: string;
+  lastFetchedAt: string | null;
+}
+
+export interface CalendarSubscription {
+  id: string;
+  name: string;
+  urlPreview: string;
+  color: string;
+  enabled: boolean;
+  createdAt: string;
+  fetchedAt: string | null;
+  lastError: string | null;
+  eventCount: number | null;
+}
+
+export interface ExternalEvent {
+  uid: string;
+  title: string;
+  location?: string;
+  allDay: boolean;
+  /** All-day: 'YYYY-MM-DD'; timed: ISO 8601 UTC. */
+  start: string;
+  /** Exclusive end. */
+  end: string;
+  subscriptionId: string;
+  calendar: string;
+  color: string;
+}

@@ -55,6 +55,7 @@ async function main(argv: string[]) {
         }, cfg.externalScanSeconds * 1000).unref();
       }
       setInterval(() => ctx.tokens.prune(), 24 * 3600 * 1000).unref();
+      setInterval(() => void ctx.calendar.refreshStale(), 30 * 60 * 1000).unref();
       const shutdown = () => {
         ctx.close();
         process.exit(0);

@@ -4,19 +4,20 @@
 
 ## サーバー
 
-| 変数                          | 既定値                    | 説明                                                            |
-| ----------------------------- | ------------------------- | --------------------------------------------------------------- |
-| `GMEMO_DATA_DIR`              | `./data`                  | データディレクトリ                                              |
-| `GMEMO_ORIGIN`                | `http://localhost:<port>` | 公開URL。パスキーとOAuthの検証に使う。**HTTPSのドメイン**にする |
-| `GMEMO_RP_ID`                 | `GMEMO_ORIGIN` のホスト名 | パスキーのRP ID。通常は変更不要                                 |
-| `GMEMO_RP_NAME`               | `Ganesya AI Memo`         | パスキー登録時に表示される名前                                  |
-| `GMEMO_PORT`                  | `8787`                    | 待ち受けポート                                                  |
-| `GMEMO_HOST`                  | `0.0.0.0`                 | 待ち受けアドレス                                                |
-| `GMEMO_WEB_DIR`               | `packages/web/dist`       | Webアプリのビルド出力                                           |
-| `GMEMO_PLUGINS_DIR`           | `$GMEMO_DATA_DIR/plugins` | プラグインの場所                                                |
-| `GMEMO_EXTERNAL_SCAN_SECONDS` | `15`                      | アプリ外での編集を検出する間隔(0で無効)                         |
-| `GMEMO_SESSION_DAYS`          | `30`                      | ログインセッションの有効日数                                    |
-| `GMEMO_ACCESS_TOKEN_MINUTES`  | `60`                      | OAuthアクセストークンの有効期間                                 |
+| 変数                          | 既定値                    | 説明                                                                                          |
+| ----------------------------- | ------------------------- | --------------------------------------------------------------------------------------------- |
+| `GMEMO_DATA_DIR`              | `./data`                  | データディレクトリ                                                                            |
+| `GMEMO_ORIGIN`                | `http://localhost:<port>` | 公開URL。パスキーとOAuthの検証に使う。**HTTPSのドメイン**にする                               |
+| `GMEMO_RP_ID`                 | `GMEMO_ORIGIN` のホスト名 | パスキーのRP ID。通常は変更不要                                                               |
+| `GMEMO_RP_NAME`               | `Ganesya AI Memo`         | パスキー登録時に表示される名前                                                                |
+| `GMEMO_PORT`                  | `8787`                    | 待ち受けポート                                                                                |
+| `GMEMO_HOST`                  | `0.0.0.0`                 | 待ち受けアドレス                                                                              |
+| `GMEMO_WEB_DIR`               | `packages/web/dist`       | Webアプリのビルド出力                                                                         |
+| `GMEMO_PLUGINS_DIR`           | `$GMEMO_DATA_DIR/plugins` | プラグインの場所                                                                              |
+| `GMEMO_EXTERNAL_SCAN_SECONDS` | `15`                      | アプリ外での編集を検出する間隔(0で無効)                                                       |
+| `GMEMO_SESSION_DAYS`          | `30`                      | ログインセッションの有効日数                                                                  |
+| `GMEMO_ACCESS_TOKEN_MINUTES`  | `60`                      | OAuthアクセストークンの有効期間                                                               |
+| `GMEMO_TIMEZONE`              | サーバーのタイムゾーン    | オフセットのない日時(ノートの `2026-10-12 10:00` など)を解釈するタイムゾーン。例:`Asia/Tokyo` |
 
 ## ローカルLLM
 

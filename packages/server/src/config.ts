@@ -35,6 +35,8 @@ export interface Config {
   };
   /** Allow non-HTTPS origins (development only). */
   insecureDev: boolean;
+  /** IANA time zone for dates without an offset (note dates, floating calendar times). */
+  timeZone: string;
 }
 
 function env(name: string): string | undefined {
@@ -102,6 +104,11 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
         : {}),
     },
     insecureDev: env('GMEMO_INSECURE_DEV') === '1',
+    timeZone:
+      env('GMEMO_TIMEZONE') ??
+      env('TZ') ??
+      Intl.DateTimeFormat().resolvedOptions().timeZone ??
+      'UTC',
     ...overrides,
   };
   return cfg;

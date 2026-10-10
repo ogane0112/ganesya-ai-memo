@@ -8,6 +8,8 @@ import type {
   AuthState,
   Backlinks,
   BlockAttribution,
+  CalendarFeed,
+  CalendarSubscription,
   FileResolution,
   GraphData,
   HistoryEntry,
@@ -19,6 +21,7 @@ import type {
   ProposalDetail,
   ProposalRow,
   ProposalStatus,
+  ExternalEvent,
   PublicFinding,
   SaveResult,
   Scope,
@@ -252,6 +255,28 @@ export const api = {
   allowFinding: (fingerprint: string) => post<Ok>('/api/admin/policy/allow', { fingerprint }),
   reindex: () => post<Ok>('/api/admin/reindex'),
   plugins: () => get<PluginInfo[]>('/api/admin/plugins'),
+  // ---- calendar ------------------------------------------------------------
+  calendarEvents: (from: string, to: string) =>
+    get<{ timeZone: string; events: ExternalEvent[] }>(`/api/calendar/events${qs({ from, to })}`),
+  calendarFeeds: () => get<CalendarFeed[]>('/api/admin/calendar/feeds'),
+  createCalendarFeed: (b: { viewId: string; label?: string; includeLinks?: boolean }) =>
+    post<{ feed: CalendarFeed; url: string }>('/api/admin/calendar/feeds', b),
+  revokeCalendarFeed: (id: string) =>
+    del<Ok>(`/api/admin/calendar/feeds/${encodeURIComponent(id)}`),
+  calendarSubscriptions: () => get<CalendarSubscription[]>('/api/admin/calendar/subscriptions'),
+  addCalendarSubscription: (b: { name?: string; url: string; color?: string }) =>
+    post<CalendarSubscription>('/api/admin/calendar/subscriptions', b),
+  updateCalendarSubscription: (
+    id: string,
+    b: Partial<{ name: string; url: string; color: string; enabled: boolean }>,
+  ) =>
+    patch<CalendarSubscription>(`/api/admin/calendar/subscriptions/${encodeURIComponent(id)}`, b),
+  refreshCalendarSubscription: (id: string) =>
+    post<CalendarSubscription | null>(
+      `/api/admin/calendar/subscriptions/${encodeURIComponent(id)}/refresh`,
+    ),
+  deleteCalendarSubscription: (id: string) =>
+    del<Ok>(`/api/admin/calendar/subscriptions/${encodeURIComponent(id)}`),
   /** Returns the backup file as a Blob plus the server-suggested file name. */
   backup: async (passphrase?: string): Promise<{ blob: Blob; filename: string }> => {
     let res: Response;

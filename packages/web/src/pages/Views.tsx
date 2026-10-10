@@ -2,9 +2,10 @@ import { getProperty, type ViewDefinition, type ViewNote } from '@gmemo/core';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, describeError } from '../api/client';
-import type { ViewRows } from '../api/types';
+import type { ExternalEvent, ViewRows } from '../api/types';
 import { Icon } from '../components/Icon';
 import { EmptyState, ErrorBox, Loading, PageHeader } from '../components/ui';
+import { addDayKey, bucketEvents, eventTimeLabel, monthRange } from '../lib/calendar';
 import { displayValue, localDateKey } from '../lib/format';
 import { useAsync, useDocumentTitle, useIsPhone } from '../lib/hooks';
 import { noteUrl } from '../lib/paths';
@@ -99,6 +100,7 @@ export function ViewPage() {
           </Link>
         }
       />
+      {phone && view.type === 'calendar' && <Agenda view={view} rows={rows} />}
       {rows.length === 0 ? (
         <EmptyState icon="table" title="条件に合うノートがありません" />
       ) : phone || view.type === 'list' ? (
@@ -220,6 +222,13 @@ function toDateKey(v: unknown): string | null {
   return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
 }
 
+/** "09:30" when a note's date value carries a time. */
+function noteTime(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const m = /^\d{4}-\d{2}-\d{2}[T ](\d{1,2}):(\d{2})/.exec(v.trim());
+  return m ? `${m[1]!.padStart(2, '0')}:${m[2]}` : null;
+}
+
 function CalendarView({ view, rows }: { view: ViewDefinition; rows: ViewNote[] }) {
   const prop = view.dateProperty ?? 'date';
   const byDay = useMemo(() => {
@@ -259,6 +268,8 @@ function CalendarView({ view, rows }: { view: ViewDefinition; rows: ViewNote[] }
   };
   const today = localDateKey(new Date());
   const undated = rows.filter((r) => !toDateKey(getProperty(r, prop)));
+  const [showExternal, setShowExternal] = useShowExternal();
+  const external = useExternalEvents(monthRange(month), showExternal);
   return (
     <div className="calendar">
       <div className="calendar-nav">
@@ -272,6 +283,12 @@ function CalendarView({ view, rows }: { view: ViewDefinition; rows: ViewNote[] }
           <Icon name="chevron" />
         </button>
       </div>
+      <ExternalToggle
+        show={showExternal}
+        onChange={setShowExternal}
+        count={external.events.length}
+        error={external.error}
+      />
       <div className="calendar-grid" role="grid" aria-label={`${y}年${mo}月`}>
         {['月', '火', '水', '木', '金', '土', '日'].map((d) => (
           <div key={d} className="calendar-dow" role="columnheader">
@@ -282,6 +299,7 @@ function CalendarView({ view, rows }: { view: ViewDefinition; rows: ViewNote[] }
           if (!d) return <div key={`e${i}`} className="calendar-cell empty" role="gridcell" />;
           const k = localDateKey(d);
           const items = byDay.get(k) ?? [];
+          const ext = external.byDay.get(k) ?? [];
           return (
             <div
               key={k}
@@ -289,8 +307,14 @@ function CalendarView({ view, rows }: { view: ViewDefinition; rows: ViewNote[] }
               role="gridcell"
             >
               <span className="calendar-day">{d.getDate()}</span>
+              {ext.map((e) => (
+                <ExternalItem key={`${e.subscriptionId}|${e.uid}|${e.start}`} event={e} />
+              ))}
               {items.map((r) => (
                 <Link key={r.path} to={noteUrl(r.path)} className="calendar-item" title={r.title}>
+                  {noteTime(getProperty(r, prop)) && (
+                    <span className="calendar-time">{noteTime(getProperty(r, prop))}</span>
+                  )}
                   {r.title}
                 </Link>
               ))}
@@ -304,6 +328,152 @@ function CalendarView({ view, rows }: { view: ViewDefinition; rows: ViewNote[] }
         </p>
       )}
     </div>
+  );
+}
+
+const SHOW_EXTERNAL_KEY = 'gmemo.calendar.showExternal';
+
+function useShowExternal(): [boolean, (v: boolean) => void] {
+  const [v, setV] = useState(() => {
+    try {
+      return localStorage.getItem(SHOW_EXTERNAL_KEY) !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const set = (next: boolean) => {
+    setV(next);
+    try {
+      localStorage.setItem(SHOW_EXTERNAL_KEY, next ? '1' : '0');
+    } catch {
+      // storage unavailable: keep the in-memory value
+    }
+  };
+  return [v, set];
+}
+
+/** Events from subscribed calendars (Google Calendar etc.) for a date range. */
+function useExternalEvents(range: { from: string; to: string }, enabled: boolean) {
+  const { changeTick } = useApp();
+  const data = useAsync(
+    () =>
+      enabled
+        ? api.calendarEvents(range.from, range.to)
+        : Promise.resolve({ timeZone: '', events: [] }),
+    [range.from, range.to, enabled, changeTick],
+  );
+  const events = useMemo(() => data.data?.events ?? [], [data.data]);
+  const byDay = useMemo(() => bucketEvents(events), [events]);
+  return { events, byDay, error: data.error ? describeError(data.error) : null };
+}
+
+function ExternalToggle({
+  show,
+  onChange,
+  count,
+  error,
+}: {
+  show: boolean;
+  onChange: (v: boolean) => void;
+  count: number;
+  error: string | null;
+}) {
+  return (
+    <div className="calendar-external row wrap">
+      <label className="check">
+        <input type="checkbox" checked={show} onChange={(e) => onChange(e.target.checked)} />
+        外部カレンダーの予定を表示{show && count > 0 ? `(${count} 件)` : ''}
+      </label>
+      <Link to="/settings/calendar" className="hint">
+        カレンダー連携の設定
+      </Link>
+      {show && error && <span className="text-danger">{error}</span>}
+    </div>
+  );
+}
+
+function ExternalItem({ event: e }: { event: ExternalEvent }) {
+  const label = eventTimeLabel(e);
+  const detail = [`${e.calendar}`, label, e.title, e.location].filter(Boolean).join(' · ');
+  return (
+    <span
+      className="calendar-item calendar-item-external"
+      style={{ borderLeftColor: e.color }}
+      title={detail}
+    >
+      {!e.allDay && <span className="calendar-time">{label}</span>}
+      {e.title || '(タイトルなし)'}
+    </span>
+  );
+}
+
+/** Phone: the next two weeks, notes and external events together. */
+function Agenda({ view, rows }: { view: ViewDefinition; rows: ViewNote[] }) {
+  const prop = view.dateProperty ?? 'date';
+  const from = localDateKey(new Date());
+  const to = addDayKey(from, 14);
+  const [showExternal] = useShowExternal();
+  const external = useExternalEvents({ from, to }, showExternal);
+  const days: { key: string; notes: ViewNote[]; events: ExternalEvent[] }[] = [];
+  for (let k = from; k < to; k = addDayKey(k, 1)) {
+    const notes = rows
+      .filter((r) => toDateKey(getProperty(r, prop)) === k)
+      .sort((a, b) =>
+        (noteTime(getProperty(a, prop)) ?? '') < (noteTime(getProperty(b, prop)) ?? '') ? -1 : 1,
+      );
+    const events = external.byDay.get(k) ?? [];
+    if (notes.length || events.length) days.push({ key: k, notes, events });
+  }
+  const dow = ['日', '月', '火', '水', '木', '金', '土'];
+  return (
+    <section className="agenda" aria-label="これからの予定">
+      <h2 className="agenda-title">これから2週間</h2>
+      {days.length === 0 ? (
+        <p className="hint">予定はありません</p>
+      ) : (
+        <ol className="agenda-days">
+          {days.map((d) => {
+            const [y, m, dd] = d.key.split('-').map(Number) as [number, number, number];
+            const date = new Date(y, m - 1, dd);
+            return (
+              <li key={d.key}>
+                <div className={d.key === from ? 'agenda-date today' : 'agenda-date'}>
+                  {m}/{dd}({dow[date.getDay()]})
+                </div>
+                <ul className="agenda-items">
+                  {[
+                    ...d.events.map((e) => ({ sort: e.allDay ? '' : eventTimeLabel(e), event: e })),
+                    ...d.notes.map((r) => ({
+                      sort: noteTime(getProperty(r, prop)) ?? '',
+                      note: r,
+                    })),
+                  ]
+                    .sort((a, b) => (a.sort < b.sort ? -1 : a.sort > b.sort ? 1 : 0))
+                    .map((item) =>
+                      'event' in item && item.event ? (
+                        <li
+                          key={`${item.event.subscriptionId}|${item.event.uid}|${item.event.start}`}
+                          className="agenda-item"
+                          style={{ borderLeftColor: item.event.color }}
+                        >
+                          <span className="calendar-time">{eventTimeLabel(item.event)}</span>
+                          <span className="grow">{item.event.title || '(タイトルなし)'}</span>
+                          <span className="hint">{item.event.calendar}</span>
+                        </li>
+                      ) : 'note' in item && item.note ? (
+                        <li key={item.note.path} className="agenda-item agenda-note">
+                          <span className="calendar-time">{item.sort || '終日'}</span>
+                          <Link to={noteUrl(item.note.path)}>{item.note.title}</Link>
+                        </li>
+                      ) : null,
+                    )}
+                </ul>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </section>
   );
 }
 
@@ -506,15 +676,30 @@ export function ViewEditPage() {
               </>
             )}
             {form.type === 'calendar' && (
-              <div className="field">
-                <label htmlFor="v-date">日付のプロパティ</label>
-                <input
-                  id="v-date"
-                  className="input"
-                  value={form.dateProperty}
-                  onChange={(e) => set('dateProperty', e.target.value)}
-                />
-              </div>
+              <>
+                <div className="field">
+                  <label htmlFor="v-date">日付のプロパティ</label>
+                  <input
+                    id="v-date"
+                    className="input"
+                    value={form.dateProperty}
+                    onChange={(e) => set('dateProperty', e.target.value)}
+                  />
+                  <div className="hint">
+                    値は <code>2026-10-12</code>(終日)または <code>2026-10-12 10:00</code>
+                  </div>
+                </div>
+                <div className="field">
+                  <label htmlFor="v-end">終了日のプロパティ(任意)</label>
+                  <input
+                    id="v-end"
+                    className="input"
+                    value={form.endDateProperty}
+                    placeholder="end"
+                    onChange={(e) => set('endDateProperty', e.target.value)}
+                  />
+                </div>
+              </>
             )}
             <fieldset className="fieldset">
               <legend>絞り込み条件</legend>

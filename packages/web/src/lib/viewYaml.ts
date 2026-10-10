@@ -19,6 +19,7 @@ export interface ViewForm {
   groupBy: string;
   groups: string;
   dateProperty: string;
+  endDateProperty: string;
 }
 
 export const emptyViewForm = (): ViewForm => ({
@@ -32,6 +33,7 @@ export const emptyViewForm = (): ViewForm => ({
   groupBy: 'status',
   groups: '',
   dateProperty: 'date',
+  endDateProperty: '',
 });
 
 const list = (s: string) =>
@@ -52,6 +54,7 @@ export function formFromView(v: ViewDefinition): ViewForm {
     groupBy: v.groupBy ?? 'status',
     groups: (v.groups ?? []).join(', '),
     dateProperty: v.dateProperty ?? 'date',
+    endDateProperty: v.endDateProperty ?? '',
   };
 }
 
@@ -90,6 +93,8 @@ export function formToYaml(f: ViewForm): string {
     if (g.length) out['groups'] = g;
   }
   if (f.type === 'calendar' && f.dateProperty.trim()) out['dateProperty'] = f.dateProperty.trim();
+  if (f.type === 'calendar' && f.endDateProperty.trim())
+    out['endDateProperty'] = f.endDateProperty.trim();
   for (const k of Object.keys(out)) if (out[k] === undefined) delete out[k];
   return stringify(out);
 }

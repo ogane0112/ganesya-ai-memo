@@ -2238,3 +2238,98 @@ details > summary {
 .audit-item details {
   margin-top: 4px;
 }
+
+/* ---- calendar integration ------------------------------------------------- */
+
+.calendar-external {
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+}
+.calendar-item-external {
+  background: var(--bg-soft);
+  border-left: 3px solid var(--accent);
+  color: var(--fg);
+  cursor: default;
+}
+.calendar-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  margin-right: 4px;
+  font-size: 0.75rem;
+}
+.agenda {
+  margin-bottom: 16px;
+}
+.agenda-title {
+  font-size: 1rem;
+  margin: 0 0 8px;
+}
+.agenda-days {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.agenda-date {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.agenda-date.today {
+  color: var(--accent);
+}
+.agenda-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.agenda-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 10px;
+  min-height: 44px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+  border-left: 3px solid var(--border);
+}
+.agenda-note {
+  border-left-color: var(--accent);
+}
+.agenda-note a {
+  flex: 1;
+}
+.feed-url {
+  word-break: break-all;
+  font-size: 0.85rem;
+}
+.color-input {
+  width: 44px;
+  height: 36px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.color-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+details.help {
+  margin: 8px 0 12px;
+}
+details.help ol {
+  padding-left: 1.4em;
+  margin: 8px 0;
+}

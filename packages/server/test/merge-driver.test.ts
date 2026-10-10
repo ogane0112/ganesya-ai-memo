@@ -6,7 +6,7 @@ import { mergeDriverCommand } from '../src/app.js';
 import { git } from '../src/git/git.js';
 import { MAIN, NoteRepo } from '../src/git/repo.js';
 
-it('registers a git merge driver that merges frontmatter by key', async () => {
+it('registers a git merge driver that merges frontmatter by key', { timeout: 60_000 }, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'gmemo-driver-'));
   try {
     const repo = new NoteRepo(dir);

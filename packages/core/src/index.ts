@@ -8,3 +8,4 @@ export * from './sensitive.js';
 export * from './policy.js';
 export * from './views.js';
 export * from './paths.js';
+export * from './ical.js';

@@ -3,6 +3,7 @@ import { PageHeader } from '../../components/ui';
 import { useDocumentTitle } from '../../lib/hooks';
 import { AgentsSettings } from './Agents';
 import { AiPolicySettings, AuditLog } from './AiPolicy';
+import { CalendarSettings } from './Calendar';
 import { DataSettings } from './Data';
 import { McpSettings } from './Mcp';
 import { SecuritySettings } from './Security';
@@ -13,6 +14,7 @@ const SECTIONS = [
   { id: 'mcp', label: 'MCP接続', el: <McpSettings /> },
   { id: 'ai', label: 'AIポリシー', el: <AiPolicySettings /> },
   { id: 'audit', label: 'AI送信ログ', el: <AuditLog /> },
+  { id: 'calendar', label: 'カレンダー連携', el: <CalendarSettings /> },
   { id: 'data', label: 'データ', el: <DataSettings /> },
 ];
 

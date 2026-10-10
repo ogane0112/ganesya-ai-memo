@@ -10,6 +10,7 @@ import {
 } from '../ai/gateway.js';
 import type { AppContext } from '../app.js';
 import { AuthError } from '../auth/auth.js';
+import { CalendarError } from '../calendar/calendar.js';
 import { OAuthError } from '../auth/oauth.js';
 import { capabilities, type Principal, type Scope } from '../auth/tokens.js';
 import { ConflictError, ForbiddenError, NotFoundError } from '../notes/service.js';
@@ -111,6 +112,7 @@ export function errorResponse(err: Error, c: Context): Response {
       { error: err.message, code: 'sensitive_confirm', findings: err.findings.map(publicFinding) },
       428,
     );
+  if (err instanceof CalendarError) return c.json({ error: err.message }, 400);
   if (err instanceof AiUnavailableError)
     return c.json({ error: err.message, code: 'ai_unavailable' }, 503);
   console.error(err);

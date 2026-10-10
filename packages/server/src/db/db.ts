@@ -136,6 +136,32 @@ export const APP_MIGRATIONS: readonly string[] = [
     created_at TEXT NOT NULL
   );
   `,
+  // v3: calendar integration. Feeds publish a view as an .ics URL (token stored
+  // hashed); subscriptions import external calendars such as Google Calendar.
+  `
+  CREATE TABLE calendar_feeds (
+    id TEXT PRIMARY KEY,
+    token_hash TEXT NOT NULL UNIQUE,
+    view_id TEXT NOT NULL,
+    label TEXT NOT NULL DEFAULT '',
+    include_links INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    last_fetched_at TEXT,
+    revoked_at TEXT
+  );
+  CREATE TABLE calendar_subscriptions (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    url TEXT NOT NULL,
+    color TEXT NOT NULL DEFAULT '#4f7cff',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    fetched_at TEXT,
+    etag TEXT,
+    body TEXT,
+    last_error TEXT
+  );
+  `,
 ];
 
 export const INDEX_MIGRATIONS: readonly string[] = [

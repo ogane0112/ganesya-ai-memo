@@ -87,6 +87,18 @@ dateProperty: due # calendar
 | POST     | `/api/sensitive/scan` | ローカルで機密検出 `{ text, useModel? }`                                     |
 | GET      | `/api/ai/audit`       | 外部送信の監査ログ                                                           |
 
+## カレンダー
+
+| メソッド       | パス                                                 | 内容                                                                                     |
+| -------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| GET            | `/api/calendar/events?from=YYYY-MM-DD&to=YYYY-MM-DD` | 取り込んだ外部カレンダーの予定(繰り返しを展開済み)                                       |
+| GET / POST     | `/api/admin/calendar/subscriptions`                  | 取り込むカレンダーの一覧・追加 `{ url, name?, color? }`                                  |
+| PATCH / DELETE | `/api/admin/calendar/subscriptions/:id`              | 変更 `{ name?, url?, color?, enabled? }`・削除                                           |
+| POST           | `/api/admin/calendar/subscriptions/:id/refresh`      | 今すぐ取得                                                                               |
+| GET / POST     | `/api/admin/calendar/feeds`                          | 公開URLの一覧・作成 `{ viewId, label?, includeLinks? }` → `{ feed, url }`(URLは一度だけ) |
+| DELETE         | `/api/admin/calendar/feeds/:id`                      | 公開URLを無効にする                                                                      |
+| GET            | `/cal/<token>.ics`                                   | 公開フィード(認証なし、トークンで保護)                                                   |
+
 ## 管理(人間のみ)
 
 | メソッド       | パス                           | 内容                                           |

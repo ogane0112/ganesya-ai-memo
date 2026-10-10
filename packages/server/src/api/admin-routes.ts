@@ -169,6 +169,53 @@ export function adminRoutes(ctx: AppContext) {
     });
   });
 
+  // ---- calendar --------------------------------------------------------------
+
+  app.get('/calendar/feeds', (c) => c.json(ctx.calendar.feeds()));
+
+  app.post('/calendar/feeds', async (c) => {
+    const b = await jsonBody<{ viewId: string; label?: string; includeLinks?: boolean }>(c);
+    return c.json(
+      await ctx.calendar.createFeed(str(b.viewId, 'viewId'), {
+        ...(b.label ? { label: b.label } : {}),
+        includeLinks: b.includeLinks === true,
+      }),
+    );
+  });
+
+  app.delete('/calendar/feeds/:id', (c) => {
+    ctx.calendar.revokeFeed(c.req.param('id'));
+    return c.json({ ok: true });
+  });
+
+  app.get('/calendar/subscriptions', (c) => c.json(ctx.calendar.subscriptions()));
+
+  app.post('/calendar/subscriptions', async (c) => {
+    const b = await jsonBody<{ name?: string; url: string; color?: string }>(c);
+    return c.json(
+      await ctx.calendar.addSubscription({
+        name: b.name ?? '',
+        url: str(b.url, 'url'),
+        ...(b.color ? { color: b.color } : {}),
+      }),
+    );
+  });
+
+  app.patch('/calendar/subscriptions/:id', async (c) => {
+    const b = await jsonBody<{ name?: string; url?: string; color?: string; enabled?: boolean }>(c);
+    return c.json(ctx.calendar.updateSubscription(c.req.param('id'), b));
+  });
+
+  app.post('/calendar/subscriptions/:id/refresh', async (c) => {
+    await ctx.calendar.refresh(c.req.param('id'));
+    return c.json(ctx.calendar.subscriptions().find((s) => s.id === c.req.param('id')) ?? null);
+  });
+
+  app.delete('/calendar/subscriptions/:id', (c) => {
+    ctx.calendar.deleteSubscription(c.req.param('id'));
+    return c.json({ ok: true });
+  });
+
   app.get('/plugins', (c) =>
     c.json(
       ctx.plugins.map((p) => ({

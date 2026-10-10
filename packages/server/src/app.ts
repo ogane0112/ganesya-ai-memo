@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { Rule } from '@gmemo/core';
 import { z } from 'zod';
 import { AiGateway } from './ai/gateway.js';
+import { CalendarService } from './calendar/calendar.js';
 import { createLlmClient } from './ai/llm.js';
 import { type Agent, AgentStore } from './auth/agents.js';
 import { AuthService } from './auth/auth.js';
@@ -36,6 +37,7 @@ export interface AppContext {
   tokens: TokenService;
   oauth: OAuthService;
   ai: AiGateway;
+  calendar: CalendarService;
   plugins: LoadedPlugin[];
   extraRules: Rule[];
   human(): HumanActor;
@@ -93,6 +95,8 @@ export async function createApp(
     cfg.llm.external ? createLlmClient(cfg.llm.external, 'external') : null,
   );
 
+  const calendar = new CalendarService(appDb, cfg, notes, indexer);
+
   const ctx: AppContext = {
     cfg,
     appDb,
@@ -105,6 +109,7 @@ export async function createApp(
     tokens,
     oauth,
     ai,
+    calendar,
     plugins: [],
     extraRules: [],
     human,

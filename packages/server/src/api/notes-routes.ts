@@ -387,6 +387,14 @@ export function notesRoutes(ctx: AppContext, ops: AgentOps) {
 
   // ---- AI ------------------------------------------------------------------
 
+  /** Events from subscribed external calendars (Google Calendar etc.), human only. */
+  app.get('/calendar/events', async (c) => {
+    requireHuman(c);
+    const from = str(c.req.query('from'), 'from');
+    const to = str(c.req.query('to'), 'to');
+    return c.json({ timeZone: ctx.calendar.timeZone, events: await ctx.calendar.events(from, to) });
+  });
+
   app.get('/ai/status', async (c) => {
     requireHuman(c);
     const policy = await notes.loadPolicy();

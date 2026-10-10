@@ -48,6 +48,8 @@ export interface ViewDefinition {
   groups?: string[];
   /** Property holding the date (calendar). */
   dateProperty?: string;
+  /** Optional property holding the end date/time (calendar). */
+  endDateProperty?: string;
 }
 
 export interface ViewNote {
@@ -127,11 +129,13 @@ export function normalizeView(id: string, raw: unknown): ViewDefinition {
   const tag = str(r['tag']);
   const groupBy = str(r['groupBy']);
   const dateProperty = str(r['dateProperty']);
+  const endDateProperty = str(r['endDateProperty']);
   if (folder) view.folder = folder;
   if (tag) view.tag = tag.replace(/^#/, '').toLowerCase();
   if (groupBy) view.groupBy = groupBy;
   if (Array.isArray(r['groups'])) view.groups = r['groups'].map(String);
   if (dateProperty) view.dateProperty = dateProperty;
+  if (endDateProperty) view.endDateProperty = endDateProperty;
   if (type === 'kanban' && !view.groupBy) view.groupBy = 'status';
   if (type === 'calendar' && !view.dateProperty) view.dateProperty = 'date';
   return view;

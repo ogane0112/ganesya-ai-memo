@@ -56,6 +56,18 @@ export function createHttpApp(ctx: AppContext) {
     return route.handler(c.req.raw);
   });
 
+  // ---- calendar feed (public, token in the URL) -------------------------------
+  app.get('/cal/:file', async (c) => {
+    const m = /^([A-Za-z0-9_-]{16,})\.ics$/.exec(c.req.param('file'));
+    const body = m ? await ctx.calendar.renderFeed(m[1]!) : null;
+    if (body === null) return c.text('not found', 404);
+    return c.body(body, 200, {
+      'content-type': 'text/calendar; charset=utf-8',
+      'cache-control': 'private, max-age=300',
+      'x-robots-tag': 'noindex',
+    });
+  });
+
   // ---- OAuth for MCP clients -------------------------------------------------
   const cors = {
     'access-control-allow-origin': '*',
