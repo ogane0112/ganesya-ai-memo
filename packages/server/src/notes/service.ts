@@ -252,7 +252,7 @@ export class NoteService {
       const head = await this.head();
       const currentSha = await this.repo.blobId(head, p);
       let text = content;
-      if (!currentSha && opts.baseSha === undefined) text = withCreator(text, human);
+      if (!currentSha && !opts.baseSha) text = withCreator(text, human);
 
       if (opts.baseSha !== undefined && (opts.baseSha ?? null) !== currentSha) {
         const base = opts.baseSha ? await this.repo.readBlob(opts.baseSha) : null;

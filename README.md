@@ -28,8 +28,8 @@ docker compose logs app       # 表示されたセットアップURLを開いて
 
 ```sh
 npm install
-npm run dev                         # API サーバー (http://localhost:8787)
-npm run dev -w @gmemo/web           # Web (Vite, /api をプロキシ)
+GMEMO_ORIGIN=http://localhost:5173 npm run dev   # API サーバー (:8787)。パスキーはブラウザで開くURLに合わせる
+npm run dev -w @gmemo/web                        # Web (Vite :5173、/api などをプロキシ)
 npm test && npm run typecheck && npm run lint
 ```
 

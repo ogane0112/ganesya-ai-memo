@@ -5,7 +5,7 @@ import { streamSSE } from 'hono/streaming';
 import { stringify as stringifyYaml } from 'yaml';
 import { ASK_SYSTEM_PROMPT, publicFinding } from '../ai/gateway.js';
 import type { AppContext } from '../app.js';
-import { capabilities, type Principal } from '../auth/tokens.js';
+import type { Principal } from '../auth/tokens.js';
 import type { FileResolution } from '../notes/service.js';
 import type { AgentOps } from './agent-ops.js';
 import { type Env, jsonBody, requireHuman, requireReader, str } from './http.js';
@@ -89,9 +89,12 @@ export function notesRoutes(ctx: AppContext, ops: AgentOps) {
     return c.json(hits);
   });
 
-  app.get('/tags', (c) => {
-    requireReader(c);
-    return c.json(indexer.tags());
+  app.get('/tags', async (c) => {
+    const { principal } = requireReader(c);
+    if (!principal) return c.json(indexer.tags());
+    const counts = new Map<string, number>();
+    for (const n of await ops.list(principal.agent)) for (const t of n.tags) counts.set(t, (counts.get(t) ?? 0) + 1);
+    return c.json([...counts].map(([tag, count]) => ({ tag, count })).sort((a, b) => b.count - a.count));
   });
 
   app.get('/graph', async (c) => {
@@ -185,11 +188,10 @@ export function notesRoutes(ctx: AppContext, ops: AgentOps) {
     if (b.url) text = `${text}\n${b.url}`.trim();
     if (!text.trim()) throw new HTTPException(400, { message: 'text is empty' });
     if (principal) {
-      if (!principal.scope.has('notes:capture') && !capabilities(principal).canPropose) throw new HTTPException(403, { message: 'token cannot capture' });
-      // A capture token belongs to the user's own device: recorded as the human.
-      const actor = principal.scope.has('notes:capture') ? ctx.human() : { kind: 'ai' as const, agentId: principal.agent.id, name: principal.agent.name };
-      if (actor.kind === 'ai') notes.assertAgentCan(principal.agent, 'write', [`${b.folder ?? 'Inbox'}/x.md`]);
-      return c.json(await notes.capture(text, { ...(b.title ? { title: b.title } : {}), ...(b.folder ? { folder: b.folder } : {}), actor }));
+      // Capture tokens belong to the user's own devices (share sheet, Shortcuts), so the
+      // note is recorded as written by the human. Agents use /api/changes instead.
+      if (!principal.scope.has('notes:capture')) throw new HTTPException(403, { message: 'token lacks notes:capture' });
+      return c.json(await notes.capture(text, { ...(b.title ? { title: b.title } : {}), ...(b.folder ? { folder: b.folder } : {}), actor: ctx.human() }));
     }
     requireHuman(c);
     return c.json(await notes.capture(text, { ...(b.title ? { title: b.title } : {}), ...(b.folder ? { folder: b.folder } : {}) }));

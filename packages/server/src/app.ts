@@ -1,6 +1,7 @@
 import { mkdir } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { Rule } from '@gmemo/core';
 import { z } from 'zod';
 import { AiGateway } from './ai/gateway.js';
@@ -44,7 +45,12 @@ function cliPath(): string {
 
 export function mergeDriverCommand(): string {
   const cli = cliPath();
-  const runner = cli.endsWith('.ts') ? `${JSON.stringify(process.execPath)} --import tsx` : JSON.stringify(process.execPath);
+  let runner = JSON.stringify(process.execPath);
+  if (cli.endsWith('.ts')) {
+    // Running from source (dev/tests): git invokes the driver from the notes dir, so pass tsx by absolute URL.
+    const tsxPkg = createRequire(import.meta.url).resolve('tsx/package.json');
+    runner += ` --import ${JSON.stringify(pathToFileURL(join(dirname(tsxPkg), 'dist/loader.mjs')).href)}`;
+  }
   return `${runner} ${JSON.stringify(cli)} merge-driver %O %A %B %P`;
 }
 

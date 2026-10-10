@@ -20,7 +20,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "dev": "npm run dev -w @gmemo/server"
+    "dev": "npm run build -w @gmemo/core && npm run dev -w @gmemo/server"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
