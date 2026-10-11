@@ -143,6 +143,9 @@ export function LoginPage() {
             {error}
           </p>
         )}
+        <Link to="/privacy" className="btn btn-text btn-block hint">
+          データの扱い
+        </Link>
       </div>
     </div>
   );

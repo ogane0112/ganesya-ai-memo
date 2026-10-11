@@ -12,6 +12,7 @@ import { NotesListPage } from './pages/NotesList';
 import { RegisterPasskeyPage } from './pages/RegisterPasskey';
 import { ReviewPage } from './pages/Review';
 import { SearchPage } from './pages/Search';
+import { PrivacyPage } from './pages/Privacy';
 import { NeedsSetupPage, SetupPage, SignupPage } from './pages/Setup';
 import { WritePage } from './pages/Write';
 import { AppProvider, useApp } from './state/app';
@@ -107,6 +108,7 @@ export function App() {
               <Route path="/login" element={<LoginPage />} />
               <Route path="/setup" element={<SetupPage />} />
               <Route path="/signup" element={<SignupPage />} />
+              <Route path="/privacy" element={<PrivacyPage />} />
               <Route
                 path="/register-passkey"
                 element={

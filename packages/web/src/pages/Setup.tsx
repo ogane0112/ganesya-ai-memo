@@ -165,6 +165,10 @@ function CreateAccount({
             アカウントをお持ちの方はサインイン
           </Link>
         )}
+        <p className="hint auth-foot">
+          ノートの保存場所や、AIに何が渡るかは <Link to="/privacy">データの扱い</Link>{' '}
+          にまとめています。
+        </p>
       </form>
     </div>
   );
