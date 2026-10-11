@@ -158,7 +158,7 @@ export function configWarnings(cfg: Config): string[] {
   }
   if (!cfg.secretKey) {
     warnings.push(
-      'GMEMO_SECRET_KEY is not set: GitHub storage is disabled and audit log entries are not signed.',
+      'GMEMO_SECRET_KEY is not set: GitHub storage is disabled, audit log entries are not signed, and uploaded files are not kept in object storage.',
     );
   }
   if (cfg.env === 'staging' && !cfg.access && !cfg.insecureDev) {

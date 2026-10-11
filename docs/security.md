@@ -76,7 +76,8 @@ Cloudflare D1 のデータは Cloudflare によって保存時に暗号化され
 - 厳しめのCSP(`script-src 'self'`、外部リソースなし)、`X-Frame-Options: DENY`、`nosniff`、HTTPSでは HSTS
 - アカウント関連のAPIは `Cache-Control: no-store`
 - Markdownの描画はサニタイズ済みHTMLのみ
-- 添付ファイルは `nosniff` と制限的なCSP付きで配信
+- R2 に置く添付ファイルは、保存前に AES-256-GCM で暗号化(鍵は `GMEMO_SECRET_KEY` から HKDF でユーザーごとに導出、64KiB ごとに認証付き。改ざん・切り詰め・入れ替えは読み出し時に検出)。ノート本文は検索とAI連携のため暗号化していません
+- 添付ファイルは `nosniff` と制限的なCSP付きで配信。種類はファイル名から決め(アップロード時の申告は使わない)、画像・PDF・音声・動画・テキスト以外はダウンロードとして渡す
 - 取り込むカレンダーのURLは、サーバーが取得するため、社内・ループバック・リンクローカルのアドレスを拒否します(`GMEMO_INSECURE_DEV=1` の場合を除く)
 
 ## 脆弱性の報告
