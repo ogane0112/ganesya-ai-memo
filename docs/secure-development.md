@@ -149,14 +149,12 @@
 
 ## 6. GitHub 側で有効にする設定
 
-リポジトリの Settings → Code security で、次を有効にしてください(公開リポジトリは無料)。
+手順は [GitHub リポジトリの設定手順](github-setup.md) にあります。要点は次のとおりです。
 
-- [ ] Dependabot alerts / Dependabot security updates
-- [ ] Secret scanning と Push protection(シークレットのコミットを止める)
-- [ ] Private vulnerability reporting(非公開の脆弱性報告)
-- [ ] CodeQL の結果の確認(`.github/workflows/codeql.yml` が結果を送る)
-
-Settings → Branches で `main` を保護し、`check`、`security`、`CodeQL` の成功を必須にします。
+- アカウントの2段階認証、デフォルトブランチを `main` に
+- Actions の権限を読み取りのみに、外部からのPRのワークフローは承認制に
+- Dependabot alerts / security updates、Secret scanning と Push protection、Private vulnerability reporting
+- `main` をルールセットで保護し、`check`、`security`、`docker`、`analyze`(CodeQL)の成功と、CodeQL の重大な警告がないことを必須にする
 
 ## 7. 脆弱性の報告
 

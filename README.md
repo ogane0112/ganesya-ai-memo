@@ -59,6 +59,7 @@ MCPに対応したクライアント(Claude など)に、サーバーURL `https:
 | [セキュリティ](docs/security.md)                   | 脅威モデル、E2EEを採用しない理由、保存データ            |
 | [運用方針](docs/operations.md)                     | ステージング/本番、リリース手順、監査ログ、漏洩時の対応 |
 | [セキュリティ開発方針](docs/secure-development.md) | 依存の更新、脆弱性(CVE)対応、台帳、コーディング規約     |
+| [GitHub の設定手順](docs/github-setup.md)          | ブランチ保護、Dependabot、Secret scanning、CodeQL       |
 | [アーキテクチャ](docs/architecture.md)             | データ設計、マージモデル、インデックス                  |
 | [デザインシステム](docs/design-system.md)          | 部品カタログ(`npm run design -w @gmemo/web`)            |
 | [REST API](docs/api.md)                            | エンドポイント一覧                                      |
