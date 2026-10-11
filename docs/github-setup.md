@@ -171,37 +171,119 @@ CI には次のものが渡ります。そのため、CI が乗っ取られる�
 
 ## 5. `main` を保護する(ルールセット)
 
-**Settings** → **Rules** → **Rulesets** → **New ruleset** → **New branch ruleset**。
+### ルールセットとは
 
-| 項目               | 設定                                                                     |
-| ------------------ | ------------------------------------------------------------------------ |
-| Ruleset Name       | `main`                                                                   |
-| Enforcement status | **Active**                                                               |
-| Bypass list        | 空のまま(管理者も例外にしない。緊急時はルールセットを一時的に無効にする) |
-| Target branches    | **Add target** → **Include default branch**                              |
+`main` に入る変更に「守らないといけない条件」を付ける機能です。設定すると、たとえば次のことができなくなります。
 
-**Branch rules** で次にチェックを入れます。
+- CI が失敗している PR のマージ
+- `main` への直接の push(PR を通さない変更)
+- `main` の削除や履歴の書き換え(force push)
 
-- **Restrict deletions**(`main` を消せないように)
-- **Block force pushes**(履歴を書き換えられないように)
-- **Require linear history**(squash マージだけにする場合)
-- **Require a pull request before merging**
-  - **Required approvals**:**0**(1人で開発している間は。自分のPRは自分で承認できないため、1以上にするとマージできなくなります。共同開発者が増えたら1以上に)
-  - **Dismiss stale pull request approvals when new commits are pushed**:オン
-  - **Require conversation resolution before merging**:オン(レビューの指摘を放置したままマージしない)
-- **Require status checks to pass**
-  - **Require branches to be up to date before merging**:オン
-  - **Add checks** で次の4つを追加(一度CIが動いたあとでないと候補に出ません。PR #1 で動いています)
-    - `check`(lint・型・テスト・ビルド)
-    - `security`(パッケージ署名・台帳チェック・SBOM)
-    - `docker`
-    - `analyze`(CodeQL)
-- **Require code scanning results**
-  - **Add tool** → `CodeQL`、**Security alerts**:**High or higher**、**Alerts**:**Errors**
+**自分自身(管理者)も例外にしない**のがポイントです。うっかりミスや、アカウントや CI が乗っ取られたときの被害を止められます。
 
-**Create** で保存します。
+> **始める前に**:手順2でデフォルトブランチを `main` にしておいてください。このルールセットは「デフォルトブランチ」を対象にするので、先に切り替えないと古いブランチが保護されます。
 
-> 旧来の **Settings** → **Branches** → **Add branch protection rule** でも同じことができます。どちらか一方だけにしてください。
+### 画面を開く
+
+**Settings** → 左メニューの **Rules** → **Rulesets** → **New ruleset** → **New branch ruleset**。
+
+画面は上から「名前」「Enforcement status」「Bypass list」「Target branches」「Rules」の順に並んでいます。上から順に設定します。
+
+### ステップ1:名前と有効化
+
+| 項目                   | 入力・選択    | 説明                                                                                       |
+| ---------------------- | ------------- | ------------------------------------------------------------------------------------------ |
+| **Ruleset Name**       | `main を保護` | 何でも構いません。一覧で見分けるための名前です                                             |
+| **Enforcement status** | **Active**    | **Disabled** のままだと何も守られません。**Evaluate** は「違反を記録するだけ」で止めません |
+
+### ステップ2:Bypass list(例外にする人)
+
+**何も追加しない**(「Bypass list is empty」のまま)。
+
+ここに追加した人やアプリは、ルールを無視できます。自分を入れたくなりますが、入れると「自分のアカウントが乗っ取られたら何でもできる」状態に戻ってしまいます。
+
+緊急でどうしてもルールを外したいとき(GitHub の障害で CI が動かない等)は、この画面で **Enforcement status** を一時的に **Disabled** にし、作業後に **Active** に戻します。
+
+### ステップ3:Target branches(どのブランチを守るか)
+
+**Add target** → **Include default branch** を選び、「Include: Default」と表示されることを確認します。
+
+デフォルトブランチ(`main`)だけが対象になります。作業用のブランチは自由に push できるままです。
+
+### ステップ4:Rules(どのルールを付けるか)
+
+チェックを入れるのは **5つ**、入れないものにも理由があります。
+
+| ルール                                    | 設定                       | 理由                                                                                                                                                             |
+| ----------------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Restrict creations                        | ☐ オフ                     | `main` はもうあるので不要                                                                                                                                        |
+| Restrict updates                          | ☐ **オフ**                 | オンにすると例外の人しか `main` を更新できなくなり、**誰も PR をマージできなくなります**(例外は空にしたため)                                                     |
+| **Restrict deletions**                    | ☑ **オン**                 | `main` を誤って(または乗っ取られて)消されないように                                                                                                              |
+| **Require linear history**                | ☑ **オン**                 | 履歴を一直線にする。PR は「Squash and merge」(1つのPR = 1つのコミット)でマージすることになり、あとで「いつ何が入ったか」を追いやすい                             |
+| Require deployments to succeed            | ☐ オフ                     | デプロイの成功をマージの条件にする機能。このリポジトリはマージ後に手動でデプロイするので不要                                                                     |
+| Require signed commits                    | ☐ オフ                     | コミットへの電子署名を必須にする。署名の準備(鍵の登録)が必要になるので、今は不要。Squash でマージすると GitHub が署名したコミットになります                      |
+| **Require a pull request before merging** | ☑ **オン**                 | `main` には PR を通した変更しか入らない。下の「詳細設定」も参照                                                                                                  |
+| **Require status checks to pass**         | ☑ **オン**                 | CI が通った PR しかマージできない。下の「詳細設定」も参照                                                                                                        |
+| **Block force pushes**                    | ☑ **オン**                 | `main` の履歴の書き換え・消去を禁止                                                                                                                              |
+| Require code scanning results             | ☐ **今はオフ**(あとでオン) | CodeQL の重大な警告がある PR を止める。**`main` で一度 CodeQL が動くまでは、オンにすると PR #1 もマージできなくなる**ので、下の「ステップ6」で後からオンにします |
+| Require code quality results              | ☐ オフ                     | GitHub の別機能(Code Quality)の結果を使う。今は使っていない                                                                                                      |
+| Restrict code coverage                    | ☐ オフ                     | テストのカバー率を条件にする。カバー率を計測していないので不要                                                                                                   |
+| Automatically request Copilot code review | ☐ お好みで                 | PR を出すと Copilot が自動でレビューする。AI クレジットを使います。レビューの目が増えるので、使えるならオンも可                                                  |
+
+#### 「Require a pull request before merging」の詳細設定
+
+チェックを入れると下に項目が開きます。
+
+| 項目                                                             | 設定            | 理由                                                                                                                                 |
+| ---------------------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| **Required approvals**                                           | **0**           | 1人で開発している間は 0。**自分の PR は自分で承認できない**ので、1 以上にするとマージできなくなります。共同開発者が増えたら 1 以上に |
+| Dismiss stale pull request approvals when new commits are pushed | ☑ オン          | 承認したあとに変更が追加されたら、承認を取り消す(承認後のすり替えを防ぐ)。承認数 0 の間は影響なし                                    |
+| Require review from Code Owners                                  | ☐ オフ          | CODEOWNERS ファイルを使っていないので不要                                                                                            |
+| Require approval of the most recent reviewable push              | ☐ オフ          | 共同開発者が増えたら検討                                                                                                             |
+| **Require conversation resolution before merging**               | ☑ **オン**      | PR のレビューコメント(CodeQL の指摘を含む)がすべて「解決済み」になるまでマージできない。指摘の放置を防ぐ                             |
+| **Allowed merge methods**                                        | **Squash** のみ | 「Require linear history」と合わせる。Merge commit を残すと、linear history のルールに引っかかってマージできません                   |
+
+#### 「Require status checks to pass」の詳細設定
+
+| 項目                                                 | 設定   | 理由                                                                                            |
+| ---------------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------- |
+| **Require branches to be up to date before merging** | ☑ オン | PR が古い `main` を元にしていたら、最新を取り込んでから CI を通し直す(マージ後に壊れるのを防ぐ) |
+| Do not require status checks on creation             | ☐ オフ | ブランチ作成時の扱い。`main` は既にあるので影響なし                                             |
+
+**Add checks** を押し、検索欄に次の名前を1つずつ入れて選びます(候補に **GitHub Actions** と表示されるものを選ぶ)。
+
+| チェック名 | 中身                                                       |
+| ---------- | ---------------------------------------------------------- |
+| `check`    | lint、型チェック、テスト、ビルド                           |
+| `security` | パッケージ署名の確認、台帳チェック(`security:check`)、SBOM |
+| `docker`   | Docker イメージのビルド                                    |
+| `analyze`  | CodeQL の解析(解析が最後まで動いたか)                      |
+
+候補に出てこない場合は、そのチェックが一度も動いていません。PR #1 で動いているので、通常は表示されます。
+
+### ステップ5:保存
+
+一番下の **Create** を押します。一覧に「Active」と表示されれば完了です。
+
+### ステップ6:PR #1 をマージしたあとで、CodeQL の結果も必須にする
+
+PR #1 をマージすると、`main` で CodeQL が自動で動きます。**Security** → **Code scanning** に `main` の結果が出たら(数分後)、ルールセットを開いて次を追加します。
+
+1. **Settings** → **Rules** → **Rulesets** → 作ったルールセットを開く
+2. **Require code scanning results** にチェック
+3. **Add tool** → **CodeQL** を選ぶ
+4. **Security alerts**:**High or higher**(重大度が高以上の脆弱性が見つかったらマージできない)
+5. **Alerts**:**Errors**
+6. **Save changes**
+
+`analyze`(ステップ4)は「CodeQL が動いたか」、このルールは「CodeQL が重大な問題を見つけていないか」を見ます。両方あってはじめて、脆弱性を含む PR を止められます。
+
+### マージのしかた(設定後)
+
+PR の画面の一番下で、緑のボタンが **Squash and merge** になっていることを確認して押します。
+
+- CI が終わっていない、失敗している、未解決のコメントがある場合は、ボタンが押せず、理由が表示されます
+- 「This branch is out-of-date」と出たら **Update branch** を押し、CI が通るのを待ってからマージします
 
 ## 6. 古いブランチを消す
 
@@ -216,7 +298,8 @@ CI には次のものが渡ります。そのため、CI が乗っ取られる�
 - [ ] **Security** タブに **Code scanning**、**Dependabot**、**Secret scanning** が並び、エラーがない
 - [ ] **Security** → **Advisories** に **Report a vulnerability** ボタンがある(ログアウトした状態や別アカウントで確認)
 - [ ] PR の画面で、必須のチェック(Required)として `check`、`security`、`docker`、`analyze` が表示される
-- [ ] `main` に直接 push しようとすると拒否される(`git push origin HEAD:main` を試すと `protected branch` のエラー)
+- [ ] GitHub の画面で `main` のファイル(README など)を編集して保存しようとすると、`main` に直接コミットできず、新しいブランチと PR の作成を求められる(確かめたら PR は作らずに閉じる)
+- [ ] PR #1 のマージ後、ルールセットに **Require code scanning results**(CodeQL)を追加した(手順5のステップ6)
 - [ ] 月曜日に Dependabot のPRが届く(依存が最新なら届かないこともある)
 
 ## 運用で見る場所
