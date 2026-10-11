@@ -7,6 +7,10 @@
  *   npm run deploy:prod   # production (gmemo): only main, clean, pushed, CI green
  *
  * Add --dry-run to build and check everything without deploying.
+ *
+ * In GitHub Actions (.github/workflows/deploy.yml) the same checks run; the branch
+ * comes from DEPLOY_BRANCH, waiting CI/CodeQL runs are awaited, and Cloudflare
+ * credentials come from CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID.
  */
 import { execFileSync, spawnSync } from 'node:child_process';
 
@@ -17,6 +21,8 @@ if (mode !== 'staging' && mode !== 'production') {
   process.exit(2);
 }
 const prod = mode === 'production';
+const inActions = process.env.GITHUB_ACTIONS === 'true';
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const label = prod ? '本番(gmemo)' : 'ステージング(gmemo-stg)';
 
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
@@ -44,7 +50,8 @@ console.log(`  公開URL: ${origin}`);
 // ---- 2. Release rules for production -----------------------------------------------
 const head = git('rev-parse', 'HEAD');
 if (prod) {
-  const branch = git('rev-parse', '--abbrev-ref', 'HEAD');
+  // Actions checks out a commit (detached HEAD); the workflow says which branch it is.
+  const branch = process.env.DEPLOY_BRANCH || git('rev-parse', '--abbrev-ref', 'HEAD');
   if (branch !== 'main') fail(`本番は main からだけデプロイできます(いまは ${branch})`);
   if (git('status', '--porcelain')) fail('コミットしていない変更があります(git status で確認)');
   try {
@@ -58,22 +65,46 @@ if (prod) {
   // The commit must have passed CI on GitHub (public API; no token needed).
   const repo = git('remote', 'get-url', 'origin').match(/github\.com[:/](.+?)(\.git)?$/)?.[1];
   if (repo) {
-    try {
+    const runsFor = async () => {
       const res = await fetch(
         `https://api.github.com/repos/${repo}/actions/runs?head_sha=${head}&per_page=20`,
-        { headers: { accept: 'application/vnd.github+json', 'user-agent': 'gmemo-deploy' } },
+        {
+          headers: {
+            accept: 'application/vnd.github+json',
+            'user-agent': 'gmemo-deploy',
+            ...(process.env.GITHUB_TOKEN
+              ? { authorization: `Bearer ${process.env.GITHUB_TOKEN}` }
+              : {}),
+          },
+        },
       );
-      const runs = (await res.json()).workflow_runs ?? [];
-      for (const wf of ['CI', 'CodeQL']) {
-        const run = runs.find((r) => r.name === wf);
-        if (!run) fail(`このコミットで ${wf} がまだ動いていません。GitHub で終わるのを待ってから`);
-        if (run.status !== 'completed') fail(`${wf} が実行中です。終わってからもう一度`);
-        if (run.conclusion !== 'success') fail(`${wf} が失敗しています: ${run.html_url}`);
+      if (!res.ok) throw new Error(`GitHub API ${res.status}`);
+      return (await res.json()).workflow_runs ?? [];
+    };
+    // In Actions, wait up to 20 minutes for runs that are still going; locally, say so.
+    const deadline = Date.now() + (inActions ? 20 * 60_000 : 0);
+    for (;;) {
+      let runs;
+      try {
+        runs = await runsFor();
+      } catch (e) {
+        fail(`GitHub の CI の結果を確認できません(${e.message})`);
       }
-      console.log('  GitHub の CI と CodeQL: 成功');
-    } catch (e) {
-      fail(`GitHub の CI の結果を確認できません(${e.message})`);
+      const pending = [];
+      for (const wf of ['CI', 'CodeQL']) {
+        const r = runs.find((x) => x.name === wf && x.event === 'push');
+        if (!r || r.status !== 'completed') pending.push(wf);
+        else if (r.conclusion !== 'success') fail(`${wf} が失敗しています: ${r.html_url}`);
+      }
+      if (pending.length === 0) break;
+      if (Date.now() > deadline)
+        fail(
+          `このコミットの ${pending.join(' と ')} が終わっていません。GitHub で終わるのを待ってから`,
+        );
+      console.log(`  ${pending.join(' と ')} の完了を待っています…`);
+      await sleep(30_000);
     }
+    console.log('  GitHub の CI と CodeQL: 成功');
   }
   console.log(`  コミット: ${head.slice(0, 7)}(main、GitHub と一致)`);
 } else {
@@ -96,6 +127,36 @@ run('npm', ['run', 'build', '-w', '@gmemo/web']);
 step(dryRun ? 'デプロイの確認だけを行います(--dry-run)' : `${label} にデプロイしています`);
 // cf reads cloudflare.config.ts from the server package.
 run('npx', ['cf', 'deploy', '--mode', mode, ...(dryRun ? ['--dry-run'] : [])], 'packages/server');
+// ---- 5. Smoke test ------------------------------------------------------------------------
+if (!dryRun) {
+  step('デプロイ後の確認をしています');
+  // A new version takes a few seconds to reach every location.
+  let res = null;
+  for (let i = 0; i < 6; i++) {
+    try {
+      res = await fetch(`${origin}/api/health`, { redirect: 'manual' });
+      if (prod ? res.status === 200 : res.status !== 503) break;
+    } catch {
+      res = null;
+    }
+    await sleep(5_000);
+  }
+  if (!res) fail(`${origin} に接続できません`);
+  if (prod) {
+    if (res.status !== 200)
+      fail(`/api/health が ${res.status} を返しました(ダッシュボードの Logs を確認)`);
+    if (!res.headers.get('strict-transport-security'))
+      fail('HSTS ヘッダーがありません(GMEMO_ORIGIN が https か確認)');
+    console.log('  /api/health: 200、HSTS: あり');
+  } else if (res.status === 503) {
+    console.log('  注意: 503(Cloudflare Access が未設定)。手順6で設定するまでは想定どおり');
+  } else if (res.status === 200) {
+    fail('ステージングにログインなしで入れます。Cloudflare Access が有効か確認してください');
+  } else {
+    console.log(`  Access なしのアクセスは拒否されました(${res.status}): 想定どおり`);
+  }
+}
+
 console.log(
   `\n✔ ${dryRun ? '確認だけ完了(デプロイはしていません)' : `デプロイしました: ${origin}`}`,
 );

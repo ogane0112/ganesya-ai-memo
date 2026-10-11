@@ -195,6 +195,43 @@ check(
     : NEEDS_TOKEN,
 );
 
+// ---- Automatic deploys (docs/deploy-cloudflare.md) ------------------------------------
+const envs = await get('/environments');
+if (envs.error) {
+  check(
+    '自動デプロイ',
+    'Environment(staging / production)',
+    null,
+    `読み取れませんでした(${envs.error})。Settings → Environments を画面で確認してください`,
+  );
+} else {
+  const byName = new Map((envs.environments ?? []).map((e) => [e.name, e]));
+  for (const name of ['staging', 'production']) {
+    const env = byName.get(name);
+    check(
+      '自動デプロイ',
+      `Environment「${name}」がある`,
+      !!env,
+      'Settings → Environments → New environment(使わない場合は無視して構いません)',
+    );
+    if (!env) continue;
+    check(
+      '自動デプロイ',
+      `「${name}」は main からだけ使える`,
+      env.deployment_branch_policy?.custom_branch_policies === true ||
+        env.deployment_branch_policy?.protected_branches === true,
+      'Environment の Deployment branches and tags を Selected branches and tags → main に',
+    );
+    if (name === 'production')
+      check(
+        '自動デプロイ',
+        '本番は承認制(Required reviewers)',
+        (env.protection_rules ?? []).some((r) => r.type === 'required_reviewers'),
+        'Environment「production」の Required reviewers に自分を追加',
+      );
+  }
+}
+
 // ---- CI on main ---------------------------------------------------------------------------
 const runs = await get(`/actions/runs?branch=${info.default_branch}&event=push&per_page=20`);
 for (const wf of ['CI', 'CodeQL']) {
@@ -215,7 +252,7 @@ for (const r of results) {
   if (r.ok === false) ng++;
   if (r.ok === null) unknown++;
   console.log(
-    `${mark(r.ok)} [手順${r.step}] ${r.name}${r.ok === true ? '' : `\n      → ${r.hint}`}`,
+    `${mark(r.ok)} [${/^\d/.test(r.step) ? `手順${r.step}` : r.step}] ${r.name}${r.ok === true ? '' : `\n      → ${r.hint}`}`,
   );
 }
 console.log(`

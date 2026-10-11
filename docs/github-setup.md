@@ -111,7 +111,7 @@ CI には次のものが渡ります。そのため、CI が乗っ取られる�
 ### この節の設定で変わらないこと
 
 - CI の動き方や結果は今までどおりです(PR を出せば check、security、docker、CodeQL が動く)。
-- あとで Cloudflare への自動デプロイを CI に追加する場合は、デプロイ用のシークレットを **Settings** → **Environments** で `production` 環境に登録し、その環境に「承認が必要」を付けて、人が承認したときだけ使えるようにします(必要になったら手順を追加します)。
+- Cloudflare への自動デプロイのトークンは、リポジトリのシークレットではなく **Environments**(`staging` / `production`)に登録し、本番は承認制にします。手順は [Cloudflare にデプロイ](deploy-cloudflare.md#自動デプロイgithub-actions) にあります。
 
 ## 4. Advanced Security(脆弱性とシークレットの検出)
 

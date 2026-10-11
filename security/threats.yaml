@@ -235,3 +235,15 @@ threats:
     tests: []
     gap: 自動検査で担保(scripts/security-check.mjs)
     reviewed: 2026-10-11
+
+  - id: T-16
+    area: デプロイ
+    threat: CI に置いた Cloudflare のトークンが盗まれる・悪用される。確認していない変更が本番に出る
+    controls:
+      - トークンは GitHub の Environment(staging / production)の secrets に入れ、main からのワークフローにだけ渡す
+      - デプロイは main への push で動いた CI の成功後だけ(PR・フォークからは動かない)
+      - 本番は Required reviewers による承認制。本番の直前に main の最新・CI と CodeQL の成功を再確認する(scripts/deploy.mjs)
+      - トークンは最小権限・期限付き。Actions はコミットSHAで固定
+    tests: []
+    gap: GitHub と Cloudflare の設定に依存し、テストでは確かめられない。docs/deploy-cloudflare.md の手順と npm run github:check で確認する
+    reviewed: 2026-10-11

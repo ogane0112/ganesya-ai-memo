@@ -28,7 +28,7 @@
 | 7   | ステージングで最初のアカウントを作り、動作確認 |    ✓     |  ✓   |
 | 8   | 本番にデプロイ、シークレット、最初のアカウント |    ✓     |  ✓   |
 
-2回目以降は「[更新をデプロイする](#更新をデプロイする2回目以降)」だけです。
+2回目以降は「[更新をデプロイする](#更新をデプロイする2回目以降)」だけです。[自動デプロイ](#自動デプロイgithub-actions)を設定すれば、`main` にマージして本番を承認するだけになります。
 
 ---
 
@@ -232,6 +232,88 @@ npm run deploy:prod
 ```
 
 データベースのマイグレーションは、新しいバージョンへの最初のリクエストで自動的に実行されます。
+
+## 自動デプロイ(GitHub Actions)
+
+手順1〜8を一度手で済ませたあとは、**`main` にマージするだけでデプロイ**されるようにできます。
+
+```
+PR をマージ → CI(テスト・ビルド・台帳チェック)が成功
+            → ステージングへ自動デプロイ(+ Access で守られているか確認)
+            → 本番は「承認待ち」で止まる → あなたが GitHub で Approve → 本番へデプロイ(+ 動作確認)
+```
+
+- ワークフローは `.github/workflows/deploy.yml`、中身は手動と同じ `scripts/deploy.mjs` です(本番の安全確認もそのまま効きます)。
+- 本番は、**あなたが承認したときだけ**デプロイされます。ステージングで確認してから承認する、という流れを GitHub 上で行います。
+- 手動のデプロイ(`npm run deploy:stg` / `deploy:prod`)も今までどおり使えます。
+
+### 初回の設定(15分)
+
+#### A. Cloudflare の API トークンを作る
+
+CI が Cloudflare を操作するための鍵です。**できることを最小限に絞り、期限を付けます**。
+
+1. Cloudflare のダッシュボード → 右上のアイコン → **My Profile** → **API Tokens** → **Create Token**
+2. テンプレート **Edit Cloudflare Workers** の **Use template**
+3. **Permissions** に1行追加:**Account** / **D1** / **Edit**(データベースの作成とマイグレーションに必要)
+4. **Account Resources**:**Include** / 自分のアカウント(ほかのアカウントには触れないように)
+5. **Zone Resources**:独自ドメインを使わないなら、一覧から一番狭いものを選ぶ(独自ドメインを使うなら、そのドメインだけ)
+6. **TTL**:終了日を1年後に設定(期限が来たら作り直す。カレンダーに入れておく)
+7. **Continue to summary** → **Create Token** → 表示されたトークンをコピー(**この画面でしか表示されません**。チャットやファイルには貼らず、次の手順でそのまま GitHub に登録します)
+
+ついでに **アカウント ID** を控えます(ダッシュボード → **Workers & Pages** の右側、または **Account Home** のアカウント名の「…」→ **Copy account ID**)。アカウント ID は秘密ではありません。
+
+> デプロイが `Authentication error` や `permission` のエラーで失敗したら、エラーに出ている権限をトークンに追加してください(Cloudflare 側の権限の名前は変わることがあります)。
+
+#### B. GitHub に Environment を2つ作る
+
+**Settings** → **Environments** → **New environment**。
+
+**`staging`**
+
+| 項目                                     | 設定                                                                                                                      |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Deployment branches and tags             | **Selected branches and tags** → **Add deployment branch or tag rule** → `main`                                           |
+| Environment secrets → **Add secret**     | `CLOUDFLARE_API_TOKEN` = A で作ったトークン                                                                               |
+| Environment variables → **Add variable** | `CLOUDFLARE_ACCOUNT_ID`、`GMEMO_STG_ORIGIN`、`GMEMO_ACCESS_TEAM_DOMAIN`、`GMEMO_STG_ACCESS_AUD`(値は `deploy.env` と同じ) |
+
+**`production`**
+
+| 項目                         | 設定                                                     |
+| ---------------------------- | -------------------------------------------------------- |
+| **Required reviewers**       | ☑ チェックして、**自分を追加**(これで本番は承認制になる) |
+| Prevent self-review          | ☐ オフ(1人で開発している間は、自分で承認するため)        |
+| Deployment branches and tags | **Selected branches and tags** → `main`                  |
+| Environment secrets          | `CLOUDFLARE_API_TOKEN` = A で作ったトークン              |
+| Environment variables        | `CLOUDFLARE_ACCOUNT_ID`、`GMEMO_ORIGIN`                  |
+
+- **secrets** は登録後に誰も読めず、ログにも `***` で伏せられます。トークンは必ず secrets に入れます。
+- **variables** は URL や ID など秘密でない値用です。
+- 「Deployment branches」を `main` にしておくと、ほかのブランチからのワークフローにはトークンが渡りません。
+
+### 使い方
+
+1. いつもどおり PR を作り、CI が通ったら **Squash and merge**
+2. 数分後、**Actions** タブの **Deploy** が動き、`staging` が完了する(ステージングが更新される)
+3. ステージングを開き、[動作確認のチェックリスト](#7-ステージングで最初のアカウントを作り動作確認する)で確認
+4. Actions の **Deploy** の実行を開くと「**Review deployments**」ボタンが出ている → `production` にチェック → **Approve and deploy**
+5. 本番がデプロイされ、`/api/health` と HSTS の確認まで自動で行われる。最後に本番の 設定 → セキュリティログ を確認
+
+問題があって本番に出したくないときは、4 で **Reject** するか、何もしなければ30日で期限切れになります。
+
+**手動で再デプロイ**:Actions → **Deploy** → **Run workflow**(ブランチは `main`)。
+
+### 安全のための仕組み
+
+| 仕組み                                                          | 防げること                                                         |
+| --------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `main` への push で動いた CI が成功したときだけ動く             | PR やフォークから、デプロイやトークンの持ち出しをされる            |
+| トークンは Environment の secrets に入れ、`main` からだけ使える | 作業ブランチのワークフローがトークンを使う                         |
+| 本番は承認制(Required reviewers)                                | 確認していない変更が本番に出る、乗っ取られた CI が本番を書き換える |
+| 本番の前に `main` の最新・CI と CodeQL の成功を再確認           | 古いコミットや、検査に落ちたコミットのデプロイ                     |
+| Actions はコミットSHAで固定                                     | 使っている部品のすり替え                                           |
+
+トークンが漏れた疑いがあるときは、Cloudflare の **API Tokens** でそのトークンを **Roll**(作り直し)または削除し、新しい値を両方の Environment に登録し直します([運用方針の「漏洩が疑われるとき」](operations.md#6-漏洩が疑われるとき))。
 
 ## 問題が起きたら(元に戻す)
 
