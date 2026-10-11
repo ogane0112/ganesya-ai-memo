@@ -294,19 +294,60 @@ PR の画面の一番下で、緑のボタンが **Squash and merge** になっ�
 
 ## 設定できたかの確認
 
-- [ ] リポジトリのトップで、ブランチ名が `main` と表示される
-- [ ] **Security** タブに **Code scanning**、**Dependabot**、**Secret scanning** が並び、エラーがない
-- [ ] **Security** → **Advisories** に **Report a vulnerability** ボタンがある(ログアウトした状態や別アカウントで確認)
-- [ ] PR の画面で、必須のチェック(Required)として `check`、`security`、`docker`、`analyze` が表示される
-- [ ] GitHub の画面で `main` のファイル(README など)を編集して保存しようとすると、`main` に直接コミットできず、新しいブランチと PR の作成を求められる(確かめたら PR は作らずに閉じる)
-- [ ] PR #1 のマージ後、ルールセットに **Require code scanning results**(CodeQL)を追加した(手順5のステップ6)
-- [ ] 月曜日に Dependabot のPRが届く(依存が最新なら届かないこともある)
+確認は「コマンドで自動確認」と「画面で目視確認」の2段階です。全部で10分ほどです。
+
+### A. コマンドで自動確認(2分)
+
+リポジトリのフォルダで次を実行します(トークン不要。公開リポジトリの設定を GitHub の API で読みます)。
+
+```sh
+npm run github:check
+```
+
+結果の例:
+
+```
+✅ [手順2] デフォルトブランチが main
+❌ [手順2] マージ方法が Squash のみ
+      → Settings → General → Pull Requests で Allow merge commits / Allow rebase merging のチェックを外す
+✅ [手順5] Restrict deletions
+...
+3 件の設定が未完了です
+```
+
+- ❌ の行には、直す場所が `→` で表示されます。直してからもう一度実行します。
+- 最後に「API で確認できる設定はすべて完了しています」と出れば A は完了です。
+- 確認できるのは:デフォルトブランチ、マージ方法、ブランチの自動削除、非公開の脆弱性報告、ルールセットの各ルール、必須チェック、`main` の CI の結果。
+- 確認できないのは:2段階認証、Actions の権限、Dependabot、Push protection(管理者にしか見えない)→ B で確認します。
+
+### B. 画面で目視確認(8分)
+
+各項目の「見る場所」を開き、「こう見えればOK」と同じになっているか確かめます。
+
+| #   | 確認すること          | 見る場所                                                                               | こう見えればOK                                                                                                                                                                   |
+| --- | --------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B1  | 2段階認証             | 右上のアイコン → **Settings** → **Password and authentication**                        | 「Two-factor authentication」の欄に **Enabled** と表示され、Passkeys か Security keys が1つ以上ある                                                                              |
+| B2  | Actions の権限        | リポジトリの **Settings** → **Actions** → **General**                                  | Actions permissions が **Allow ogane0112, and select non-ogane0112, …** で、その下の2つにチェック。Workflow permissions が **Read repository contents and packages permissions** |
+| B3  | 外部PRの承認制        | 同じページの **Fork pull request workflows from outside collaborators**                | **Require approval for all external contributors** が選ばれている                                                                                                                |
+| B4  | Dependabot            | **Settings** → **Advanced Security** → Dependency Scanning                             | Dependency graph、Dependabot alerts、Dependabot security updates、Grouped security updates の右がすべて **On**(ボタンが青)                                                       |
+| B5  | Push protection       | 同じページの一番下 Secret Protection                                                   | Push protection の右が **On**                                                                                                                                                    |
+| B6  | CodeQL                | 同じページの Code Security → CodeQL analysis                                           | 右に **Advanced setup** と「Last scan … ago」が表示されている                                                                                                                    |
+| B7  | 警告がないか          | リポジトリ上部の **Security** タブ                                                     | 左の **Code scanning**、**Dependabot**、**Secret scanning** を順に開き、Open の件数が 0(あれば台帳に登録して対応)                                                                |
+| B8  | 非公開の報告窓口      | **Security** タブ → 左の **Advisories**                                                | **Report a vulnerability** ボタンがある(自分では押さなくてよい)                                                                                                                  |
+| B9  | ルールセット          | **Settings** → **Rules** → **Rulesets**                                                | 作ったルールセットの右に **Active** と表示されている(Disabled や Evaluate ではない)                                                                                              |
+| B10 | `main` に直接書けない | **Code** タブで README.md を開き、右上の鉛筆アイコン → 1文字変更 → **Commit changes…** | 「Commit directly to the main branch」が選べない(グレー)か、選ぶとルール違反のエラーになる。確かめたら **Cancel** で閉じる                                                       |
+| B11 | 必須チェック          | 開いている PR の画面の下の方                                                           | チェックの一覧で `check`、`security`、`docker`、`analyze` に **Required** と付いている。PR がなければ次に PR を作ったときに確認                                                  |
+| B12 | 通知                  | リポジトリ上部の **Watch** ボタン                                                      | **Custom** で **Security alerts** にチェックが入っている                                                                                                                         |
+
+### 定期的に確認する
+
+設定は誰かが(あるいは乗っ取られたアカウントが)変えてしまうことがあります。**3か月に1回**、A と B をもう一度実行します([運用で見る場所](#運用で見る場所))。
 
 ## 運用で見る場所
 
-| 頻度   | 見る場所                                    | すること                                                                      |
-| ------ | ------------------------------------------- | ----------------------------------------------------------------------------- |
-| 随時   | 通知(Security alerts、Dependabot のPR)      | 台帳に登録して期限内に対応([方針](secure-development.md#2-脆弱性cveへの対応)) |
-| 毎週   | Pull requests(Dependabot)                   | CI が通っていれば内容を見てマージ。本番の依存はステージングで確認してから     |
-| 毎月   | Security タブ全体、Settings → Collaborators | 未対応のアラートがないか、不要な権限がないか                                  |
-| 四半期 | Settings 全体                               | この手順の設定が変わっていないか                                              |
+| 頻度   | 見る場所                                     | すること                                                                      |
+| ------ | -------------------------------------------- | ----------------------------------------------------------------------------- |
+| 随時   | 通知(Security alerts、Dependabot のPR)       | 台帳に登録して期限内に対応([方針](secure-development.md#2-脆弱性cveへの対応)) |
+| 毎週   | Pull requests(Dependabot)                    | CI が通っていれば内容を見てマージ。本番の依存はステージングで確認してから     |
+| 毎月   | Security タブ全体、Settings → Collaborators  | 未対応のアラートがないか、不要な権限がないか                                  |
+| 四半期 | `npm run github:check` と画面の確認(B1〜B12) | この手順の設定が変わっていないか                                              |
