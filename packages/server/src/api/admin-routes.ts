@@ -8,7 +8,7 @@ import type { Platform } from '../platform.js';
 import { MAIN } from '../store/types.js';
 import { gzip, tar } from '../util/tar.js';
 import { disconnectGitHub, switchStorage } from '../workspace.js';
-import { type Env, jsonBody, requireAdmin, requireHuman, str, workspaceOf } from './http.js';
+import { audit, type Env, jsonBody, requireAdmin, requireHuman, str, workspaceOf } from './http.js';
 
 function agentInput(b: Record<string, unknown>): Partial<AgentInput> {
   const out: Partial<AgentInput> = {};
@@ -35,6 +35,42 @@ export function adminRoutes(platform: Platform) {
     await next();
   });
   const ws = (c: Parameters<typeof workspaceOf>[1]) => workspaceOf(platform, c);
+  const log = (c: Parameters<typeof workspaceOf>[1], ev: Parameters<typeof audit>[2]) =>
+    audit(platform, c, ev);
+
+  // ---- security log ----------------------------------------------------------
+
+  /** Your own security events; admins can pass scope=all for the whole server. */
+  app.get('/security-log', async (c) => {
+    const s = requireHuman(c);
+    const all = c.req.query('scope') === 'all';
+    if (all && !s.isAdmin) throw new HTTPException(403, { message: 'admin only' });
+    const outcome = c.req.query('outcome');
+    return c.json(
+      await platform.audit.list({
+        ...(all ? {} : { userId: s.userId }),
+        ...(c.req.query('action') ? { action: c.req.query('action')! } : {}),
+        ...(outcome === 'success' || outcome === 'failure' || outcome === 'denied'
+          ? { outcome }
+          : {}),
+        ...(c.req.query('before') ? { before: Number(c.req.query('before')) } : {}),
+        limit: Number(c.req.query('limit') ?? 100),
+      }),
+    );
+  });
+
+  /** Check that no security event was edited or removed (admin). */
+  app.post('/security-log/verify', async (c) => {
+    requireAdmin(c);
+    const res = await platform.audit.verify();
+    await log(c, {
+      action: 'audit.verify',
+      outcome: res.tampered.length || res.missing.length ? 'failure' : 'success',
+      userId: null,
+      detail: { checked: res.checked, tampered: res.tampered.length, missing: res.missing.length },
+    });
+    return c.json(res);
+  });
 
   // ---- agents & tokens -----------------------------------------------------
 
@@ -62,17 +98,26 @@ export function adminRoutes(platform: Platform) {
 
   app.post('/agents', async (c) => {
     const input = agentInput(await jsonBody(c));
-    return c.json(await (await ws(c)).agents.create({ ...input, name: str(input.name, 'name') }));
+    const agent = await (await ws(c)).agents.create({ ...input, name: str(input.name, 'name') });
+    await log(c, {
+      action: 'agent.create',
+      target: agent.id,
+      detail: { name: agent.name, writeMode: agent.writeMode, folders: agent.folders },
+    });
+    return c.json(agent);
   });
 
   app.patch('/agents/:id', async (c) => {
-    const a = await (await ws(c)).agents.update(c.req.param('id'), agentInput(await jsonBody(c)));
+    const patch = agentInput(await jsonBody(c));
+    const a = await (await ws(c)).agents.update(c.req.param('id'), patch);
     if (!a) throw new HTTPException(404, { message: 'agent not found' });
+    await log(c, { action: 'agent.update', target: a.id, detail: { changed: Object.keys(patch) } });
     return c.json(a);
   });
 
   app.delete('/agents/:id', async (c) => {
     await (await ws(c)).agents.revoke(c.req.param('id'));
+    await log(c, { action: 'agent.revoke', target: c.req.param('id') });
     return c.json({ ok: true });
   });
 
@@ -91,16 +136,23 @@ export function adminRoutes(platform: Platform) {
       (b.label ?? '').slice(0, 60),
       b.expiresInDays && b.expiresInDays > 0 ? b.expiresInDays : undefined,
     );
+    await log(c, {
+      action: 'token.create',
+      target: agent.id,
+      detail: { scope, label: b.label ?? '', expiresInDays: b.expiresInDays ?? null },
+    });
     return c.json({ token, scope });
   });
 
   app.delete('/tokens/:id', async (c) => {
     await tokens.revokeToken(c.req.param('id'), requireHuman(c).userId);
+    await log(c, { action: 'token.revoke', target: c.req.param('id') });
     return c.json({ ok: true });
   });
 
   app.delete('/oauth-clients/:id', async (c) => {
     await oauth.disconnectClient(requireHuman(c).userId, c.req.param('id'));
+    await log(c, { action: 'oauth.client_disconnect', target: c.req.param('id') });
     return c.json({ ok: true });
   });
 
@@ -131,12 +183,24 @@ export function adminRoutes(platform: Platform) {
       scope?: Scope[];
     }>(c);
     const req = await oauth.validateAuthorize(b.query ?? {});
-    if (!b.approve) return c.json({ redirect: oauth.deny(req) });
+    if (!b.approve) {
+      await log(c, { action: 'oauth.consent', outcome: 'denied', target: req.clientId });
+      return c.json({ redirect: oauth.deny(req) });
+    }
     const newAgent = b.newAgent ? agentInput(b.newAgent) : undefined;
     const redirect = await oauth.approve(w.userId, w.agents, req, {
       ...(b.agentId ? { agentId: b.agentId } : {}),
       ...(newAgent?.name ? { newAgent: newAgent as AgentInput } : {}),
       ...(b.scope ? { scope: b.scope } : {}),
+    });
+    await log(c, {
+      action: 'oauth.consent',
+      target: req.clientId,
+      detail: {
+        client: (await oauth.client(req.clientId))?.clientName ?? null,
+        agentId: await oauth.linkedAgent(req.clientId, w.userId),
+        scope: b.scope ?? req.scope,
+      },
     });
     return c.json({ redirect });
   });
@@ -155,6 +219,15 @@ export function adminRoutes(platform: Platform) {
   app.put('/policy', async (c) => {
     const policy = normalizePolicy(await jsonBody(c));
     await (await ws(c)).notes.savePolicy(policy);
+    await log(c, {
+      action: 'policy.update',
+      detail: {
+        default: policy.ai.default,
+        folders: policy.ai.folders,
+        sensitiveMode: policy.sensitive.mode,
+        externalAcknowledged: policy.externalAcknowledged,
+      },
+    });
     return c.json(policy);
   });
 
@@ -166,6 +239,7 @@ export function adminRoutes(platform: Platform) {
     const fp = str(b.fingerprint, 'fingerprint');
     if (!policy.sensitive.allow.includes(fp)) policy.sensitive.allow.push(fp);
     await w.notes.savePolicy(policy);
+    await log(c, { action: 'policy.allow_finding', target: fp.slice(0, 16) });
     return c.json({ ok: true });
   });
 
@@ -201,6 +275,18 @@ export function adminRoutes(platform: Platform) {
     );
     platform.forget(w.userId);
     const next = await platform.workspace(w.userId);
+    await log(c, {
+      action: 'storage.change',
+      detail: {
+        from: w.settings.storage,
+        to: next.settings.storage,
+        repo: next.settings.github
+          ? `${next.settings.github.owner}/${next.settings.github.repo}`
+          : null,
+        copied: res.copied,
+        tokenChanged: !!b.github?.token,
+      },
+    });
     await next.notes.currentHead();
     return c.json({ ...res, settings: next.settings });
   });
@@ -209,6 +295,7 @@ export function adminRoutes(platform: Platform) {
     const s = requireHuman(c);
     await disconnectGitHub(db, s.userId);
     platform.forget(s.userId);
+    await log(c, { action: 'storage.github_forget' });
     return c.json({ ok: true });
   });
 
@@ -228,6 +315,7 @@ export function adminRoutes(platform: Platform) {
     const data = await gzip(
       tar([...files].map(([path, bytes]) => ({ path: `${root}/${path}`, data: bytes }))),
     );
+    await log(c, { action: 'data.export', detail: { files: files.size, bytes: data.length } });
     return new Response(data as unknown as ConstructorParameters<typeof Response>[0], {
       headers: {
         'content-type': 'application/gzip',
@@ -243,18 +331,24 @@ export function adminRoutes(platform: Platform) {
 
   app.post('/calendar/feeds', async (c) => {
     const b = await jsonBody<{ viewId: string; label?: string; includeLinks?: boolean }>(c);
-    return c.json(
-      await (
-        await ws(c)
-      ).calendar.createFeed(str(b.viewId, 'viewId'), {
-        ...(b.label ? { label: b.label } : {}),
-        includeLinks: b.includeLinks === true,
-      }),
-    );
+    const res = await (
+      await ws(c)
+    ).calendar.createFeed(str(b.viewId, 'viewId'), {
+      ...(b.label ? { label: b.label } : {}),
+      includeLinks: b.includeLinks === true,
+    });
+    // A feed URL publishes note titles to whoever has the link.
+    await log(c, {
+      action: 'calendar.feed_create',
+      target: res.feed.id,
+      detail: { viewId: b.viewId, includeLinks: b.includeLinks === true },
+    });
+    return c.json(res);
   });
 
   app.delete('/calendar/feeds/:id', async (c) => {
     await (await ws(c)).calendar.revokeFeed(c.req.param('id'));
+    await log(c, { action: 'calendar.feed_revoke', target: c.req.param('id') });
     return c.json({ ok: true });
   });
 
@@ -304,7 +398,14 @@ export function adminRoutes(platform: Platform) {
     const s = requireAdmin(c);
     if (c.req.param('id') === s.userId)
       throw new HTTPException(400, { message: '自分のアカウントはここでは削除できません' });
+    const target = await auth.user(c.req.param('id'));
     await platform.deleteUser(c.req.param('id'));
+    await log(c, {
+      action: 'admin.user_delete',
+      userId: c.req.param('id'),
+      target: c.req.param('id'),
+      detail: { username: target?.username ?? null },
+    });
     return c.json({ ok: true });
   });
 
@@ -313,7 +414,13 @@ export function adminRoutes(platform: Platform) {
     requireAdmin(c);
     if (!(await auth.user(c.req.param('id'))))
       throw new HTTPException(404, { message: 'user not found' });
-    return c.json({ codes: await auth.adminResetUser(c.req.param('id')) });
+    const codes = await auth.adminResetUser(c.req.param('id'));
+    await log(c, {
+      action: 'admin.user_reset',
+      userId: c.req.param('id'),
+      target: c.req.param('id'),
+    });
+    return c.json({ codes });
   });
 
   app.get('/invites', async (c) => {
@@ -326,12 +433,14 @@ export function adminRoutes(platform: Platform) {
     const b = await jsonBody<{ days?: number }>(c).catch(() => ({ days: 7 }));
     const days = Math.min(Math.max(Number(b.days) || 7, 1), 90);
     const { code, invite } = await auth.createInvite(s.userId, days);
+    await log(c, { action: 'admin.invite_create', target: invite.id, detail: { days } });
     return c.json({ code, url: `${platform.cfg.origin}/signup?invite=${code}`, invite });
   });
 
   app.delete('/invites/:id', async (c) => {
     requireAdmin(c);
     await auth.deleteInvite(c.req.param('id'));
+    await log(c, { action: 'admin.invite_delete', target: c.req.param('id') });
     return c.json({ ok: true });
   });
 

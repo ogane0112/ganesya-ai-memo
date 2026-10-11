@@ -11,8 +11,11 @@ export interface LlmEndpointConfig {
 }
 
 export type SignupMode = 'open' | 'invite' | 'closed';
+export type AppEnv = 'production' | 'staging' | 'development';
 
 export interface Config {
+  /** Which deployment this is. Staging adds a banner, noindex and requires Cloudflare Access. */
+  env: AppEnv;
   /** Public origin, e.g. https://notes.example.com. Required for passkeys. */
   origin: string;
   /** WebAuthn relying-party id (the domain). */
@@ -25,8 +28,10 @@ export interface Config {
    * GMEMO_SETUP_TOKEN secret; on Node one is generated and printed when unset.
    */
   setupToken?: string;
-  /** Encrypts GitHub tokens at rest. Required for GitHub storage. */
+  /** Encrypts GitHub tokens at rest and signs audit events. Required for GitHub storage. */
   secretKey?: string;
+  /** The key before the last rotation: still accepted for decrypting and verifying. */
+  previousSecretKey?: string;
   sessionDays: number;
   accessTokenMinutes: number;
   /** Seconds between checks for commits pushed to a GitHub repo from elsewhere. */
@@ -42,6 +47,17 @@ export interface Config {
   insecureDev: boolean;
   /** IANA time zone for dates without an offset (note dates, floating calendar times). */
   timeZone: string;
+  audit: {
+    /** How client addresses are stored in the security log. */
+    ip: 'off' | 'hash' | 'full';
+    /** Days to keep security events (0 = forever). */
+    retentionDays: number;
+  };
+  /**
+   * Cloudflare Access in front of the app: when set, every request must carry
+   * a valid Access token for this application (required in staging).
+   */
+  access?: { teamDomain: string; aud: string };
 }
 
 export type EnvRecord = Record<string, string | undefined>;
@@ -86,13 +102,28 @@ export function configFromEnv(envRec: EnvRecord, overrides: Partial<Config> = {}
     : undefined;
 
   const signup = env('GMEMO_SIGNUP');
+  const appEnv = env('GMEMO_ENV');
+  const auditIp = env('GMEMO_AUDIT_IP');
+  const team = env('GMEMO_ACCESS_TEAM_DOMAIN')
+    ?.replace(/^https?:\/\//, '')
+    .replace(/\/+$/, '');
+  const aud = env('GMEMO_ACCESS_AUD');
   return {
+    env: appEnv === 'staging' || appEnv === 'development' ? appEnv : 'production',
+    audit: {
+      ip: auditIp === 'off' || auditIp === 'full' ? auditIp : 'hash',
+      retentionDays: Number(env('GMEMO_AUDIT_RETENTION_DAYS') ?? 400),
+    },
+    ...(team && aud ? { access: { teamDomain: team, aud } } : {}),
     origin,
     rpId,
     rpName: env('GMEMO_RP_NAME') ?? 'Ganesya AI Memo',
     signup: signup === 'open' || signup === 'closed' ? signup : 'invite',
     ...(env('GMEMO_SETUP_TOKEN') ? { setupToken: env('GMEMO_SETUP_TOKEN')! } : {}),
     ...(env('GMEMO_SECRET_KEY') ? { secretKey: env('GMEMO_SECRET_KEY')! } : {}),
+    ...(env('GMEMO_SECRET_KEY_PREVIOUS')
+      ? { previousSecretKey: env('GMEMO_SECRET_KEY_PREVIOUS')! }
+      : {}),
     sessionDays: Number(env('GMEMO_SESSION_DAYS') ?? 30),
     accessTokenMinutes: Number(env('GMEMO_ACCESS_TOKEN_MINUTES') ?? 60),
     githubCheckSeconds: Number(env('GMEMO_GITHUB_CHECK_SECONDS') ?? 30),
@@ -126,7 +157,14 @@ export function configWarnings(cfg: Config): string[] {
     warnings.push(`GMEMO_RP_ID (${cfg.rpId}) must be the origin's host or a parent domain of it.`);
   }
   if (!cfg.secretKey) {
-    warnings.push('GMEMO_SECRET_KEY is not set: connecting a GitHub repository is disabled.');
+    warnings.push(
+      'GMEMO_SECRET_KEY is not set: GitHub storage is disabled and audit log entries are not signed.',
+    );
+  }
+  if (cfg.env === 'staging' && !cfg.access && !cfg.insecureDev) {
+    warnings.push(
+      'Staging without Cloudflare Access (GMEMO_ACCESS_TEAM_DOMAIN / GMEMO_ACCESS_AUD): every request is refused.',
+    );
   }
   return warnings;
 }

@@ -298,6 +298,25 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
       checked_at TEXT
     )`,
   ],
+  [
+    // ---- security audit log (append-only; each row carries an HMAC) -------------
+    `CREATE TABLE security_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      at TEXT NOT NULL,
+      user_id TEXT,
+      actor TEXT NOT NULL,
+      action TEXT NOT NULL,
+      outcome TEXT NOT NULL CHECK (outcome IN ('success','failure','denied')),
+      target TEXT,
+      ip TEXT,
+      ua TEXT,
+      detail TEXT NOT NULL DEFAULT '{}',
+      mac TEXT NOT NULL
+    )`,
+    `CREATE INDEX security_events_user ON security_events(user_id, id)`,
+    `CREATE INDEX security_events_action ON security_events(action, id)`,
+    `CREATE INDEX security_events_at ON security_events(at)`,
+  ],
 ];
 
 /** Full-text index; created separately because some SQLite builds lack trigram. */

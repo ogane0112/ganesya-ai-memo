@@ -1,5 +1,5 @@
 import type { BlockAttribution } from '@gmemo/core';
-import type { NoteSummary, ProposalRow, PublicFinding } from '../api/types';
+import type { NoteSummary, ProposalRow, PublicFinding, SecurityEvent } from '../api/types';
 
 /** Sample data shared by stories. */
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
@@ -130,5 +130,56 @@ export const sampleFindings: PublicFinding[] = [
     end: 43,
     fingerprint: 'f2',
     preview: '09••••••••78',
+  },
+];
+
+export const sampleSecurityEvents: SecurityEvent[] = [
+  {
+    id: 42,
+    at: minutesAgo(1),
+    userId: 'u_hanako',
+    actor: 'agent:ag_demo',
+    action: 'agent.read',
+    outcome: 'success',
+    target: 'Projects/新サービス企画.md',
+    ip: 'h:3fa9c2d1e0b4a7c6',
+    ua: 'Claude',
+    detail: { agent: 'Claude', location: 'external', masked: 1 },
+  },
+  {
+    id: 41,
+    at: minutesAgo(3),
+    userId: 'u_hanako',
+    actor: 'agent:ag_demo',
+    action: 'agent.read',
+    outcome: 'denied',
+    target: 'private/日記.md',
+    ip: 'h:3fa9c2d1e0b4a7c6',
+    ua: 'Claude',
+    detail: { reason: 'folder-or-policy' },
+  },
+  {
+    id: 40,
+    at: minutesAgo(30),
+    userId: null,
+    actor: 'anonymous',
+    action: 'auth.recovery_login',
+    outcome: 'failure',
+    target: null,
+    ip: 'h:9b1e77aa02c3d4f5',
+    ua: 'プログラム',
+    detail: { username: 'hanako', reason: 'ユーザー名か復旧コードが正しくありません' },
+  },
+  {
+    id: 39,
+    at: minutesAgo(60),
+    userId: 'u_hanako',
+    actor: 'user:u_hanako',
+    action: 'auth.login',
+    outcome: 'success',
+    target: 'cred_8f2a',
+    ip: 'h:5c0d11ee8a9b7f30',
+    ua: 'Safari / iOS',
+    detail: {},
   },
 ];

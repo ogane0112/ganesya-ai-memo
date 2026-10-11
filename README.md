@@ -48,20 +48,21 @@ MCPに対応したクライアント(Claude など)に、サーバーURL `https:
 
 ## ドキュメント
 
-|                                                    |                                                     |
-| -------------------------------------------------- | --------------------------------------------------- |
-| [Cloudflare にデプロイ](docs/deploy-cloudflare.md) | Workers + D1、シークレット、料金と制限              |
-| [保存先](docs/storage.md)                          | このサービス内 / 自分のGitHub、トークンの作り方     |
-| [セルフホスト](docs/setup.md)                      | Node.js / Docker、HTTPS、パスキーの制約、管理者CLI  |
-| [設定](docs/configuration.md)                      | 環境変数一覧、LLMの設定                             |
-| [AIエージェント連携](docs/ai-agents.md)            | MCP、OAuth、トークン、提案と承認、iOSショートカット |
-| [利用上の注意](docs/usage-notes.md)                | 機密検出の限界、外部AIへの送信、データの扱い        |
-| [セキュリティ](docs/security.md)                   | 脅威モデル、E2EEを採用しない理由、保存データ        |
-| [アーキテクチャ](docs/architecture.md)             | データ設計、マージモデル、インデックス              |
-| [デザインシステム](docs/design-system.md)          | 部品カタログ(`npm run design -w @gmemo/web`)        |
-| [REST API](docs/api.md)                            | エンドポイント一覧                                  |
-| [カレンダー連携](docs/calendar.md)                 | Googleカレンダーの取り込みと、ノートの予定の公開    |
-| [設計判断](docs/decisions.md)                      | 要件定義の未決事項をどう決めたか                    |
+|                                                    |                                                         |
+| -------------------------------------------------- | ------------------------------------------------------- |
+| [Cloudflare にデプロイ](docs/deploy-cloudflare.md) | Workers + D1、シークレット、料金と制限                  |
+| [保存先](docs/storage.md)                          | このサービス内 / 自分のGitHub、トークンの作り方         |
+| [セルフホスト](docs/setup.md)                      | Node.js / Docker、HTTPS、パスキーの制約、管理者CLI      |
+| [設定](docs/configuration.md)                      | 環境変数一覧、LLMの設定                                 |
+| [AIエージェント連携](docs/ai-agents.md)            | MCP、OAuth、トークン、提案と承認、iOSショートカット     |
+| [利用上の注意](docs/usage-notes.md)                | 機密検出の限界、外部AIへの送信、データの扱い            |
+| [セキュリティ](docs/security.md)                   | 脅威モデル、E2EEを採用しない理由、保存データ            |
+| [運用方針](docs/operations.md)                     | ステージング/本番、リリース手順、監査ログ、漏洩時の対応 |
+| [アーキテクチャ](docs/architecture.md)             | データ設計、マージモデル、インデックス                  |
+| [デザインシステム](docs/design-system.md)          | 部品カタログ(`npm run design -w @gmemo/web`)            |
+| [REST API](docs/api.md)                            | エンドポイント一覧                                      |
+| [カレンダー連携](docs/calendar.md)                 | Googleカレンダーの取り込みと、ノートの予定の公開        |
+| [設計判断](docs/decisions.md)                      | 要件定義の未決事項をどう決めたか                        |
 
 ## 構成
 

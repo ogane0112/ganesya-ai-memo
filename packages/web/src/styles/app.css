@@ -3001,3 +3001,54 @@ details.help ol {
   border-radius: var(--radius-sm);
   background: var(--bg-soft);
 }
+
+/* ---- environment banner (staging / development) ---------------------------- */
+.env-banner {
+  position: sticky;
+  top: 0;
+  z-index: 70;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 10px;
+  padding: calc(4px + env(safe-area-inset-top, 0px)) 16px 4px;
+  font-size: 0.8125rem;
+  color: var(--fg-strong);
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--warn-soft),
+    var(--warn-soft) 10px,
+    color-mix(in srgb, var(--warn) 22%, var(--warn-soft)) 10px,
+    color-mix(in srgb, var(--warn) 22%, var(--warn-soft)) 20px
+  );
+  border-bottom: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+}
+.env-banner strong {
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  background: var(--warn);
+  color: #fff;
+  letter-spacing: 0.08em;
+}
+.env-development {
+  background: var(--ai-soft);
+  border-bottom-color: color-mix(in srgb, var(--ai) 45%, transparent);
+}
+.env-development strong {
+  background: var(--ai);
+}
+
+/* ---- security log ---------------------------------------------------------- */
+.security-item .item-main {
+  gap: 2px;
+}
+.security-failure {
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+.security-denied {
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+.security-origin {
+  font-size: 0.75rem;
+}

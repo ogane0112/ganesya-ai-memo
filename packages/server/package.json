@@ -14,8 +14,10 @@
     "dev": "tsx watch src/cli.ts serve",
     "start": "node dist/cli.js serve",
     "dev:worker": "cf dev",
-    "deploy": "cf deploy",
-    "postinstall": "node -e \"import('./scripts/link-wrangler.mjs').catch(() => {})\""
+    "deploy": "cf deploy --mode production",
+    "postinstall": "node -e \"import('./scripts/link-wrangler.mjs').catch(() => {})\"",
+    "deploy:stg": "cf deploy --mode staging",
+    "deploy:prod": "cf deploy --mode production"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",

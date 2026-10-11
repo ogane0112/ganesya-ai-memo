@@ -18,6 +18,8 @@ import type {
   OAuthRequestInfo,
   PasskeyInfo,
   InviteInfo,
+  SecurityEvent,
+  SecurityLogCheck,
   SignupMode,
   StorageSettings,
   UserInfo,
@@ -270,6 +272,9 @@ export const api = {
       b,
     ),
   forgetGitHub: () => del<Ok>('/api/admin/storage/github'),
+  securityLog: (q: { scope?: 'all'; outcome?: string; action?: string; before?: number } = {}) =>
+    get<SecurityEvent[]>(`/api/admin/security-log${qs({ ...q, limit: 100 })}`),
+  verifySecurityLog: () => post<SecurityLogCheck>('/api/admin/security-log/verify'),
   users: () => get<{ users: UserInfo[]; signup: SignupMode }>('/api/admin/users'),
   deleteUser: (id: string) => del<Ok>(`/api/admin/users/${encodeURIComponent(id)}`),
   resetUser: (id: string) =>

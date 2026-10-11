@@ -90,6 +90,8 @@ docker compose exec app gmemo admin users                  # アカウント一�
 docker compose exec app gmemo admin reset-user <ユーザー名>  # サインアウトさせ、新しいリカバリーコードを表示
 docker compose exec app gmemo admin make-admin <ユーザー名>  # 管理者にする
 docker compose exec app gmemo admin setup-token            # 最初のアカウント用のトークンを再発行
+docker compose exec app gmemo audit verify                 # セキュリティログの改ざんチェック(問題があれば終了コード2)
+docker compose exec app gmemo audit export --days 90       # セキュリティログをJSON Linesで出力
 docker compose exec app gmemo reindex [<ユーザー名>]         # 検索インデックスを作り直す
 ```
 

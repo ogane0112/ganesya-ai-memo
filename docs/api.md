@@ -116,16 +116,18 @@ dateProperty: due # calendar
 | GET / PUT      | `/api/admin/storage`           | 保存先 `{ storage: 'builtin' \| 'github', github?: { owner, repo, branch?, token? }, copy? }` |
 | DELETE         | `/api/admin/storage/github`    | 保存したGitHub接続(トークン)を削除                                                            |
 | DELETE         | `/api/admin/oauth-clients/:id` | MCPクライアントの接続を解除(トークンも失効)                                                   |
+| GET            | `/api/admin/security-log`      | 自分のセキュリティログ `?action=&outcome=&before=&limit=`(管理者は `scope=all` で全体)        |
 
 ## サーバー管理(管理者のみ)
 
-| メソッド   | パス                         | 内容                                                         |
-| ---------- | ---------------------------- | ------------------------------------------------------------ |
-| GET        | `/api/admin/users`           | アカウント一覧と登録方法                                     |
-| DELETE     | `/api/admin/users/:id`       | アカウントの削除                                             |
-| POST       | `/api/admin/users/:id/reset` | サインアウトさせ、新しいリカバリーコードを発行 → `{ codes }` |
-| GET / POST | `/api/admin/invites`         | 招待の一覧・作成 `{ days? }` → `{ code, url }`(一度だけ)     |
-| DELETE     | `/api/admin/invites/:id`     | 未使用の招待を取り消す                                       |
+| メソッド   | パス                             | 内容                                                                          |
+| ---------- | -------------------------------- | ----------------------------------------------------------------------------- |
+| GET        | `/api/admin/users`               | アカウント一覧と登録方法                                                      |
+| DELETE     | `/api/admin/users/:id`           | アカウントの削除                                                              |
+| POST       | `/api/admin/users/:id/reset`     | サインアウトさせ、新しいリカバリーコードを発行 → `{ codes }`                  |
+| GET / POST | `/api/admin/invites`             | 招待の一覧・作成 `{ days? }` → `{ code, url }`(一度だけ)                      |
+| DELETE     | `/api/admin/invites/:id`         | 未使用の招待を取り消す                                                        |
+| POST       | `/api/admin/security-log/verify` | セキュリティログの改ざんチェック → `{ checked, tampered, missing, unsigned }` |
 
 ## OAuth / MCP
 

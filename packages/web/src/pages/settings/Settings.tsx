@@ -10,11 +10,13 @@ import { CalendarSettings } from './Calendar';
 import { DataSettings } from './Data';
 import { McpSettings } from './Mcp';
 import { SecuritySettings } from './Security';
+import { SecurityLogSettings } from './SecurityLog';
 import { StorageSettings } from './Storage';
 
 const SECTIONS = [
   { id: 'appearance', label: '見た目', el: <AppearanceSettings /> },
   { id: 'security', label: 'パスキー', el: <SecuritySettings /> },
+  { id: 'security-log', label: 'セキュリティログ', el: <SecurityLogSettings /> },
   { id: 'agents', label: 'AIエージェント', el: <AgentsSettings /> },
   { id: 'mcp', label: 'MCP接続', el: <McpSettings /> },
   { id: 'ai', label: 'AIポリシー', el: <AiPolicySettings /> },

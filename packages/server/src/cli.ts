@@ -12,6 +12,8 @@ Usage:
   gmemo admin reset-user <username>    Sign a user out and print new recovery codes
   gmemo admin make-admin <username>    Give a user the admin role
   gmemo reindex [<username>]           Rebuild the search index (all users by default)
+  gmemo audit verify                   Check that no security event was edited or deleted
+  gmemo audit export [--days N]        Print security events as JSON lines (default: 30 days)
 
 Configuration is read from environment variables (see docs/configuration.md).`;
 
@@ -35,7 +37,13 @@ async function main(argv: string[]) {
       serve({ fetch: http.fetch, port: cfg.port, hostname: cfg.host }, (info) => {
         console.log(`gmemo listening on ${cfg.host}:${info.port} (origin ${cfg.origin})`);
       });
-      setInterval(() => void platform.tokens.prune(), 24 * 3600 * 1000).unref();
+      setInterval(
+        () => {
+          void platform.tokens.prune();
+          void platform.audit.purge(cfg.audit.retentionDays);
+        },
+        24 * 3600 * 1000,
+      ).unref();
       const shutdown = () => {
         db.close();
         process.exit(0);
@@ -67,6 +75,33 @@ async function main(argv: string[]) {
           const u = await byName();
           await db.run('UPDATE users SET is_admin = 1 WHERE id = ?', u.id);
           console.log(`${u.username} is now an admin`);
+        } else {
+          console.log(HELP);
+          process.exitCode = 1;
+        }
+      } finally {
+        db.close();
+      }
+      return;
+    }
+    case 'audit': {
+      const { platform, db } = await createNodePlatform(cfg);
+      try {
+        if (args[0] === 'verify') {
+          const r = await platform.audit.verify();
+          console.log(JSON.stringify(r, null, 2));
+          if (r.tampered.length || r.missing.length) process.exitCode = 2;
+        } else if (args[0] === 'export') {
+          const i = args.indexOf('--days');
+          const days = i >= 0 ? Number(args[i + 1]) : 30;
+          const since = new Date(Date.now() - days * 86400_000).toISOString();
+          let before: number | undefined;
+          for (;;) {
+            const page = await platform.audit.list({ limit: 500, ...(before ? { before } : {}) });
+            for (const e of page) if (e.at >= since) console.log(JSON.stringify(e));
+            if (page.length < 500 || page[page.length - 1]!.at < since) break;
+            before = page[page.length - 1]!.id;
+          }
         } else {
           console.log(HELP);
           process.exitCode = 1;

@@ -57,6 +57,7 @@ async function makeApp(env: Record<string, string> = {}) {
   db = new SqliteDb(':memory:');
   gh = fakeGitHub();
   platform = await Platform.create(testConfig(env), db, {
+    auditConsole: () => undefined,
     embedder: new HashingEmbedder(),
     fetch: gh.fetch,
   });

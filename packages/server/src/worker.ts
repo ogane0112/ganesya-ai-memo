@@ -6,10 +6,13 @@ import { configFromEnv, type EnvRecord } from './config.js';
 import { D1Db, type D1DatabaseLike } from './db/d1.js';
 import { createHttpApp } from './http-app.js';
 import { Platform } from './platform.js';
+import { type WorkersRateLimitBinding, workersRateLimiter } from './util/rate-limit.js';
 
 interface WorkerEnv {
   DB: D1DatabaseLike & object;
   ASSETS?: { fetch(req: Request): Promise<Response> };
+  /** Workers Rate Limiting binding for sign-in and token endpoints. */
+  AUTH_LIMITER?: WorkersRateLimitBinding;
 }
 
 interface Ctx {
@@ -22,7 +25,10 @@ let cached: { env: object; app: ReturnType<typeof createHttpApp>; platform: Plat
 async function appFor(env: WorkerEnv) {
   if (cached?.env === env) return cached;
   const cfg = configFromEnv(env as unknown as EnvRecord);
-  const platform = await Platform.create(cfg, new D1Db(env.DB), { migrateKey: env.DB });
+  const platform = await Platform.create(cfg, new D1Db(env.DB), {
+    migrateKey: env.DB,
+    ...(env.AUTH_LIMITER ? { authLimiter: workersRateLimiter(env.AUTH_LIMITER) } : {}),
+  });
   const app = createHttpApp(platform, {
     ...(env.ASSETS
       ? {
@@ -52,6 +58,13 @@ export default {
         platform.db.run('DELETE FROM challenges WHERE expires_at < ?', new Date().toISOString()),
         platform.db.run('DELETE FROM sessions WHERE expires_at < ?', new Date().toISOString()),
         platform.db.run('DELETE FROM editing WHERE until < ?', new Date().toISOString()),
+        platform.audit.purge(platform.cfg.audit.retentionDays).then((n) =>
+          platform.audit.record({
+            action: 'audit.retention_purge',
+            actor: 'system',
+            detail: { removed: n, days: platform.cfg.audit.retentionDays },
+          }),
+        ),
       ]),
     );
   },

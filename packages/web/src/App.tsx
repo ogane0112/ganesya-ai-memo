@@ -1,6 +1,7 @@
 import { lazy, type ReactNode, Suspense } from 'react';
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useRegisterSW } from 'virtual:pwa-register/react';
+import { EnvBanner } from './components/EnvBanner';
 import { Layout } from './components/Layout';
 import { EmptyState, Loading } from './components/ui';
 import { CapturePage } from './pages/Capture';
@@ -78,6 +79,11 @@ function UpdatePrompt() {
   );
 }
 
+function EnvBannerFromAuth() {
+  const { auth } = useApp();
+  return <EnvBanner env={auth?.env} />;
+}
+
 function NotFound() {
   return (
     <div className="page">
@@ -95,6 +101,7 @@ export function App() {
     <BrowserRouter>
       <ToastProvider>
         <AppProvider>
+          <EnvBannerFromAuth />
           <Suspense fallback={<Loading />}>
             <Routes>
               <Route path="/login" element={<LoginPage />} />

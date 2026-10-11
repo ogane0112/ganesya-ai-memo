@@ -30,7 +30,9 @@ async function req(path: string, init: RequestInit & { json?: unknown } = {}) {
 beforeEach(async () => {
   db = new SqliteDb(':memory:');
   // The test iCal server runs on 127.0.0.1, which is only allowed in development mode.
-  const platform = await Platform.create(testConfig({ GMEMO_INSECURE_DEV: '1' }), db);
+  const platform = await Platform.create(testConfig({ GMEMO_INSECURE_DEV: '1' }), db, {
+    auditConsole: () => undefined,
+  });
   app = createHttpApp(platform);
   await db.run(`INSERT INTO users(id, username, created_at) VALUES ('u1', 'me', 'now')`);
   cookie = `gm_session=${await platform.auth.createSession('u1', 'passkey')}`;
@@ -67,7 +69,7 @@ describe('calendar URL safety', () => {
 
   it('refuses internal URLs outside development mode', async () => {
     const strict = new SqliteDb(':memory:');
-    const p = await Platform.create(testConfig(), strict);
+    const p = await Platform.create(testConfig(), strict, { auditConsole: () => undefined });
     const a = createHttpApp(p);
     await strict.run(`INSERT INTO users(id, username, created_at) VALUES ('u1', 'me', 'now')`);
     const c = `gm_session=${await p.auth.createSession('u1', 'passkey')}`;

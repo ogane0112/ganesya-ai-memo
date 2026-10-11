@@ -27,6 +27,7 @@ export async function setup(
   const gh = fakeGitHub();
   const cfg = testConfig(opts.env);
   const platform = await Platform.create(cfg, db, {
+    auditConsole: () => undefined,
     embedder: new HashingEmbedder(),
     fetch: gh.fetch,
   });

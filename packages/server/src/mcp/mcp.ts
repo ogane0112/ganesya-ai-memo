@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { applyView, parseView } from '@gmemo/core';
 import { z } from 'zod';
-import { AgentOps } from '../api/agent-ops.js';
+import { AgentOps, type AuditSink } from '../api/agent-ops.js';
 import { capabilities, type Principal } from '../auth/tokens.js';
 import type { Workspace } from '../workspace.js';
 
@@ -28,8 +28,8 @@ const INSTRUCTIONS = `This server holds the user's personal Markdown notes (YAML
 - Some notes are hidden from you by the user's AI policy. Do not ask for them.`;
 
 /** Build an MCP server bound to one authenticated agent. */
-export function buildMcpServer(ws: Workspace, principal: Principal): McpServer {
-  const ops = new AgentOps(ws);
+export function buildMcpServer(ws: Workspace, principal: Principal, audit?: AuditSink): McpServer {
+  const ops = new AgentOps(ws, audit);
   const server = new McpServer(
     { name: 'ganesya-ai-memo', version: '0.1.0' },
     { instructions: INSTRUCTIONS },
@@ -225,8 +225,9 @@ export async function handleMcp(
   ws: Workspace,
   principal: Principal,
   req: Request,
+  audit?: AuditSink,
 ): Promise<Response> {
-  const server = buildMcpServer(ws, principal);
+  const server = buildMcpServer(ws, principal, audit);
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,

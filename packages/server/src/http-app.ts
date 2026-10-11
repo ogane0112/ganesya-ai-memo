@@ -2,7 +2,14 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { adminRoutes } from './api/admin-routes.js';
 import { authRoutes } from './api/auth-routes.js';
-import { authMiddleware, type Env, errorResponse, workspaceOf } from './api/http.js';
+import {
+  audit,
+  authMiddleware,
+  type Env,
+  errorResponse,
+  securityMiddleware,
+  workspaceOf,
+} from './api/http.js';
 import { notesRoutes } from './api/notes-routes.js';
 import { OAuthError } from './auth/oauth.js';
 import { CalendarService } from './calendar/calendar.js';
@@ -33,6 +40,7 @@ export function createHttpApp(
     if (!c.req.path.startsWith('/api/file')) c.header('x-frame-options', 'DENY');
   });
 
+  app.use('*', securityMiddleware(platform));
   app.use('*', authMiddleware(platform));
 
   app.get('/api/health', (c) => c.json({ ok: true }));
@@ -78,7 +86,14 @@ export function createHttpApp(
 
   app.post('/oauth/register', async (c) => {
     try {
-      return c.json(await oauth.register(await c.req.json().catch(() => ({}))), 201, cors);
+      const reg = await oauth.register(await c.req.json().catch(() => ({})));
+      await audit(platform, c, {
+        action: 'oauth.client_register',
+        target: String(reg['client_id']),
+        userId: null,
+        detail: { name: reg['client_name'], redirectUris: reg['redirect_uris'] },
+      });
+      return c.json(reg, 201, cors);
     } catch (e) {
       if (e instanceof OAuthError)
         return c.json({ error: e.error, error_description: e.description }, 400, cors);
@@ -106,8 +121,27 @@ export function createHttpApp(
       ? ((await c.req.json().catch(() => ({}))) as Record<string, string>)
       : Object.fromEntries(Object.entries(await c.req.parseBody()).map(([k, v]) => [k, String(v)]));
     try {
-      return c.json(await oauth.token(form), 200, { ...cors, 'cache-control': 'no-store' });
+      const tok = await oauth.token(form);
+      const principal = await platform.tokens.verify(tok.access_token);
+      await audit(platform, c, {
+        action:
+          form['grant_type'] === 'refresh_token' ? 'oauth.token_refresh' : 'oauth.token_issue',
+        actor: principal ? `agent:${principal.agent.id}` : 'anonymous',
+        userId: principal?.userId ?? null,
+        target: form['client_id'] ?? null,
+        detail: { scope: tok.scope },
+      });
+      return c.json(tok, 200, { ...cors, 'cache-control': 'no-store' });
     } catch (e) {
+      if (e instanceof OAuthError) {
+        await audit(platform, c, {
+          action: 'oauth.token_issue',
+          outcome: 'failure',
+          userId: null,
+          target: form['client_id'] ?? null,
+          detail: { grant: form['grant_type'] ?? null, error: e.error },
+        });
+      }
       if (e instanceof OAuthError)
         return c.json({ error: e.error, error_description: e.description }, e.status as 400, cors);
       throw e;
@@ -131,7 +165,9 @@ export function createHttpApp(
     }
     if (c.req.method === 'GET' || c.req.method === 'DELETE')
       return c.body(null, 405, { ...cors, allow: 'POST' });
-    const res = await handleMcp(await workspaceOf(platform, c), principal, c.req.raw);
+    const res = await handleMcp(await workspaceOf(platform, c), principal, c.req.raw, (ev) =>
+      audit(platform, c, ev),
+    );
     const headers = new Headers(res.headers);
     for (const [k, v] of Object.entries(cors)) headers.set(k, v);
     return new Response(res.body, { status: res.status, headers });

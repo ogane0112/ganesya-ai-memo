@@ -19,7 +19,20 @@
 | `GMEMO_GITHUB_CHECK_SECONDS` | `30`                      | GitHub保存のユーザーについて、アプリ外のpushを確認する間隔                                                 |
 | `GMEMO_GITHUB_API`           | `https://api.github.com`  | GitHub API のURL(GitHub Enterprise Server を使う場合)                                                      |
 | `GMEMO_TIMEZONE`             | `Asia/Tokyo`              | オフセットのない日時(ノートの `2026-10-12 10:00` など)を解釈するタイムゾーン                               |
+| `GMEMO_SECRET_KEY_PREVIOUS`  |                           | 鍵の入れ替え中だけ設定する前の `GMEMO_SECRET_KEY`。**シークレット**([運用方針](operations.md))             |
 | `GMEMO_INSECURE_DEV`         |                           | `1` で開発用の緩い設定(HTTPでの公開URL、社内アドレスのカレンダーURLを許可)。本番では使わない               |
+
+## 環境と監査
+
+| 変数                         | 既定値       | 説明                                                                                                       |
+| ---------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------- |
+| `GMEMO_ENV`                  | `production` | `production` / `staging` / `development`。`staging` では Cloudflare Access が必須、画面に「STG」と表示     |
+| `GMEMO_AUDIT_IP`             | `hash`       | セキュリティログのIPアドレス。`hash`(ハッシュ化)/ `full`(そのまま)/ `off`(保存しない)                      |
+| `GMEMO_AUDIT_RETENTION_DAYS` | `400`        | セキュリティログの保存日数。毎日の定期処理で古いものを削除                                                 |
+| `GMEMO_ACCESS_TEAM_DOMAIN`   |              | Cloudflare Access のチームドメイン(`<チーム名>.cloudflareaccess.com`)                                      |
+| `GMEMO_ACCESS_AUD`           |              | Access アプリケーションの AUD タグ。チームドメインと両方あると、すべてのリクエストで Access トークンを検証 |
+
+`cloudflare.config.ts` でのデプロイ時だけ使う変数:`GMEMO_STG_ORIGIN`(ステージングの公開URL)、`GMEMO_STG_ACCESS_AUD`(ステージングの AUD タグ。デプロイ時に `GMEMO_ACCESS_AUD` として設定される)。`GMEMO_ENV` と `GMEMO_SIGNUP` は `--mode` から自動で決まります([Cloudflare にデプロイ](deploy-cloudflare.md))。
 
 ## Node.js / Docker のみ
 

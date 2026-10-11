@@ -356,6 +356,7 @@ export class AuthService {
     name?: string;
     setupToken?: string;
   }): Promise<{
+    userId: string;
     passkey: PasskeyInfo;
     recoveryCodes: string[] | null;
     sessionToken: string | null;
@@ -394,6 +395,7 @@ export class AuthService {
     if (data.userId) {
       await this.db.batch([credential]);
       return {
+        userId: data.userId,
         passkey: (await this.passkey(data.userId, info.credential.id))!,
         recoveryCodes: null,
         sessionToken: null,
@@ -440,6 +442,7 @@ export class AuthService {
       throw e;
     }
     return {
+      userId,
       passkey: (await this.passkey(userId, info.credential.id))!,
       recoveryCodes: codes,
       sessionToken,
@@ -460,7 +463,7 @@ export class AuthService {
   async verifyAuthentication(
     challengeId: string,
     response: AuthenticationResponseJSON,
-  ): Promise<string> {
+  ): Promise<{ token: string; userId: string; credentialId: string }> {
     const { challenge } = await this.takeChallenge(challengeId, 'login');
     const cred = await this.db.first<CredentialRow>(
       'SELECT * FROM credentials WHERE id = ?',
@@ -487,11 +490,18 @@ export class AuthService {
       nowIso(),
       cred.id,
     );
-    return this.createSession(cred.user_id, 'passkey');
+    return {
+      token: await this.createSession(cred.user_id, 'passkey'),
+      userId: cred.user_id,
+      credentialId: cred.id,
+    };
   }
 
   /** Sign in with a one-time recovery code (to register a new passkey). */
-  async loginWithRecoveryCode(username: string, code: string): Promise<string> {
+  async loginWithRecoveryCode(
+    username: string,
+    code: string,
+  ): Promise<{ token: string; userId: string }> {
     const user = await this.userByName(username.normalize('NFKC').trim());
     const hash = await sha256(normalizeRecoveryCode(code));
     const r = user
@@ -504,7 +514,7 @@ export class AuthService {
       : { changes: 0 };
     if (!user || r.changes !== 1)
       throw new AuthError('ユーザー名か復旧コードが正しくありません', 401);
-    return this.createSession(user.id, 'recovery', 1);
+    return { token: await this.createSession(user.id, 'recovery', 1), userId: user.id };
   }
 
   // ---- sessions ------------------------------------------------------------

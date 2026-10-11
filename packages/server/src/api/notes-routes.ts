@@ -18,6 +18,7 @@ import type { Platform } from '../platform.js';
 import type { Workspace } from '../workspace.js';
 import { AgentOps } from './agent-ops.js';
 import {
+  audit,
   deferTo,
   type Env,
   jsonBody,
@@ -42,7 +43,7 @@ export function notesRoutes(platform: Platform) {
   /** The caller's workspace plus agent-scoped helpers. */
   const open = async (c: Parameters<typeof workspaceOf>[1]) => {
     const w: Workspace = await workspaceOf(platform, c);
-    const ops = new AgentOps(w);
+    const ops = new AgentOps(w, (ev) => audit(platform, c, ev));
     /** Keep only items the agent may see (folder limits + AI policy). Humans see everything. */
     const visibleTo = async <T>(
       p: Principal | null,
@@ -400,13 +401,21 @@ export function notesRoutes(platform: Platform) {
     const b = await jsonBody<{ resolutions?: Record<string, FileResolution> }>(c).catch(() => ({
       resolutions: {},
     }));
-    return c.json({ commit: await $.notes.mergeProposal(c.req.param('id'), b.resolutions ?? {}) });
+    const commit = await $.notes.mergeProposal(c.req.param('id'), b.resolutions ?? {});
+    const p = await $.notes.getProposal(c.req.param('id'));
+    await audit(platform, c, {
+      action: 'proposal.merge',
+      target: p.id,
+      detail: { author: p.author_name, kind: p.author_kind, title: p.title.slice(0, 80) },
+    });
+    return c.json({ commit });
   });
 
   app.post('/proposals/:id/reject', async (c) => {
     const $ = await open(c);
     requireHuman(c);
     await $.notes.rejectProposal(c.req.param('id'));
+    await audit(platform, c, { action: 'proposal.reject', target: c.req.param('id') });
     return c.json({ ok: true });
   });
 
@@ -421,7 +430,13 @@ export function notesRoutes(platform: Platform) {
     const $ = await open(c);
     requireHuman(c);
     const b = await jsonBody<{ agentId: string; since?: string }>(c);
-    return c.json(await $.notes.revertAgent(str(b.agentId, 'agentId'), b.since));
+    const res = await $.notes.revertAgent(str(b.agentId, 'agentId'), b.since);
+    await audit(platform, c, {
+      action: 'agent.revert_all',
+      target: b.agentId,
+      detail: { since: b.since ?? null, commits: res.length },
+    });
+    return c.json(res);
   });
 
   // ---- views ---------------------------------------------------------------

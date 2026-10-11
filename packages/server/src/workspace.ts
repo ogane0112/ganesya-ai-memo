@@ -106,9 +106,21 @@ async function storeFor(deps: WorkspaceDeps, row: WorkspaceRow): Promise<NoteSto
       throw new StoreError('GitHubの接続設定が不完全です。設定画面で接続し直してください', 409);
     if (!deps.cfg.secretKey)
       throw new StoreError('サーバーに GMEMO_SECRET_KEY が設定されていません', 500);
-    const token = await decryptSecret(row.github_token_enc, deps.cfg.secretKey).catch(() => {
+    const enc = row.github_token_enc;
+    let token = await decryptSecret(enc, deps.cfg.secretKey).catch(() => null);
+    if (token === null && deps.cfg.previousSecretKey) {
+      // Encrypted before the last key rotation: decrypt with the old key, re-encrypt with the new one.
+      token = await decryptSecret(enc, deps.cfg.previousSecretKey).catch(() => null);
+      if (token !== null)
+        await deps.db.run(
+          'UPDATE workspaces SET github_token_enc = ? WHERE user_id = ? AND github_token_enc = ?',
+          await encryptSecret(token, deps.cfg.secretKey),
+          row.user_id,
+          enc,
+        );
+    }
+    if (token === null)
       throw new StoreError('保存されたGitHubトークンを復号できません。接続し直してください', 409);
-    });
     return githubStore(deps, {
       owner: row.github_owner,
       repo: row.github_repo,
