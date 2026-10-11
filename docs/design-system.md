@@ -2,6 +2,12 @@
 
 画面の部品を一覧で確認できる、Storybook のような簡易カタログを `packages/web` に用意しています。スクリーンショットを撮らなくても、ブラウザで部品ごとの見た目と動きを確認できます。
 
+**公開版:<https://ogane0112.github.io/ganesya-ai-memo/>**(誰でも開けます。`main` に入った変更が自動で反映されます)
+
+公開版はサンプルデータで描画した静的なページで、サーバーやアカウント、実際のノートには一切つながっていません。公開の仕組みは `.github/workflows/design-catalog.yml`(GitHub Pages)です。
+
+手元で動かす場合:
+
 ```sh
 npm run design -w @gmemo/web          # http://localhost:6006 で開く(編集すると即反映)
 npm run build:design -w @gmemo/web    # packages/web/dist-design/ に静的ファイルを書き出す
