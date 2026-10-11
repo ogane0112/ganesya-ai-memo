@@ -284,6 +284,17 @@ describe('Cloudflare Access (staging)', () => {
     ).json()) as { env: string };
     expect(state.env).toBe('staging');
   });
+
+  it('sends the browser back to the app after an Access sign-in, never to another site', async () => {
+    const { req } = await make();
+    const back = async (to: string) =>
+      (await req(`/api/access/return?to=${encodeURIComponent(to)}`)).headers.get('location');
+    expect(await back('/search?q=a')).toBe('/search?q=a');
+    expect(await back('//evil.example/x')).toBe('/');
+    expect(await back('/\\evil.example')).toBe('/');
+    expect(await back('https://evil.example/')).toBe('/');
+    expect((await req('/api/access/return')).headers.get('location')).toBe('/');
+  });
 });
 
 describe('secret key rotation', () => {

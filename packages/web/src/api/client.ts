@@ -97,6 +97,25 @@ export function onUnauthorized(fn: (() => void) | null): void {
   unauthorizedHandler = fn;
 }
 
+const ACCESS_RETRY_KEY = 'gmemo.accessSignIn';
+
+/**
+ * Cloudflare Access answers a request without its sign-in cookie with a redirect
+ * to its login page. The app shell comes from the service worker cache, so only
+ * a real navigation lets Access sign the browser in again. At most once a minute,
+ * so a redirect from anything else cannot loop.
+ */
+function accessSignIn(): void {
+  try {
+    const last = Number(sessionStorage.getItem(ACCESS_RETRY_KEY) ?? 0);
+    if (Date.now() - last < 60_000) return;
+    sessionStorage.setItem(ACCESS_RETRY_KEY, String(Date.now()));
+  } catch {
+    return;
+  }
+  location.assign(`/api/access/return${qs({ to: location.pathname + location.search })}`);
+}
+
 export async function request<T>(
   method: string,
   url: string,
@@ -108,6 +127,7 @@ export async function request<T>(
     res = await fetch(url, {
       method,
       credentials: 'same-origin',
+      redirect: 'manual',
       headers:
         body !== undefined && !(body instanceof FormData)
           ? { 'content-type': 'application/json' }
@@ -118,6 +138,10 @@ export async function request<T>(
   } catch (e) {
     if ((e as Error).name === 'AbortError') throw e;
     throw new NetworkError(e);
+  }
+  if (res.type === 'opaqueredirect') {
+    accessSignIn();
+    throw new NetworkError();
   }
   if (!res.ok) {
     let data: unknown = null;

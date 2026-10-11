@@ -44,6 +44,13 @@ export function createHttpApp(
   app.use('*', authMiddleware(platform));
 
   app.get('/api/health', (c) => c.json({ ok: true }));
+  // The web app navigates here when Cloudflare Access wants a new sign-in: the
+  // service worker never answers /api/ from its cache, so Access sees the request,
+  // signs the browser in, and this sends it back to the page it came from.
+  app.get('/api/access/return', (c) => {
+    const to = c.req.query('to') ?? '/';
+    return c.redirect(/^\/(?![/\\])/.test(to) ? to : '/');
+  });
   app.route('/api/auth', authRoutes(platform));
   app.route('/api/admin', adminRoutes(platform));
   app.route('/api', notesRoutes(platform));
