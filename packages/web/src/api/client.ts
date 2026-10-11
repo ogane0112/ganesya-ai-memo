@@ -191,6 +191,10 @@ export const api = {
 
   // ---- notes ---------------------------------------------------------------
   notes: (folder?: string) => get<NoteSummary[]>(`/api/notes${qs({ folder })}`),
+  /** Folders created on their own (folders that hold notes are not listed). */
+  folders: () => get<string[]>('/api/folders'),
+  createFolder: (path: string) => post<{ path: string }>('/api/folders', { path }),
+  deleteFolder: (path: string) => del<Ok>(`/api/folders${qs({ path })}`),
   note: (path: string, commit?: string) => get<NoteDoc>(`/api/note${qs({ path, commit })}`),
   saveNote: (b: {
     path: string;

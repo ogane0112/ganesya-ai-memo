@@ -34,11 +34,15 @@ export class D1Db implements Db {
     return { changes: r.meta.changes ?? 0 };
   }
 
-  async batch(stmts: Stmt[]): Promise<void> {
-    if (stmts.length === 0) return;
+  async batch(stmts: Stmt[]): Promise<{ changes: number }[]> {
+    const out: { changes: number }[] = [];
     // D1 limits statements per batch; chunk while keeping order. Each chunk is atomic.
     for (let i = 0; i < stmts.length; i += 90) {
-      await this.d1.batch(stmts.slice(i, i + 90).map((s) => this.prep(s.sql, s.params)));
+      const res = (await this.d1.batch(
+        stmts.slice(i, i + 90).map((s) => this.prep(s.sql, s.params)),
+      )) as { meta?: { changes?: number } }[];
+      for (const r of res) out.push({ changes: r?.meta?.changes ?? 0 });
     }
+    return out;
   }
 }

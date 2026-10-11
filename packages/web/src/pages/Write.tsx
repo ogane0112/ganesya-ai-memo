@@ -6,7 +6,7 @@ import { Icon } from '../components/Icon';
 import { Segmented } from '../components/ui';
 import { useDocumentTitle, useOnline } from '../lib/hooks';
 import { firstLineTitle, quickNoteContent, timestampTitle, uniquePath } from '../lib/newNote';
-import { noteUrl } from '../lib/paths';
+import { folderList, noteUrl } from '../lib/paths';
 import { loadDraft, saveDraft } from '../lib/queueStore';
 import { syncQueue } from '../lib/sync';
 import { useApp } from '../state/app';
@@ -29,7 +29,7 @@ function stored(key: string, fallback: string): string {
 /** The start screen: write first, organize later (AI helps with that). */
 export function WritePage() {
   useDocumentTitle('書く');
-  const { notes, queue } = useApp();
+  const { notes, queue, folders: created } = useApp();
   const online = useOnline();
   const toast = useToast();
   const navigate = useNavigate();
@@ -87,14 +87,14 @@ export function WritePage() {
     }
   }, [folder, mode]);
 
-  const folders = useMemo(() => {
-    const s = new Set<string>(['Inbox']);
-    for (const n of notes) {
-      const i = n.path.lastIndexOf('/');
-      if (i > 0) s.add(n.path.slice(0, i));
-    }
-    return [...s].sort((a, b) => a.localeCompare(b, 'ja'));
-  }, [notes]);
+  const folders = useMemo(
+    () =>
+      folderList(
+        notes.map((n) => n.path),
+        ['Inbox', ...created],
+      ),
+    [notes, created],
+  );
 
   const clear = () => {
     setTitle('');

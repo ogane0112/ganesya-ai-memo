@@ -325,6 +325,7 @@ export class DbGitStore implements NoteStore {
         else {
           const sha = await objectId('blob', ch.content);
           writes.set(sha, { type: 'blob', data: ch.content });
+          this.objects.set(sha, { type: 'blob', data: ch.content });
           entries.set(head!, { name: head!, type: 'blob', sha });
         }
       } else {
@@ -354,7 +355,7 @@ export class DbGitStore implements NoteStore {
     message: string,
     opts: CommitOptions = {},
   ): Promise<string> {
-    const current = await this.head(branch);
+    const current = opts.current ?? (await this.head(branch));
     const parent = opts.parent === undefined ? current : opts.parent;
     const parentTree = parent ? ((await this.commitRow(parent))?.tree ?? null) : null;
     const writes = new Map<string, { type: string; data: Uint8Array }>();
@@ -412,7 +413,16 @@ export class DbGitStore implements NoteStore {
         JSON.stringify(changed),
       ),
     );
-    await this.db.batch(stmts);
+    const row: CommitRow = {
+      sha,
+      tree,
+      parents: JSON.stringify(parents),
+      author_name: author.name,
+      author_email: author.email,
+      date,
+      message,
+      changed: JSON.stringify(changed),
+    };
 
     // Compare-and-swap the branch ref. Like a non-forced git push, the new
     // commit must descend from the branch's current head.
@@ -424,17 +434,25 @@ export class DbGitStore implements NoteStore {
       throw new ConcurrentUpdateError(`${branch} is not an ancestor of the new commit`);
     }
     if (current === null) {
+      await this.db.batch(stmts);
       await this.createBranch(branch, sha);
     } else {
-      const r = await this.db.run(
-        'UPDATE git_refs SET sha = ? WHERE user_id = ? AND name = ? AND sha = ?',
-        sha,
-        this.userId,
-        branch,
-        current,
+      // Objects and the ref move in one round trip. If the branch moved, the
+      // objects stay behind unreferenced, exactly as after a refused push.
+      stmts.push(
+        stmt(
+          'UPDATE git_refs SET sha = ? WHERE user_id = ? AND name = ? AND sha = ?',
+          sha,
+          this.userId,
+          branch,
+          current,
+        ),
       );
-      if (r.changes !== 1) throw new ConcurrentUpdateError(`${branch} moved during commit`);
+      const res = await this.db.batch(stmts);
+      if (res[res.length - 1]?.changes !== 1)
+        throw new ConcurrentUpdateError(`${branch} moved during commit`);
     }
+    this.commits.set(sha, row);
     return sha;
   }
 

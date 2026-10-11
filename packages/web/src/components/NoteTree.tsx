@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import type { NoteSummary } from '../api/types';
-import { noteUrl } from '../lib/paths';
+import { displayPath, noteUrl } from '../lib/paths';
 import { buildTree, countNotes, type TreeFolder } from '../lib/tree';
 import { Icon } from './Icon';
 
@@ -15,8 +15,20 @@ function loadOpen(): Set<string> {
   }
 }
 
-export function NoteTree({ notes, onNavigate }: { notes: NoteSummary[]; onNavigate?: () => void }) {
-  const tree = useMemo(() => buildTree(notes), [notes]);
+export function NoteTree({
+  notes,
+  folders = [],
+  onNavigate,
+  onDeleteFolder,
+}: {
+  notes: NoteSummary[];
+  /** Folders created on their own (shown even when empty). */
+  folders?: string[];
+  onNavigate?: () => void;
+  /** Offered on empty folders. */
+  onDeleteFolder?: (path: string) => void;
+}) {
+  const tree = useMemo(() => buildTree(notes, folders), [notes, folders]);
   const [open, setOpen] = useState<Set<string>>(loadOpen);
   const loc = useLocation();
 
@@ -75,7 +87,24 @@ export function NoteTree({ notes, onNavigate }: { notes: NoteSummary[]; onNaviga
               <span className="tree-label">{sub.name}</span>
               <span className="tree-count">{countNotes(sub)}</span>
             </button>
-            {isOpen && renderFolder(sub, depth + 1)}
+            {isOpen &&
+              (countNotes(sub) === 0 && sub.folders.length === 0 ? (
+                <div className="tree-empty" style={{ paddingLeft: 8 + (depth + 1) * 14 + 18 }}>
+                  <NavLink
+                    to={`/notes?new=1&folder=${encodeURIComponent(sub.path)}`}
+                    onClick={onNavigate}
+                  >
+                    ノートを追加
+                  </NavLink>
+                  {onDeleteFolder && (
+                    <button type="button" onClick={() => onDeleteFolder(sub.path)}>
+                      フォルダーを削除
+                    </button>
+                  )}
+                </div>
+              ) : (
+                renderFolder(sub, depth + 1)
+              ))}
           </li>
         );
       })}
@@ -86,7 +115,7 @@ export function NoteTree({ notes, onNavigate }: { notes: NoteSummary[]; onNaviga
             className="tree-note"
             style={{ paddingLeft: 8 + depth * 14 + 18 }}
             onClick={onNavigate}
-            title={n.path}
+            title={displayPath(n.path)}
           >
             <span className={n.createdBy === 'ai' ? 'dot dot-ai' : 'dot'} aria-hidden="true" />
             <span className="tree-label">{n.title}</span>

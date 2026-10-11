@@ -102,10 +102,13 @@ export class Platform {
   }
 
   /** Open a user's workspace (cached while its storage settings are unchanged). */
-  async workspace(userId: string): Promise<Workspace> {
-    const user = await this.auth.user(userId);
+  async workspace(userId: string, username?: string): Promise<Workspace> {
+    // A session already names its user; anything else looks the name up.
+    const [user, row] = await Promise.all([
+      username ? { id: userId, username } : this.auth.user(userId),
+      loadWorkspaceRow(this.db, userId),
+    ]);
     if (!user) throw new Error('user not found');
-    const row = await loadWorkspaceRow(this.db, userId);
     const key = `${row.updated_at}|${user.username}`;
     const hit = this.cache.get(userId);
     if (hit && hit.key === key) {

@@ -38,6 +38,11 @@ export interface CommitOptions {
   extraParents?: string[];
   /** Create a commit even if the tree did not change. */
   allowEmpty?: boolean;
+  /**
+   * The branch head as the caller last read it. Saves the store a read; the
+   * commit is still refused (ConcurrentUpdateError) if the branch moved since.
+   */
+  current?: string;
 }
 
 export interface NoteStore {

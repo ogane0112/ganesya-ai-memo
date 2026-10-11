@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import type { PublicFinding } from '../api/types';
 import { useOnline } from '../lib/hooks';
+import { displayPath } from '../lib/paths';
 import { loadDraft, saveDraft } from '../lib/queueStore';
 import { pendingFor } from '../lib/queue';
 import { syncQueue } from '../lib/sync';
@@ -45,6 +46,7 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
   const [proposalId, setProposalId] = useState<string | null>(null);
   const [scan, setScan] = useState<PublicFinding[] | null>(null);
   const scanDismissed = useRef(false);
+  const leaving = useRef(false);
   const textRef = useRef(text);
   textRef.current = text;
   const dirty = text !== savedRef.current;
@@ -252,7 +254,7 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
         </div>
       )}
       <div className="note-editor-head">
-        <span className="hint mono ellipsis">{path}</span>
+        <span className="hint ellipsis">{displayPath(path)}</span>
         <span className="hint">
           {saving ? '保存中…' : dirty ? '未保存' : pending ? '同期待ち' : '保存済み'}
         </span>
@@ -260,9 +262,14 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
           type="button"
           className="btn btn-small"
           onClick={() => {
+            // The note page shows the saved text right away; the server catches up behind it.
+            if (leaving.current) return;
+            leaving.current = true;
             void save({ quiet: true })
-              .then(() => syncQueue.settled(path))
-              .then(onDone);
+              .then(onDone)
+              .finally(() => {
+                leaving.current = false;
+              });
           }}
         >
           完了

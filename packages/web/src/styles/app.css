@@ -602,6 +602,27 @@ pre,
   color: var(--faint);
   font-size: 0.75rem;
 }
+.tree-empty {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 4px 8px 6px;
+  font-size: 0.8125rem;
+}
+.tree-empty a,
+.tree-empty button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.tree-empty a:hover,
+.tree-empty button:hover {
+  color: var(--fg);
+}
 .dot {
   width: 5px;
   height: 5px;

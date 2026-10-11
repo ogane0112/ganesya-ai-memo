@@ -30,6 +30,8 @@ interface AppContextValue {
   notesLoaded: boolean;
   refreshNotes: () => void;
   paths: string[];
+  /** Folders created on their own; folders that hold notes come from `notes`. */
+  folders: string[];
   /** Increments whenever main changes (server-sent events). */
   changeTick: number;
   lastChange: { commit: string; paths: string[] } | null;
@@ -67,6 +69,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [offlineAuth, setOfflineAuth] = useState(false);
   const [notes, setNotes] = useState<NoteSummary[]>([]);
   const [notesLoaded, setNotesLoaded] = useState(false);
+  const [folders, setFolders] = useState<string[]>([]);
   const [changeTick, setChangeTick] = useState(0);
   const [lastChange, setLastChange] = useState<{ commit: string; paths: string[] } | null>(null);
   const [openProposals, setOpenProposals] = useState(0);
@@ -141,6 +144,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setNotesLoaded(true);
       })
       .catch(() => setNotesLoaded(true));
+    api
+      .folders()
+      .then((list) => {
+        if (n === notesReq.current) setFolders(list);
+      })
+      .catch(() => undefined);
   }, []);
 
   const refreshProposals = useCallback(() => {
@@ -234,6 +243,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       notesLoaded,
       refreshNotes,
       paths,
+      folders,
       changeTick,
       lastChange,
       openProposals,
@@ -249,6 +259,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       notesLoaded,
       refreshNotes,
       paths,
+      folders,
       changeTick,
       lastChange,
       openProposals,
