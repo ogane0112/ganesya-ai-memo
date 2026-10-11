@@ -35,10 +35,12 @@ export class SqliteDb implements Db {
     return { changes: r.changes };
   }
 
-  async batch(stmts: Stmt[]): Promise<void> {
-    this.raw.transaction(() => {
-      for (const s of stmts) this.raw.prepare(s.sql).run(...this.conv(s.params));
-    })();
+  async batch(stmts: Stmt[]): Promise<{ changes: number }[]> {
+    return this.raw.transaction(() =>
+      stmts.map((s) => ({
+        changes: this.raw.prepare(s.sql).run(...this.conv(s.params)).changes,
+      })),
+    )();
   }
 
   close(): void {

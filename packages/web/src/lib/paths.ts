@@ -35,6 +35,24 @@ export function titleFromPath(path: string): string {
   return basename(path).replace(/\.md$/i, '');
 }
 
+/** A note's place as people read it: "Projects › Plan", never "Projects/Plan.md". */
+export function displayPath(path: string): string {
+  const folder = folderOf(path);
+  return [...(folder ? folder.split('/') : []), titleFromPath(path)].join(' › ');
+}
+
+/** Every folder: those that hold notes (with their parents) plus the ones created on their own. */
+export function folderList(notePaths: readonly string[], created: readonly string[]): string[] {
+  const all = new Set<string>();
+  const add = (folder: string) => {
+    const parts = folder.split('/').filter(Boolean);
+    for (let i = 1; i <= parts.length; i++) all.add(parts.slice(0, i).join('/'));
+  };
+  for (const p of notePaths) add(folderOf(p));
+  for (const f of created) add(f);
+  return [...all].sort((a, b) => a.localeCompare(b, 'ja'));
+}
+
 const IMAGE_RE = /\.(png|jpe?g|gif|webp|svg|avif)$/i;
 export const isImagePath = (p: string) => IMAGE_RE.test(p);
 

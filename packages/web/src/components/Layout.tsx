@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { api, describeError } from '../api/client';
 import { useOnline } from '../lib/hooks';
+import { displayPath } from '../lib/paths';
 import { syncQueue } from '../lib/sync';
 import { useApp } from '../state/app';
+import { useToast } from '../state/toast';
 import { Icon } from './Icon';
 import { NoteTree } from './NoteTree';
 
@@ -61,7 +64,7 @@ function SyncStatus() {
       ))}
       {queue.conflicts.map((c) => (
         <div key={c.id} className="statusbar statusbar-warn" role="alert">
-          <span>「{c.path}」は他の変更と自動で統合できませんでした。</span>
+          <span>「{displayPath(c.path)}」は他の変更と自動で統合できませんでした。</span>
           <span className="row">
             <Link
               className="btn btn-small btn-primary"
@@ -86,9 +89,18 @@ function SyncStatus() {
 }
 
 export function Layout() {
-  const { openProposals, notes, notesLoaded, auth } = useApp();
+  const { openProposals, notes, notesLoaded, folders, refreshNotes, auth } = useApp();
   const loc = useLocation();
+  const toast = useToast();
   const [typing, setTyping] = useState(false);
+
+  const deleteFolder = (path: string) => {
+    if (!confirm(`フォルダー「${path}」を削除しますか?`)) return;
+    api
+      .deleteFolder(path)
+      .then(refreshNotes)
+      .catch((e: unknown) => toast.show(describeError(e), { kind: 'error' }));
+  };
 
   // Hide the phone tab bar while the keyboard is likely open (an input is focused).
   useEffect(() => {
@@ -142,19 +154,29 @@ export function Layout() {
         <div className="side-tree">
           <div className="side-tree-head">
             <span>ノート</span>
-            <Link
-              to="/notes?new=1"
-              className="icon-btn"
-              aria-label="新しいノート"
-              title="新しいノート"
-            >
-              <Icon name="plus" size={18} />
-            </Link>
+            <span className="row">
+              <Link
+                to="/notes?newFolder=1"
+                className="icon-btn"
+                aria-label="新しいフォルダー"
+                title="新しいフォルダー"
+              >
+                <Icon name="folder" size={18} />
+              </Link>
+              <Link
+                to="/notes?new=1"
+                className="icon-btn"
+                aria-label="新しいノート"
+                title="新しいノート"
+              >
+                <Icon name="plus" size={18} />
+              </Link>
+            </span>
           </div>
-          {notesLoaded && notes.length === 0 ? (
+          {notesLoaded && notes.length === 0 && folders.length === 0 ? (
             <p className="hint pad">まだノートがありません</p>
           ) : (
-            <NoteTree notes={notes} />
+            <NoteTree notes={notes} folders={folders} onDeleteFolder={deleteFolder} />
           )}
         </div>
         <div className="side-foot">{auth?.user?.username}</div>

@@ -16,7 +16,7 @@ import {
 } from '../components/ui';
 import { useDocumentTitle, useOnline } from '../lib/hooks';
 import { highlightSnippet, linkCitations } from '../lib/markdown';
-import { noteUrl } from '../lib/paths';
+import { folderOf, noteUrl } from '../lib/paths';
 import { useApp } from '../state/app';
 
 type Tab = 'search' | 'ask';
@@ -142,7 +142,7 @@ function SearchTab() {
               <Link to={noteUrl(h.path)} className="note-card">
                 <span className="note-card-title">{h.title}</span>
                 <span className="note-card-meta">
-                  <span className="mono ellipsis">{h.path}</span>
+                  <span className="mono ellipsis">{folderOf(h.path)}</span>
                   {h.matchedBy.includes('vector') && !h.matchedBy.includes('text') && (
                     <Badge>意味が近い</Badge>
                   )}

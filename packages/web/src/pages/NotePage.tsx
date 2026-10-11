@@ -1,5 +1,5 @@
 import { parseNoteLenient } from '@gmemo/core';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, ApiError, describeError } from '../api/client';
 import type { BlockAttribution, HistoryEntry } from '../api/types';
@@ -9,7 +9,14 @@ import { NoteEditor } from '../components/NoteEditor';
 import { Badge, EmptyState, ErrorBox, Loading, Modal } from '../components/ui';
 import { displayValue, formatDateTime, relativeTime } from '../lib/format';
 import { useAsync, useDocumentTitle, useOnline } from '../lib/hooks';
-import { folderOf, noteUrl, pathFromSplat, titleFromPath, toNotePath } from '../lib/paths';
+import {
+  displayPath,
+  folderOf,
+  noteUrl,
+  pathFromSplat,
+  titleFromPath,
+  toNotePath,
+} from '../lib/paths';
 import { pendingFor } from '../lib/queue';
 import { syncQueue } from '../lib/sync';
 import { useApp } from '../state/app';
@@ -86,6 +93,24 @@ export function NotePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastChange]);
 
+  // A save of this note reached the server: show exactly what was saved without
+  // waiting, then fetch the rest (who wrote what, links) behind it.
+  const docRef = useRef(doc);
+  docRef.current = doc;
+  useEffect(() => {
+    if (commit) return;
+    return syncQueue.onResult((item, outcome) => {
+      if (item.op.kind !== 'save' || item.op.path !== path || outcome.type !== 'committed') return;
+      const saved = { content: item.op.content, sha: outcome.sha, commit: outcome.commit };
+      note.setData({ path, frontmatter: {}, ...docRef.current, ...saved });
+      note.reload();
+      blame.reload();
+      links.reload();
+      refreshNotes();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path, commit]);
+
   const setEditing = (on: boolean) => {
     const next = new URLSearchParams(search);
     if (on) next.set('edit', '1');
@@ -118,7 +143,7 @@ export function NotePage() {
     return (
       <div className="page">
         <EmptyState icon="file" title="このノートはまだありません">
-          <p className="mono">{path}</p>
+          <p>{displayPath(path)}</p>
           <button type="button" className="btn btn-primary" onClick={() => setEditing(true)}>
             <Icon name="plus" />
             作成する

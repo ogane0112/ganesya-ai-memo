@@ -1,35 +1,46 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { api, describeError } from '../api/client';
 import { Icon } from '../components/Icon';
 import { NoteCard } from '../components/NoteCard';
 import { Badge, EmptyState, Loading, Modal, PageHeader } from '../components/ui';
 import { useDocumentTitle } from '../lib/hooks';
-import { noteUrl, toNotePath } from '../lib/paths';
+import { displayPath, folderList, noteUrl, titleFromPath, toNotePath } from '../lib/paths';
 import { useApp } from '../state/app';
+import { useToast } from '../state/toast';
 
 type Sort = 'updated' | 'title';
 
 export function NotesListPage() {
   useDocumentTitle('ノート');
-  const { notes, notesLoaded, queue } = useApp();
+  const { notes, notesLoaded, queue, folders: created } = useApp();
   const [params, setParams] = useSearchParams();
   const folder = params.get('folder') ?? '';
   const [filter, setFilter] = useState('');
   const [sort, setSort] = useState<Sort>('updated');
   const [creating, setCreating] = useState(params.get('new') === '1');
+  const [creatingFolder, setCreatingFolder] = useState(params.get('newFolder') === '1');
 
   useEffect(() => {
     if (params.get('new') === '1') setCreating(true);
+    if (params.get('newFolder') === '1') setCreatingFolder(true);
   }, [params]);
 
-  const folders = useMemo(() => {
-    const s = new Set<string>();
-    for (const n of notes) {
-      const i = n.path.lastIndexOf('/');
-      if (i > 0) s.add(n.path.slice(0, i));
-    }
-    return [...s].sort((a, b) => a.localeCompare(b, 'ja'));
-  }, [notes]);
+  const folders = useMemo(
+    () =>
+      folderList(
+        notes.map((n) => n.path),
+        created,
+      ),
+    [notes, created],
+  );
+
+  const dropParam = (name: string) => {
+    if (!params.get(name)) return;
+    const next = new URLSearchParams(params);
+    next.delete(name);
+    setParams(next, { replace: true });
+  };
 
   const pendingPaths = useMemo(
     () => new Set(queue.items.flatMap((i) => (i.op.kind === 'save' ? [i.op.path] : []))),
@@ -66,10 +77,16 @@ export function NotesListPage() {
         title="ノート"
         sub={`${notes.length} 件`}
         actions={
-          <button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>
-            <Icon name="plus" size={18} />
-            新規
-          </button>
+          <>
+            <button type="button" className="btn" onClick={() => setCreatingFolder(true)}>
+              <Icon name="folder" size={18} />
+              フォルダー
+            </button>
+            <button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>
+              <Icon name="plus" size={18} />
+              新規
+            </button>
+          </>
         }
       />
       <div className="toolbar-row">
@@ -133,10 +150,10 @@ export function NotesListPage() {
           {unsynced.map((p) => (
             <li key={p}>
               <Link to={noteUrl(p)} className="note-card">
-                <span className="note-card-title">{p.split('/').pop()?.replace(/\.md$/, '')}</span>
+                <span className="note-card-title">{titleFromPath(p)}</span>
                 <span className="note-card-meta">
                   <Badge tone="accent">未同期</Badge>
-                  <span className="mono">{p}</span>
+                  <span className="mono">{displayPath(p)}</span>
                 </span>
               </Link>
             </li>
@@ -154,11 +171,16 @@ export function NotesListPage() {
         defaultFolder={folder}
         onClose={() => {
           setCreating(false);
-          if (params.get('new')) {
-            const next = new URLSearchParams(params);
-            next.delete('new');
-            setParams(next, { replace: true });
-          }
+          dropParam('new');
+        }}
+      />
+      <NewFolderDialog
+        open={creatingFolder}
+        folders={folders}
+        defaultParent={folder}
+        onClose={() => {
+          setCreatingFolder(false);
+          dropParam('newFolder');
         }}
       />
     </div>
@@ -224,7 +246,11 @@ export function NewNoteDialog({
           </datalist>
         </div>
         {path && (
-          <p className="hint mono">{exists ? `${path} はすでにあります(開きます)` : path}</p>
+          <p className="hint">
+            {exists
+              ? `「${displayPath(path)}」はすでにあります(開きます)`
+              : `作成先: ${displayPath(path)}`}
+          </p>
         )}
         <div className="modal-foot">
           <button type="button" className="btn" onClick={onClose}>
@@ -232,6 +258,97 @@ export function NewNoteDialog({
           </button>
           <button type="submit" className="btn btn-primary" disabled={!path}>
             {exists ? '開く' : '作成'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+/** Create a folder on its own. Notes can be added to it afterwards. */
+export function NewFolderDialog({
+  open,
+  onClose,
+  folders,
+  defaultParent,
+}: {
+  open: boolean;
+  onClose: () => void;
+  folders: string[];
+  defaultParent: string;
+}) {
+  const [name, setName] = useState('');
+  const [parent, setParent] = useState(defaultParent);
+  const [busy, setBusy] = useState(false);
+  const { refreshNotes } = useApp();
+  const toast = useToast();
+  useEffect(() => {
+    if (open) {
+      setName('');
+      setParent(defaultParent);
+    }
+  }, [open, defaultParent]);
+  const path = [parent, name]
+    .flatMap((s) => s.split(/[\\/]/))
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join('/');
+  const shown = path.split('/').join(' › ');
+  const exists = !!name.trim() && folders.some((f) => f.toLowerCase() === path.toLowerCase());
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || busy) return;
+    if (exists) return onClose();
+    setBusy(true);
+    try {
+      await api.createFolder(path);
+      refreshNotes();
+      toast.show('フォルダーを作成しました', { kind: 'success', duration: 2000 });
+      onClose();
+    } catch (err) {
+      toast.show(describeError(err), { kind: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal open={open} onClose={onClose} title="新しいフォルダー">
+      <form onSubmit={(e) => void submit(e)}>
+        <div className="field">
+          <label htmlFor="folder-name">フォルダー名</label>
+          <input
+            id="folder-name"
+            className="input"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+            required
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="folder-parent">作成する場所(空欄 = いちばん上)</label>
+          <input
+            id="folder-parent"
+            className="input"
+            list="folder-parents"
+            value={parent}
+            onChange={(e) => setParent(e.target.value)}
+          />
+          <datalist id="folder-parents">
+            {folders.map((f) => (
+              <option key={f} value={f} />
+            ))}
+          </datalist>
+        </div>
+        {name.trim() && (
+          <p className="hint">{exists ? `「${shown}」はすでにあります` : `作成先: ${shown}`}</p>
+        )}
+        <div className="modal-foot">
+          <button type="button" className="btn" onClick={onClose}>
+            キャンセル
+          </button>
+          <button type="submit" className="btn btn-primary" disabled={!name.trim() || busy}>
+            作成
           </button>
         </div>
       </form>

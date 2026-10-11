@@ -21,6 +21,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import type { Agent } from '../auth/agents.js';
 import { type Db, nowIso } from '../db/db.js';
 import {
+  type ChangedFile,
   type CommitInfo,
   ConcurrentUpdateError,
   type FileChange,
@@ -131,6 +132,13 @@ const MAX_ATTEMPTS = 5;
  */
 export class NoteService {
   private policyCache: { commit: string; policy: WorkspacePolicy } | null = null;
+  /**
+   * The head this instance last saw with the index in step. A write that follows
+   * a read within the same request starts from it instead of asking again; if
+   * main moved in between, the compare-and-swap refuses the commit and the retry
+   * reads the real head.
+   */
+  private seen: { head: string; at: number } | null = null;
 
   constructor(
     readonly store: NoteStore,
@@ -242,7 +250,11 @@ export class NoteService {
    * change outside the app, so they are re-checked every `checkSeconds`.
    */
   async currentHead(): Promise<string> {
-    const state = await this.index.state();
+    // The built-in store always needs both answers: ask for them together.
+    const [state, stored] = await Promise.all([
+      this.index.state(),
+      this.cheap ? this.store.head(MAIN) : null,
+    ]);
     if (
       !this.cheap &&
       state.commit &&
@@ -250,17 +262,31 @@ export class NoteService {
       Date.now() - Date.parse(state.checkedAt) < this.opts.checkSeconds * 1000
     )
       return state.commit;
-    const head = await this.head();
+    const head = stored ?? (await this.head());
     if (head !== state.commit) await this.index.sync(head);
     else if (!this.cheap) await this.index.touch();
+    if (this.cheap) this.seen = { head, at: Date.now() };
     return head;
   }
 
+  /** The head from a read moments ago (see `seen`), or null to ask the store. */
+  private recentHead(): string | null {
+    return this.seen && Date.now() - this.seen.at < 2000 ? this.seen.head : null;
+  }
+
   /** Index and policy follow-up after this service moved main from `parent` to `commit`. */
-  private async afterMainCommit(parent: string | null, commit: string, paths: string[]) {
-    const state = await this.index.state();
-    if (state.commit === parent) await this.index.updatePaths(paths, commit, nowIso());
-    else await this.index.sync(commit);
+  private async afterMainCommit(parent: string | null, commit: string, changed: ChangedFile[]) {
+    const paths = changed.map((c) => c.path);
+    const inStep = parent !== null && this.recentHead() === parent;
+    this.seen = null;
+    if (inStep || (await this.index.state()).commit === parent) {
+      // Only edits to existing notes: no link can start or stop resolving.
+      const samePaths = changed.every(
+        (c) => c.status === 'M' || !c.path.toLowerCase().endsWith('.md'),
+      );
+      await this.index.updatePaths(paths, commit, nowIso(), { samePaths });
+    } else await this.index.sync(commit);
+    if (this.cheap) this.seen = { head: commit, at: Date.now() };
     if (paths.includes(POLICY_PATH)) await this.loadPolicy(commit);
   }
 
@@ -311,14 +337,14 @@ export class NoteService {
       changes,
       gitIdentity(actor),
       commitMessage(actor, subject, opts.trailers),
-      { parent: head, ...(opts.extraParents ? { extraParents: opts.extraParents } : {}) },
+      {
+        parent: head,
+        current: head,
+        ...(opts.extraParents ? { extraParents: opts.extraParents } : {}),
+      },
     );
     if (sha !== head)
-      await this.afterMainCommit(
-        head,
-        sha,
-        (await this.store.changedFiles(head, sha)).map((c) => c.path),
-      );
+      await this.afterMainCommit(head, sha, await this.store.changedFiles(head, sha));
     return sha;
   }
 
@@ -336,8 +362,10 @@ export class NoteService {
   ): Promise<SaveResult> {
     const p = normalizeNotePath(path);
     const human = this.human();
+    let first = true;
     return this.retry(async () => {
-      const head = await this.head();
+      const head = (first ? this.recentHead() : null) ?? (await this.head());
+      first = false;
       const currentSha = await this.store.blobId(head, p);
       let text = content;
       if (!currentSha && !opts.baseSha) text = withCreator(text, human);

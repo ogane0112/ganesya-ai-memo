@@ -93,6 +93,33 @@ describe('HTTP API', () => {
     expect(r.status).toBe(403);
   });
 
+  it('keeps folders created on their own, per account', async () => {
+    const make = (path: string) => req('/api/folders', { method: 'POST', json: { path } });
+    expect((await make(' Projects / 2026 ')).status).toBe(200);
+    expect((await make('Projects/2026')).status).toBe(200);
+    expect((await make('Projects/2026/Q1')).status).toBe(200);
+    expect((await make('Ideas')).status).toBe(200);
+    for (const bad of ['', '../x', '.gmemo', 'a/.hidden', 'a//b/..'])
+      expect((await make(bad)).status).toBe(400);
+    expect(await (await req('/api/folders')).json()).toEqual([
+      'Ideas',
+      'Projects/2026',
+      'Projects/2026/Q1',
+    ]);
+
+    const mine = cookie;
+    cookie = await signIn('other');
+    expect(await (await req('/api/folders')).json()).toEqual([]);
+    cookie = mine;
+
+    const del = await req('/api/folders?path=Projects/2026', { method: 'DELETE' });
+    expect(del.status).toBe(200);
+    expect(await (await req('/api/folders')).json()).toEqual(['Ideas']);
+    cookie = '';
+    expect((await req('/api/folders')).status).toBe(401);
+    cookie = mine;
+  });
+
   it('saves, reads, searches and lists notes', async () => {
     const put = await req('/api/note', {
       method: 'PUT',

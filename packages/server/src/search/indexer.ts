@@ -230,8 +230,14 @@ export class Indexer {
   /**
    * Re-index the given paths at `head`. `date` is used as their update time
    * (the commit that changed them); omitted, it is looked up per file.
+   * `samePaths`: no note was added or removed, only edited.
    */
-  async updatePaths(paths: string[], head: string, date?: string): Promise<void> {
+  async updatePaths(
+    paths: string[],
+    head: string,
+    date?: string,
+    opts: { samePaths?: boolean } = {},
+  ): Promise<void> {
     const md = [...new Set(paths.filter((p) => p.toLowerCase().endsWith('.md')))];
     const contents = new Map<string, string | null>();
     if (md.length > SNAPSHOT_THRESHOLD) {
@@ -250,13 +256,14 @@ export class Indexer {
         const [c] = await this.store.log(head, { path: p, limit: 1 });
         if (c) dates.set(p, c.date);
       }
-    await this.write(contents, head, dates);
+    await this.write(contents, head, dates, opts.samePaths);
   }
 
   private async write(
     contents: Map<string, string | null>,
     head: string,
     dates: Map<string, string> | null,
+    samePaths = false,
   ): Promise<void> {
     const u = this.userId;
     const changed = [...contents.keys()];
@@ -297,24 +304,29 @@ export class Indexer {
       }
     }
 
-    // Link targets resolve against the full set of paths after this change.
-    const remaining = (
-      await this.db.all<{ path: string }>('SELECT path FROM notes WHERE user_id = ?', u)
-    )
-      .map((r) => r.path)
-      .filter((p) => !contents.has(p));
+    // Link targets resolve against the full set of paths after this change. With
+    // the same set of notes as before, links of other notes resolve as they did,
+    // and the paths are only needed when the edited notes link somewhere.
+    const [known, kept] = await Promise.all([
+      samePaths && newLinks.length === 0
+        ? []
+        : this.db.all<{ path: string }>('SELECT path FROM notes WHERE user_id = ?', u),
+      samePaths
+        ? []
+        : this.db.all<{
+            rowid: number;
+            src: string;
+            target: string;
+            target_path: string | null;
+          }>('SELECT rowid, src, target, target_path FROM links WHERE user_id = ?', u),
+    ]);
+    const remaining = known.map((r) => r.path).filter((p) => !contents.has(p));
     const allPaths = [...remaining, ...notes.map((n) => n[0] as string)];
     const cache = new Map<string, string | null>();
     const resolve = (target: string) => {
       if (!cache.has(target)) cache.set(target, resolveLink(target, allPaths) ?? null);
       return cache.get(target)!;
     };
-    const kept = await this.db.all<{
-      rowid: number;
-      src: string;
-      target: string;
-      target_path: string | null;
-    }>('SELECT rowid, src, target, target_path FROM links WHERE user_id = ?', u);
     const relinks: unknown[][] = [];
     for (const l of kept) {
       if (contents.has(l.src)) continue;

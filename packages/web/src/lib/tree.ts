@@ -7,12 +7,16 @@ export interface TreeFolder {
   notes: NoteSummary[];
 }
 
-/** Build a folder tree from the flat note list (folders first, then notes, both sorted). */
-export function buildTree(notes: readonly NoteSummary[]): TreeFolder {
+/**
+ * Build a folder tree from the flat note list (folders first, then notes, both
+ * sorted). `folders` adds the ones created on their own, which may be empty.
+ */
+export function buildTree(
+  notes: readonly NoteSummary[],
+  folders: readonly string[] = [],
+): TreeFolder {
   const root: TreeFolder = { name: '', path: '', folders: [], notes: [] };
-  for (const n of notes) {
-    const parts = n.path.split('/');
-    parts.pop();
+  const folderAt = (parts: string[]): TreeFolder => {
     let cur = root;
     let acc = '';
     for (const part of parts) {
@@ -24,8 +28,10 @@ export function buildTree(notes: readonly NoteSummary[]): TreeFolder {
       }
       cur = next;
     }
-    cur.notes.push(n);
-  }
+    return cur;
+  };
+  for (const f of folders) folderAt(f.split('/').filter(Boolean));
+  for (const n of notes) folderAt(n.path.split('/').slice(0, -1)).notes.push(n);
   const sort = (f: TreeFolder) => {
     f.folders.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
     f.notes.sort((a, b) => a.title.localeCompare(b.title, 'ja', { numeric: true }));

@@ -196,7 +196,8 @@ export async function workspaceOf(platform: Platform, c: Context<Env>): Promise<
   if (cached) return cached;
   const userId = c.get('principal')?.userId ?? c.get('session')?.userId;
   if (!userId) throw new HTTPException(401, { message: 'sign in required' });
-  const ws = await platform.workspace(userId);
+  const session = c.get('principal') ? null : c.get('session');
+  const ws = await platform.workspace(userId, session?.username);
   c.set('workspace', ws);
   return ws;
 }

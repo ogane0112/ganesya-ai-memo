@@ -186,6 +186,7 @@ export class AuthService {
       'tags',
       'chunks',
       'index_state',
+      'folders',
     ];
     await this.db.batch([
       ...extra,

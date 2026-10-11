@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { createSimulation, tick } from '../src/lib/forceGraph';
 import { firstLineTitle, quickNoteContent, uniquePath } from '../src/lib/newNote';
-import { noteUrl, pathFromSplat, safeNext, toNotePath } from '../src/lib/paths';
+import {
+  displayPath,
+  folderList,
+  noteUrl,
+  pathFromSplat,
+  safeNext,
+  toNotePath,
+} from '../src/lib/paths';
 import { buildTree } from '../src/lib/tree';
 import { emptyViewForm, formToYaml, yamlToForm } from '../src/lib/viewYaml';
 
@@ -17,6 +24,18 @@ describe('paths', () => {
     expect(toNotePath('My: note?', 'Inbox')).toBe('Inbox/My note.md');
     expect(toNotePath('/Projects/../x/Plan.md')).toBe('Projects/x/Plan.md');
     expect(toNotePath('  ')).toBe('');
+  });
+
+  it('shows where a note is without the file extension', () => {
+    expect(displayPath('Plan.md')).toBe('Plan');
+    expect(displayPath('Projects/2026/Plan.md')).toBe('Projects › 2026 › Plan');
+    expect(displayPath('Projects/v1.2 notes.MD')).toBe('Projects › v1.2 notes');
+  });
+
+  it('lists folders with notes, their parents, and folders created on their own', () => {
+    expect(
+      folderList(['a.md', 'Work/2026/Plan.md', 'Inbox/x.md'], ['Ideas', 'Work/Archive']),
+    ).toEqual(['Ideas', 'Inbox', 'Work', 'Work/2026', 'Work/Archive']);
   });
 
   it('only allows relative redirects', () => {
@@ -60,6 +79,22 @@ describe('note tree', () => {
     expect(tree.folders.map((f) => f.name)).toEqual(['A', 'Z']);
     expect(tree.notes.map((x) => x.title)).toEqual(['a', 'b']);
     expect(tree.folders[0]!.folders[0]!.path).toBe('A/B');
+  });
+
+  it('keeps folders created on their own, even when empty', () => {
+    const n = (path: string) => ({
+      path,
+      title: path.split('/').pop()!.replace('.md', ''),
+      createdBy: null,
+      aiAgent: null,
+      updatedAt: null,
+      tags: [],
+    });
+    const tree = buildTree([n('A/y.md')], ['Empty', 'A/Sub', 'A']);
+    expect(tree.folders.map((f) => f.name)).toEqual(['A', 'Empty']);
+    expect(tree.folders[0]!.folders.map((f) => f.path)).toEqual(['A/Sub']);
+    expect(tree.folders[0]!.notes).toHaveLength(1);
+    expect(tree.folders[1]!.notes).toHaveLength(0);
   });
 });
 

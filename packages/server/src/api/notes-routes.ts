@@ -13,6 +13,7 @@ import { HTTPException } from 'hono/http-exception';
 import { stringify as stringifyYaml } from 'yaml';
 import { ASK_SYSTEM_PROMPT, publicFinding } from '../ai/gateway.js';
 import type { Principal } from '../auth/tokens.js';
+import { nowIso } from '../db/db.js';
 import type { FileResolution } from '../notes/service.js';
 import type { Platform } from '../platform.js';
 import type { Workspace } from '../workspace.js';
@@ -79,6 +80,56 @@ export function notesRoutes(platform: Platform) {
     return c.json(
       await $.visibleTo(principal, await $.indexer.listNotes(folder || undefined), (n) => n.path),
     );
+  });
+
+  // ---- folders -------------------------------------------------------------
+  // A folder with notes in it exists by itself. These rows keep the folders a
+  // person created on their own, so an empty one stays in the tree.
+
+  const folderPath = (raw: unknown): string => {
+    const path = normalizeNotePath(str(raw, 'path'), { requireMarkdown: false })
+      .split('/')
+      .map((s) => s.trim())
+      .join('/');
+    // Dot folders hold the app's own files (.gmemo, .views).
+    if (path.length > 200 || path.split('/').some((s) => !s || s.startsWith('.')))
+      throw new HTTPException(400, { message: 'このフォルダー名は使えません' });
+    return path;
+  };
+
+  app.get('/folders', async (c) => {
+    const { userId } = requireHuman(c);
+    const rows = await platform.db.all<{ path: string }>(
+      'SELECT path FROM folders WHERE user_id = ? ORDER BY path',
+      userId,
+    );
+    return c.json(rows.map((r) => r.path));
+  });
+
+  app.post('/folders', async (c) => {
+    const { userId } = requireHuman(c);
+    const path = folderPath((await jsonBody<{ path: string }>(c)).path);
+    await platform.db.run(
+      `INSERT INTO folders(user_id, path, created_at) VALUES (?, ?, ?)
+       ON CONFLICT(user_id, path) DO NOTHING`,
+      userId,
+      path,
+      nowIso(),
+    );
+    return c.json({ path });
+  });
+
+  app.delete('/folders', async (c) => {
+    const { userId } = requireHuman(c);
+    const path = folderPath(c.req.query('path'));
+    // Folders below it go too: they would have no parent to show under.
+    await platform.db.run(
+      `DELETE FROM folders WHERE user_id = ? AND (path = ? OR path LIKE ? ESCAPE '\\')`,
+      userId,
+      path,
+      `${path.replace(/[\\%_]/g, (ch) => `\\${ch}`)}/%`,
+    );
+    return c.json({ ok: true });
   });
 
   app.get('/note', async (c) => {

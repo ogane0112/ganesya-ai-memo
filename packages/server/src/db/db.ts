@@ -16,8 +16,8 @@ export interface Db {
   first<T = Record<string, unknown>>(sql: string, ...params: SqlValue[]): Promise<T | null>;
   all<T = Record<string, unknown>>(sql: string, ...params: SqlValue[]): Promise<T[]>;
   run(sql: string, ...params: SqlValue[]): Promise<{ changes: number }>;
-  /** Run statements atomically, in order. */
-  batch(stmts: Stmt[]): Promise<void>;
+  /** Run statements atomically, in order. Returns the rows changed by each one. */
+  batch(stmts: Stmt[]): Promise<{ changes: number }[]>;
 }
 
 export function stmt(sql: string, ...params: SqlValue[]): Stmt {
@@ -316,6 +316,15 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     `CREATE INDEX security_events_user ON security_events(user_id, id)`,
     `CREATE INDEX security_events_action ON security_events(action, id)`,
     `CREATE INDEX security_events_at ON security_events(at)`,
+  ],
+  [
+    // ---- folders created on their own (a folder with notes needs no row) -------
+    `CREATE TABLE folders (
+      user_id TEXT NOT NULL,
+      path TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, path)
+    )`,
   ],
 ];
 
