@@ -7,6 +7,7 @@ npm run typecheck
 npm run lint
 npm run format    # prettier
 npm run security:check  # 脆弱性・依存・脅威の台帳と実際の状態の突き合わせ
+npm run github:check    # GitHub のリポジトリ設定の確認(docs/github-setup.md)
 ```
 
 - Node.js 22+ と git が必要です。
