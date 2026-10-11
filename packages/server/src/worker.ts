@@ -4,6 +4,7 @@
  */
 import { configFromEnv, type EnvRecord } from './config.js';
 import { D1Db, type D1DatabaseLike } from './db/d1.js';
+import { type R2BucketLike, R2FileStore } from './files/file-store.js';
 import { createHttpApp } from './http-app.js';
 import { Platform } from './platform.js';
 import { type WorkersRateLimitBinding, workersRateLimiter } from './util/rate-limit.js';
@@ -13,6 +14,8 @@ interface WorkerEnv {
   ASSETS?: { fetch(req: Request): Promise<Response> };
   /** Workers Rate Limiting binding for sign-in and token endpoints. */
   AUTH_LIMITER?: WorkersRateLimitBinding;
+  /** R2 bucket for uploaded files. Without it, files go into the note store. */
+  FILES?: R2BucketLike;
 }
 
 interface Ctx {
@@ -28,6 +31,7 @@ async function appFor(env: WorkerEnv) {
   const platform = await Platform.create(cfg, new D1Db(env.DB), {
     migrateKey: env.DB,
     ...(env.AUTH_LIMITER ? { authLimiter: workersRateLimiter(env.AUTH_LIMITER) } : {}),
+    ...(env.FILES ? { files: new R2FileStore(env.FILES) } : {}),
   });
   const app = createHttpApp(platform, {
     ...(env.ASSETS

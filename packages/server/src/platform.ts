@@ -5,6 +5,7 @@ import { OAuthService } from './auth/oauth.js';
 import { TokenService } from './auth/tokens.js';
 import type { Config } from './config.js';
 import { type Db, migrate, stmt } from './db/db.js';
+import type { FileStore } from './files/file-store.js';
 import { type Embedder, HashingEmbedder, LocalModelEmbedder } from './search/embedder.js';
 import { MemoryRateLimiter, type RateLimiter } from './util/rate-limit.js';
 import { loadWorkspaceRow, Workspace, type WorkspaceDeps } from './workspace.js';
@@ -24,6 +25,8 @@ export class Platform {
   /** Sign-in and token endpoints: attempts per client address per minute. */
   readonly authLimiter: RateLimiter;
   readonly deps: WorkspaceDeps;
+  /** Object storage for uploaded files; null keeps them in the note store. */
+  readonly files: FileStore | null;
   private cache = new Map<string, { key: string; ws: Workspace }>();
 
   private constructor(
@@ -35,7 +38,9 @@ export class Platform {
     authLimiter?: RateLimiter,
     auditConsole?: (line: string) => void,
     resolveHost?: (host: string) => Promise<string[]>,
+    files?: FileStore,
   ) {
+    this.files = files ?? null;
     this.auth = new AuthService(db, cfg);
     this.audit = new AuditLog(
       db,
@@ -81,6 +86,8 @@ export class Platform {
       auditConsole?: (line: string) => void;
       /** Host name → addresses (Node.js), so calendar URLs cannot point inside by name. */
       resolveHost?: (host: string) => Promise<string[]>;
+      /** Object storage for uploaded files (Workers: an R2 bucket). */
+      files?: FileStore;
     } = {},
   ): Promise<Platform> {
     const { fts } = await migrate(db, opts.migrateKey ?? db);
@@ -98,6 +105,7 @@ export class Platform {
       opts.authLimiter,
       opts.auditConsole,
       opts.resolveHost,
+      opts.files,
     );
   }
 
@@ -128,6 +136,7 @@ export class Platform {
 
   async deleteUser(userId: string): Promise<void> {
     this.forget(userId);
+    await this.files?.deletePrefix(`${userId}/`);
     await this.auth.deleteUser(
       userId,
       this.deps.fts

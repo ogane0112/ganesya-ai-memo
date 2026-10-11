@@ -67,6 +67,19 @@ export default defineConfig(({ mode }) => {
           name: staging ? 'gmemo-stg' : production ? env('GMEMO_D1_NAME', 'gmemo') : 'gmemo-dev',
         }),
         ASSETS: bindings.assets(),
+        // Uploaded files go to R2 when GMEMO_R2=on (R2 has to be enabled on the
+        // account first). Without it they are kept with the notes, 1.9 MB each.
+        ...(env('GMEMO_R2') === 'on'
+          ? {
+              FILES: bindings.r2({
+                name: staging
+                  ? 'gmemo-stg-files'
+                  : production
+                    ? env('GMEMO_R2_NAME', 'gmemo-files')
+                    : 'gmemo-dev-files',
+              }),
+            }
+          : {}),
         // 30 attempts per minute per address on sign-in and token endpoints.
         AUTH_LIMITER: bindings.rateLimit({
           namespace: staging ? '7002' : production ? '7001' : '7003',

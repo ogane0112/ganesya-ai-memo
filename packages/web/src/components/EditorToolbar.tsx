@@ -124,7 +124,6 @@ export function EditorToolbar({
           ref={file}
           type="file"
           hidden
-          accept="image/*,application/pdf"
           onChange={(e) => {
             const f = e.target.files?.[0];
             e.target.value = '';

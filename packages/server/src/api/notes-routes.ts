@@ -14,6 +14,7 @@ import { stringify as stringifyYaml } from 'yaml';
 import { ASK_SYSTEM_PROMPT, publicFinding } from '../ai/gateway.js';
 import type { Principal } from '../auth/tokens.js';
 import { nowIso } from '../db/db.js';
+import { fileKey } from '../files/file-store.js';
 import type { FileResolution } from '../notes/service.js';
 import type { Platform } from '../platform.js';
 import type { Workspace } from '../workspace.js';
@@ -33,6 +34,10 @@ import {
 const MAX_BUILTIN_BYTES = 1_900_000;
 const MAX_NOTE_BYTES = 5 * 1024 * 1024;
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+/** Object storage: the upload is held in memory once on its way through. */
+const MAX_STORED_FILE_BYTES = 50 * 1024 * 1024;
+/** Files in object storage are linked from notes under this folder. */
+const STORED_PREFIX = 'files/';
 
 function sizeLimit(w: Workspace, max: number): number {
   return w.store.kind === 'builtin' ? Math.min(max, MAX_BUILTIN_BYTES) : max;
@@ -196,11 +201,23 @@ export function notesRoutes(platform: Platform) {
     // secrets are masked; raw text is for people.
     if (principal && !AGENT_RAW_TYPES.has(contentType(path)))
       throw new HTTPException(403, { message: 'use /api/note to read notes' });
-    const data = await $.notes.readRaw(path);
-    if (!data) throw new HTTPException(404, { message: 'file not found' });
-    return new Response(new Uint8Array(data), {
+    const stored =
+      platform.files && path.startsWith(STORED_PREFIX)
+        ? await platform.files.get(fileKey($.w.userId, path))
+        : null;
+    const data = stored ? null : await $.notes.readRaw(path);
+    if (!stored && !data) throw new HTTPException(404, { message: 'file not found' });
+    // The type comes from the name, never from what the uploader claimed, and
+    // anything a browser could run is handed over as a download.
+    const type = contentType(path);
+    const fileName = encodeURIComponent(path.slice(path.lastIndexOf('/') + 1));
+    return new Response(stored ? stored.body : new Uint8Array(data!), {
       headers: {
-        'content-type': contentType(path),
+        'content-type': type,
+        ...(stored ? { 'content-length': String(stored.size) } : {}),
+        ...(INLINE_TYPES.has(type)
+          ? {}
+          : { 'content-disposition': `attachment; filename*=UTF-8''${fileName}` }),
         'cache-control': 'private, max-age=60',
         'x-content-type-options': 'nosniff',
         'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
@@ -398,18 +415,22 @@ export function notesRoutes(platform: Platform) {
     const form = await c.req.formData();
     const file = form.get('file');
     if (!(file instanceof File)) throw new HTTPException(400, { message: 'file required' });
-    const limit = sizeLimit($.w, MAX_ATTACHMENT_BYTES);
+    // Notes kept in this service: files go to object storage when there is one.
+    // A GitHub workspace keeps its files in the repository, next to the notes.
+    const files = $.w.store.kind === 'builtin' ? platform.files : null;
+    const limit = files ? MAX_STORED_FILE_BYTES : sizeLimit($.w, MAX_ATTACHMENT_BYTES);
     if (file.size > limit)
       throw new HTTPException(413, {
         message: `ファイルが大きすぎます(${Math.floor(limit / 1_000_000)}MBまで)`,
       });
-    const safe = file.name.replace(/[^\w.\-\u3000-\u9fff]/g, '_').slice(-80) || 'file';
-    const path = `attachments/${new Date().toISOString().slice(0, 10)}-${Date.now().toString(36)}-${safe}`;
-    await $.notes.commitAs(
-      $.w.human(),
-      [{ path, content: new Uint8Array(await file.arrayBuffer()) }],
-      `Attach ${safe}`,
-    );
+    let safe = file.name.replace(/[^\w.\-\u3000-\u9fff]/g, '_').slice(-80) || 'file';
+    // Notes tell files from other notes by a short extension.
+    if (!/\.[a-z0-9]{1,5}$/i.test(safe) || /\.md$/i.test(safe)) safe += '.bin';
+    const name = `${new Date().toISOString().slice(0, 10)}-${Date.now().toString(36)}-${safe}`;
+    const path = files ? `${STORED_PREFIX}${name}` : `attachments/${name}`;
+    const data = new Uint8Array(await file.arrayBuffer());
+    if (files) await files.put(fileKey($.w.userId, path), data, { contentType: contentType(path) });
+    else await $.notes.commitAs($.w.human(), [{ path, content: data }], `Attach ${safe}`);
     return c.json({
       path,
       markdown: /\.(png|jpe?g|gif|webp|svg)$/i.test(safe) ? `![[${path}]]` : `[[${path}]]`,
@@ -673,6 +694,22 @@ const AGENT_RAW_TYPES = new Set([
   'application/pdf',
 ]);
 
+/** Shown in the browser; every other type is downloaded. */
+const INLINE_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+  'image/svg+xml',
+  'application/pdf',
+  'text/markdown; charset=utf-8',
+  'text/plain; charset=utf-8',
+  'audio/mpeg',
+  'audio/mp4',
+  'video/mp4',
+  'video/webm',
+]);
+
 function contentType(path: string): string {
   const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase();
   const types: Record<string, string> = {
@@ -685,6 +722,10 @@ function contentType(path: string): string {
     pdf: 'application/pdf',
     md: 'text/markdown; charset=utf-8',
     txt: 'text/plain; charset=utf-8',
+    mp3: 'audio/mpeg',
+    m4a: 'audio/mp4',
+    mp4: 'video/mp4',
+    webm: 'video/webm',
   };
   return types[ext] ?? 'application/octet-stream';
 }
