@@ -14,6 +14,7 @@ import { stringify as stringifyYaml } from 'yaml';
 import { ASK_SYSTEM_PROMPT, publicFinding } from '../ai/gateway.js';
 import type { Principal } from '../auth/tokens.js';
 import { nowIso } from '../db/db.js';
+import { fileKey } from '../files/file-store.js';
 import type { FileResolution } from '../notes/service.js';
 import type { Platform } from '../platform.js';
 import type { Workspace } from '../workspace.js';
