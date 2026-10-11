@@ -1,0 +1,319 @@
+# 依存ライブラリ台帳(直接依存のみ)
+#
+# 直接依存を追加・削除するときは、この台帳も同じ変更で更新する
+# (`npm run security:check` が package.json と突き合わせ、ずれていると失敗する)。
+# 間接依存の一覧は CI が作る SBOM(CycloneDX)を見る。
+#
+# 項目:
+#   name       パッケージ名
+#   workspace  root | core | server | web
+#   scope      production(本番で動く)| build(ビルド・デプロイ時)| dev(開発・テストのみ)
+#   risk       high   = 認証・暗号・外部からの入力の解釈・HTMLの描画に関わる
+#              medium = 本番で動くがリスクの高い処理には関わらない
+#              low    = 本番に含まれない
+#   purpose    何に使っているか
+#   notes      採用時の確認事項、代替案、注意点
+
+dependencies:
+  # ---- core(サーバーとWebの両方で動く) ----------------------------------
+  - name: yaml
+    workspace: core
+    scope: production
+    risk: high
+    purpose: ノートのフロントマターと .gmemo/policy.yaml の読み書き
+    notes: 利用者やAIエージェントが書いたYAMLを解釈する。カスタムタグは使わない
+
+  # ---- server ---------------------------------------------------------------
+  - name: '@gmemo/core'
+    workspace: server
+    scope: production
+    risk: medium
+    purpose: このリポジトリ内の共有ロジック(マージ、機密検出、ビュー)
+    notes: 自前のパッケージ
+
+  - name: hono
+    workspace: server
+    scope: production
+    risk: high
+    purpose: HTTPルーティング、クッキー、ミドルウェア
+    notes: すべてのリクエストが通る。セキュリティ修正は最優先で取り込む
+
+  - name: '@hono/node-server'
+    workspace: server
+    scope: production
+    risk: medium
+    purpose: Node.js / Docker 版でHonoを動かす
+    notes: Cloudflare 版では使わない
+
+  - name: '@simplewebauthn/server'
+    workspace: server
+    scope: production
+    risk: high
+    purpose: パスキーの登録・認証の検証
+    notes: 認証の中核。メジャー更新時は登録・ログインのテストと実機で確認する
+
+  - name: '@modelcontextprotocol/sdk'
+    workspace: server
+    scope: production
+    risk: high
+    purpose: MCPサーバー(AIエージェントとの接続)
+    notes: 外部のAIクライアントからの入力を受ける。認証はアプリ側(OAuthトークン)で行う
+
+  - name: better-sqlite3
+    workspace: server
+    scope: production
+    risk: medium
+    purpose: Node.js / Docker 版のデータベース
+    notes: ネイティブモジュール。Cloudflare 版では D1 を使う
+
+  - name: zod
+    workspace: server
+    scope: production
+    risk: medium
+    purpose: MCPツールの入力の検証
+
+  - name: yaml
+    workspace: server
+    scope: production
+    risk: high
+    purpose: ワークスペース設定とポリシーの読み書き
+    notes: core と同じ
+
+  - name: '@types/better-sqlite3'
+    workspace: server
+    scope: dev
+    risk: low
+    purpose: 型定義
+
+  - name: cf
+    workspace: server
+    scope: build
+    risk: medium
+    purpose: Cloudflare へのデプロイ(CLI)
+    notes: オープンベータ。デプロイ時にCloudflareの認証情報を扱うので、更新内容を確認してから上げる
+
+  - name: wrangler
+    workspace: server
+    scope: build
+    risk: medium
+    purpose: Workers のビルド(cf が内部で使う)、ローカル実行、D1 のエクスポート
+    notes: Cloudflare の認証情報を扱う
+
+  - name: tsx
+    workspace: server
+    scope: dev
+    risk: low
+    purpose: TypeScript を直接実行する(開発時)
+
+  # ---- web ------------------------------------------------------------------
+  - name: marked
+    workspace: web
+    scope: production
+    risk: high
+    purpose: Markdown を HTML に変換
+    notes: 出力は必ず DOMPurify を通す(lib/markdown.ts)。単体で信用しない
+
+  - name: dompurify
+    workspace: web
+    scope: production
+    risk: high
+    purpose: 描画するHTMLのサニタイズ(XSS対策の中心)
+    notes: セキュリティ修正は即日取り込む
+
+  - name: '@simplewebauthn/browser'
+    workspace: web
+    scope: production
+    risk: high
+    purpose: ブラウザでのパスキー操作
+    notes: server と同じメジャーバージョンに揃える
+
+  - name: react
+    workspace: web
+    scope: production
+    risk: medium
+    purpose: UI
+
+  - name: react-dom
+    workspace: web
+    scope: production
+    risk: medium
+    purpose: UI
+
+  - name: react-router-dom
+    workspace: web
+    scope: production
+    risk: medium
+    purpose: 画面遷移
+    notes: リダイレクト先(?next=)はアプリ内のパスに限定している
+
+  - name: yaml
+    workspace: web
+    scope: production
+    risk: medium
+    purpose: エディタでのフロントマターの読み書き
+
+  - name: idb-keyval
+    workspace: web
+    scope: production
+    risk: medium
+    purpose: オフライン時の下書きと送信待ちキュー(IndexedDB)
+    notes: 端末にノートの写しが残る。サインアウト時に消す
+
+  - name: '@codemirror/commands'
+    workspace: web
+    scope: production
+    risk: medium
+    purpose: エディタ
+
+  - name: '@codemirror/lang-markdown'
+    workspace: web
+    scope: production
+    risk: medium
+    purpose: エディタ(Markdownの構文)
+
+  - name: '@codemirror/language'
+    workspace: web
+    scope: production
+    risk: medium
+    purpose: エディタ
+
+  - name: '@codemirror/state'
+    workspace: web
+    scope: production
+    risk: medium
+    purpose: エディタ
+
+  - name: '@codemirror/view'
+    workspace: web
+    scope: production
+    risk: medium
+    purpose: エディタ
+
+  - name: '@lezer/highlight'
+    workspace: web
+    scope: production
+    risk: medium
+    purpose: エディタの色分け
+
+  - name: '@fontsource-variable/jetbrains-mono'
+    workspace: web
+    scope: production
+    risk: low
+    purpose: フォント(自前で配信、外部CDNは使わない)
+
+  - name: '@fontsource-variable/nunito'
+    workspace: web
+    scope: production
+    risk: low
+    purpose: フォント
+
+  - name: '@fontsource/zen-maru-gothic'
+    workspace: web
+    scope: production
+    risk: low
+    purpose: フォント
+
+  - name: vite
+    workspace: web
+    scope: build
+    risk: medium
+    purpose: Webアプリのビルド
+    notes: 開発サーバーは外部に公開しない
+
+  - name: '@vitejs/plugin-react'
+    workspace: web
+    scope: build
+    risk: low
+    purpose: ビルド
+
+  - name: vite-plugin-pwa
+    workspace: web
+    scope: build
+    risk: medium
+    purpose: Service Worker の生成
+    notes: キャッシュの設定を誤ると古い画面や他人のデータが残る。/api はキャッシュしない
+
+  - name: workbox-window
+    workspace: web
+    scope: production
+    risk: medium
+    purpose: Service Worker の更新通知
+
+  - name: '@types/react'
+    workspace: web
+    scope: dev
+    risk: low
+    purpose: 型定義
+
+  - name: '@types/react-dom'
+    workspace: web
+    scope: dev
+    risk: low
+    purpose: 型定義
+
+  - name: jsdom
+    workspace: web
+    scope: dev
+    risk: low
+    purpose: テスト用のDOM
+
+  # ---- root(開発ツール) ------------------------------------------------------
+  - name: typescript
+    workspace: root
+    scope: dev
+    risk: low
+    purpose: 型チェック
+
+  - name: vitest
+    workspace: root
+    scope: dev
+    risk: low
+    purpose: テスト
+
+  - name: eslint
+    workspace: root
+    scope: dev
+    risk: low
+    purpose: 静的解析(セキュリティ用のルールを含む)
+
+  - name: '@eslint/js'
+    workspace: root
+    scope: dev
+    risk: low
+    purpose: ESLint の基本ルール
+
+  - name: typescript-eslint
+    workspace: root
+    scope: dev
+    risk: low
+    purpose: TypeScript 用のルール
+
+  - name: eslint-plugin-react-hooks
+    workspace: root
+    scope: dev
+    risk: low
+    purpose: React のルール
+
+  - name: globals
+    workspace: root
+    scope: dev
+    risk: low
+    purpose: ESLint の設定
+
+  - name: prettier
+    workspace: root
+    scope: dev
+    risk: low
+    purpose: 整形
+
+  - name: '@types/node'
+    workspace: root
+    scope: dev
+    risk: low
+    purpose: 型定義
+
+  - name: yaml
+    workspace: root
+    scope: dev
+    risk: low
+    purpose: 台帳の検査スクリプト(scripts/security-check.mjs)

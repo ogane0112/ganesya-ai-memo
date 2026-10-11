@@ -58,6 +58,7 @@ MCPに対応したクライアント(Claude など)に、サーバーURL `https:
 | [利用上の注意](docs/usage-notes.md)                | 機密検出の限界、外部AIへの送信、データの扱い            |
 | [セキュリティ](docs/security.md)                   | 脅威モデル、E2EEを採用しない理由、保存データ            |
 | [運用方針](docs/operations.md)                     | ステージング/本番、リリース手順、監査ログ、漏洩時の対応 |
+| [セキュリティ開発方針](docs/secure-development.md) | 依存の更新、脆弱性(CVE)対応、台帳、コーディング規約     |
 | [アーキテクチャ](docs/architecture.md)             | データ設計、マージモデル、インデックス                  |
 | [デザインシステム](docs/design-system.md)          | 部品カタログ(`npm run design -w @gmemo/web`)            |
 | [REST API](docs/api.md)                            | エンドポイント一覧                                      |

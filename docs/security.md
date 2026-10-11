@@ -81,4 +81,4 @@ Cloudflare D1 のデータは Cloudflare によって保存時に暗号化され
 
 ## 脆弱性の報告
 
-公開のIssueではなく、リポジトリのSecurity Advisories(非公開の報告)からお知らせください。
+[SECURITY.md](../SECURITY.md) を見てください。ソースコードと依存ライブラリの管理は [ソースコードのセキュリティ方針](secure-development.md) にあります。

@@ -207,7 +207,8 @@ export class OAuthService {
       clientId: client.clientId,
       redirectUri,
       codeChallenge: q['code_challenge'],
-      scope: parseScope(q['scope']),
+      // Capture writes as the person, outside the agent's limits: personal tokens only.
+      scope: parseScope(q['scope']).filter((s) => s !== 'notes:capture'),
       ...(q['state'] !== undefined ? { state: q['state'] } : {}),
       ...(q['resource'] ? { resource: q['resource'] } : {}),
     };
@@ -232,7 +233,9 @@ export class OAuthService {
     }
     const code = randomToken(32);
     const scope = choice.scope?.length
-      ? choice.scope.filter((s) => req.scope.includes(s) || s === 'notes:read')
+      ? choice.scope.filter(
+          (s) => (req.scope.includes(s) || s === 'notes:read') && s !== 'notes:capture',
+        )
       : req.scope;
     await this.db.batch([
       stmt('DELETE FROM oauth_codes WHERE expires_at < ?', nowIso()),

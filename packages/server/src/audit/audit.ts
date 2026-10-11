@@ -247,8 +247,10 @@ export class AuditLog {
       where.push('id < ?');
       params.push(opts.before);
     }
+    // Conditions above are fixed text; their values are in params.
+    const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
     const rows = await this.db.all<Row>(
-      `SELECT * FROM security_events ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+      `SELECT * FROM security_events ${whereSql}
        ORDER BY id DESC LIMIT ?`,
       ...params,
       Math.min(Math.max(opts.limit ?? 100, 1), 500),

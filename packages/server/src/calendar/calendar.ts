@@ -83,23 +83,88 @@ const COLOR_RE = /^#[0-9a-f]{6}$/i;
 export function isPrivateHost(host: string): boolean {
   const h = host.replace(/^\[|\]$/g, '').toLowerCase();
   if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.internal')) return true;
-  const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(h);
-  if (m) {
-    const [a, b] = [Number(m[1]), Number(m[2])];
-    return (
-      a === 10 ||
-      a === 127 ||
-      a === 0 ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      (a === 100 && b >= 64 && b <= 127)
-    );
+  const v4 = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(h);
+  if (v4) return isPrivateV4(v4.slice(1).map(Number));
+  if (!h.includes(':')) return false;
+  const words = ipv6Words(h);
+  if (!words) return true; // not a valid IPv6 literal: refuse rather than guess
+  const [a] = words;
+  // ::, ::1, IPv4-mapped (::ffff:a.b.c.d), IPv4-compatible and NAT64 (64:ff9b::/96) carry an
+  // IPv4 address in the last 32 bits: judge that address.
+  const zeros5 = words.slice(0, 5).every((w) => w === 0);
+  if (zeros5 && (words[5] === 0 || words[5] === 0xffff)) {
+    if (words[5] === 0 && words[6] === 0 && words[7]! <= 1) return true;
+    return isPrivateV4([words[6]! >> 8, words[6]! & 255, words[7]! >> 8, words[7]! & 255]);
   }
+  if (a === 0x64 && words[1] === 0xff9b)
+    return isPrivateV4([words[6]! >> 8, words[6]! & 255, words[7]! >> 8, words[7]! & 255]);
   return (
-    h.includes(':') &&
-    (h === '::1' || h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe80'))
+    (a! & 0xfe00) === 0xfc00 || // fc00::/7 unique local
+    (a! & 0xffc0) === 0xfe80 || // fe80::/10 link-local
+    (a! & 0xff00) === 0xff00 || // multicast
+    (a === 0x2001 && words[1] === 0x0db8) // documentation
   );
+}
+
+function isPrivateV4([a, b]: number[]): boolean {
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b! >= 16 && b! <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 192 && b === 0) ||
+    (a === 100 && b! >= 64 && b! <= 127) ||
+    (a === 198 && (b === 18 || b === 19)) ||
+    a! >= 224
+  );
+}
+
+/** The eight 16-bit words of an IPv6 literal (with an optional trailing IPv4 part), or null. */
+function ipv6Words(h: string): number[] | null {
+  let s = h.replace(/%.*$/, '');
+  const tail = /:(\d+\.\d+\.\d+\.\d+)$/.exec(s);
+  if (tail) {
+    const p = tail[1]!.split('.').map(Number);
+    if (p.some((n) => n > 255)) return null;
+    s = `${s.slice(0, tail.index)}:${((p[0]! << 8) | p[1]!).toString(16)}:${((p[2]! << 8) | p[3]!).toString(16)}`;
+  }
+  const halves = s.split('::');
+  if (halves.length > 2) return null;
+  const parse = (x: string) => (x ? x.split(':') : []);
+  const head = parse(halves[0]!);
+  const rest = halves.length === 2 ? parse(halves[1]!) : [];
+  const fill = 8 - head.length - rest.length;
+  if (halves.length === 2 ? fill < 1 : fill !== 0) return null;
+  const all = [...head, ...Array<string>(halves.length === 2 ? fill : 0).fill('0'), ...rest];
+  if (all.some((w) => !/^[0-9a-f]{1,4}$/.test(w))) return null;
+  return all.map((w) => parseInt(w, 16));
+}
+
+/** Read a response body as text, stopping as soon as it exceeds `max` bytes. */
+async function readCapped(res: Response, max: number): Promise<string> {
+  if (!res.body) return '';
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel();
+      throw new Error('カレンダーが大きすぎます(2MBまで)');
+    }
+    chunks.push(value);
+  }
+  const all = new Uint8Array(size);
+  let at = 0;
+  for (const c of chunks) {
+    all.set(c, at);
+    at += c.byteLength;
+  }
+  return new TextDecoder().decode(all);
 }
 
 function maskUrl(url: string): string {
@@ -131,6 +196,8 @@ export class CalendarService {
     private readonly cfg: Config,
     private readonly notes: NoteService,
     private readonly indexer: Indexer,
+    /** Resolves a host name to addresses (Node.js), so names pointing inside are refused too. */
+    private readonly resolveHost?: (host: string) => Promise<string[]>,
   ) {
     this.timeZone = isValidTimeZone(cfg.timeZone) ? cfg.timeZone : 'UTC';
   }
@@ -309,6 +376,20 @@ export class CalendarService {
     };
   }
 
+  /** Check a URL the server will fetch (also every redirect target). */
+  private async checkFetchable(raw: string): Promise<string> {
+    const url = this.validateUrl(raw);
+    if (!this.cfg.insecureDev && this.resolveHost) {
+      const host = new URL(url).hostname.replace(/^\[|\]$/g, '');
+      const addrs = await this.resolveHost(host).catch(() => {
+        throw new CalendarError('URLのホスト名を解決できません');
+      });
+      if (addrs.length === 0 || addrs.some(isPrivateHost))
+        throw new CalendarError('このURLは使えません');
+    }
+    return url;
+  }
+
   private validateUrl(raw: string): string {
     const url = raw.trim().replace(/^webcal:\/\//i, 'https://');
     let u: URL;
@@ -406,14 +487,24 @@ export class CalendarService {
     const row = await this.subRow(id);
     if (!row) return;
     try {
-      const res = await fetch(row.url, {
-        headers: {
-          accept: 'text/calendar, */*;q=0.5',
-          ...(row.etag && row.body ? { 'if-none-match': row.etag } : {}),
-        },
-        signal: AbortSignal.timeout(20_000),
-        redirect: 'follow',
-      });
+      // Follow redirects by hand so every hop is checked like the original URL.
+      let url = await this.checkFetchable(row.url);
+      let res: Response;
+      for (let hop = 0; ; hop++) {
+        res = await fetch(url, {
+          headers: {
+            accept: 'text/calendar, */*;q=0.5',
+            ...(row.etag && row.body ? { 'if-none-match': row.etag } : {}),
+          },
+          signal: AbortSignal.timeout(20_000),
+          redirect: 'manual',
+        });
+        const location = res.status >= 300 && res.status < 400 && res.headers.get('location');
+        if (!location) break;
+        await res.body?.cancel();
+        if (hop >= 4) throw new Error('リダイレクトが多すぎます');
+        url = await this.checkFetchable(new URL(location, url).toString());
+      }
       if (res.status === 304) {
         await this.db.run(
           'UPDATE calendar_subscriptions SET fetched_at = ?, last_error = NULL WHERE id = ?',
@@ -425,9 +516,7 @@ export class CalendarService {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const len = Number(res.headers.get('content-length') ?? 0);
       if (len > MAX_FEED_BYTES) throw new Error('カレンダーが大きすぎます(2MBまで)');
-      const body = await res.text();
-      if (new TextEncoder().encode(body).length > MAX_FEED_BYTES)
-        throw new Error('カレンダーが大きすぎます(2MBまで)');
+      const body = await readCapped(res, MAX_FEED_BYTES);
       if (!body.includes('BEGIN:VCALENDAR'))
         throw new Error('iCal 形式ではありません(「iCal形式の非公開URL」を指定してください)');
       const cal = parseIcal(body);

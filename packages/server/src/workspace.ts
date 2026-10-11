@@ -51,6 +51,8 @@ export interface WorkspaceDeps {
   embedder: Embedder;
   llm: { local: LlmClient | null; external: LlmClient | null };
   fetch?: typeof fetch;
+  /** Host name → addresses, for checking server-side fetches (Node.js only). */
+  resolveHost?: (host: string) => Promise<string[]>;
 }
 
 export async function loadWorkspaceRow(db: Db, userId: string): Promise<WorkspaceRow> {
@@ -178,7 +180,7 @@ export class Workspace {
       new AgentStore(deps.db, user.id),
       new AiGateway(deps.db, user.id, deps.llm.local, deps.llm.external),
       new AgentLens(deps.db, user.id),
-      new CalendarService(deps.db, user.id, deps.cfg, notes, indexer),
+      new CalendarService(deps.db, user.id, deps.cfg, notes, indexer, deps.resolveHost),
     );
   }
 

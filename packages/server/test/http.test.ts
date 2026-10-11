@@ -340,7 +340,7 @@ describe('HTTP API', () => {
       sha: string;
     };
     expect(doc.content).not.toContain('AKIA');
-    expect(doc.content).toMatch(/\[SECRET_[0-9a-f]{8}\]/);
+    expect(doc.content).toMatch(/\[SECRET_[0-9a-f]{16}\]/);
     expect((await req('/api/note?path=secret/s.md', { bearer: token })).status).toBe(403);
 
     const w = (await (

@@ -85,6 +85,8 @@ interface RegisterData {
   newUserId?: string;
   username?: string;
   inviteHash?: string;
+  /** Started with the setup token: the only way to become the first (admin) account. */
+  setup?: boolean;
 }
 
 const RECOVERY_CODE_COUNT = 10;
@@ -187,7 +189,7 @@ export class AuthService {
     ];
     await this.db.batch([
       ...extra,
-      ...tables.map((t) => stmt(`DELETE FROM ${t} WHERE user_id = ?`, id)),
+      ...tables.map((tableSql) => stmt(`DELETE FROM ${tableSql} WHERE user_id = ?`, id)),
       stmt('DELETE FROM users WHERE id = ?', id),
     ]);
   }
@@ -299,11 +301,17 @@ export class AuthService {
       data = { userId };
     } else {
       username = validUsername(opts.username ?? '');
+      const setup = await this.needsSetup();
       const inviteHash = await this.assertMaySignUp(opts);
       if (await this.userByName(username))
         throw new AuthError('このユーザー名はすでに使われています', 409);
       userId = randomId('u_');
-      data = { newUserId: userId, username, ...(inviteHash ? { inviteHash } : {}) };
+      data = {
+        newUserId: userId,
+        username,
+        ...(inviteHash ? { inviteHash } : {}),
+        ...(setup ? { setup: true } : {}),
+      };
     }
     const existing = opts.session
       ? await this.db.all<{ id: string; transports: string }>(
@@ -404,7 +412,11 @@ export class AuthService {
 
     // New account.
     const userId = data.newUserId!;
+    // The server may have become empty since the options were issued (the only account
+    // was deleted): only a sign-up started with the setup token may become the admin.
     const first = await this.needsSetup();
+    if (first && !data.setup)
+      throw new AuthError('サーバーの状態が変わりました。最初からやり直してください', 409);
     if (data.inviteHash) {
       const r = await this.db.run(
         'UPDATE invites SET used_by = ?, used_at = ? WHERE code_hash = ? AND used_at IS NULL',

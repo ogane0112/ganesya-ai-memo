@@ -1,4 +1,5 @@
 import type { WorkspacePolicy } from '@gmemo/core';
+import type { LensMemo } from '../ai/agent-lens.js';
 import type { AuditEvent } from '../audit/audit.js';
 import type { Agent } from '../auth/agents.js';
 import { capabilities, type Principal } from '../auth/tokens.js';
@@ -13,6 +14,9 @@ import { normalizeNotePath, publicFindingLabel } from './agent-ops-util.js';
 export type AuditSink = (ev: Omit<AuditEvent, 'actor'> & { actor?: string }) => Promise<void>;
 
 export class AgentOps {
+  /** One lookup of the user's masked values per request. */
+  private readonly memo: LensMemo = {};
+
   constructor(
     private readonly ws: Workspace,
     /** Records what agents read and write (paths and counts only, never content). */
@@ -58,7 +62,7 @@ export class AgentOps {
       });
       throw new ForbiddenError(`${path} is not available to this agent (folder or AI policy)`);
     }
-    const out = await this.ws.lens.outgoing(agent, doc.content, policy);
+    const out = await this.ws.lens.outgoing(agent, doc.content, policy, this.memo);
     if (out.blocked) {
       await this.record(agent, {
         action: 'agent.read',
@@ -98,7 +102,7 @@ export class AgentOps {
     return Promise.all(
       hits.map(async (h) => ({
         ...h,
-        snippet: (await this.ws.lens.outgoing(agent, h.snippet, policy)).text,
+        snippet: (await this.ws.lens.outgoing(agent, h.snippet, policy, this.memo)).text,
       })),
     );
   }
@@ -111,7 +115,7 @@ export class AgentOps {
         .filter((b) => canSee(b.path))
         .map(async (b) => ({
           ...b,
-          context: (await this.ws.lens.outgoing(agent, b.context, policy)).text,
+          context: (await this.ws.lens.outgoing(agent, b.context, policy, this.memo)).text,
         })),
     );
   }
@@ -136,12 +140,12 @@ export class AgentOps {
       });
       throw new ForbiddenError('this token cannot write');
     }
+    // Agents write only where they can read: existing notes by their frontmatter, new
+    // notes and other files by folder limits and the folder's AI policy.
     const canSee = await this.visibility(principal.agent);
-    const meta = await this.ws.indexer.allMeta();
     for (const c of changes) {
       const path = normalizeNotePath(c.path, { requireMarkdown: false });
-      if (meta.has(path) && !canSee(path))
-        throw new ForbiddenError(`${path} is not available to this agent`);
+      if (!canSee(path)) throw new ForbiddenError(`${path} is not available to this agent`);
     }
     const restored = await Promise.all(
       changes.map(async (c) => ({

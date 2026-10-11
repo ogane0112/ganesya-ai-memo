@@ -45,7 +45,7 @@ export function authRoutes(platform: Platform) {
     return c.json({
       ...(await auth.signupState()),
       env: cfg.env,
-      user: s ? { username: s.username, isAdmin: s.isAdmin } : null,
+      user: s ? { id: s.userId, username: s.username, isAdmin: s.isAdmin } : null,
       session: s ? { via: s.via, expiresAt: s.expiresAt } : null,
       rpId: cfg.rpId,
       origin: cfg.origin,

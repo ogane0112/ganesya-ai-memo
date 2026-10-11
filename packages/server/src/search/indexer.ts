@@ -11,7 +11,7 @@ import {
   type ViewNote,
   type WorkspacePolicy,
 } from '@gmemo/core';
-import { type Db, nowIso, type Stmt, stmt, toBytes } from '../db/db.js';
+import { type Db, nowIso, type SqlValue, type Stmt, stmt, toBytes } from '../db/db.js';
 import { fromUtf8, MAIN, type NoteStore } from '../store/types.js';
 import { dot, type Embedder } from './embedder.js';
 
@@ -73,15 +73,24 @@ export function chunkBody(body: string): string[] {
  * json_each, so a rebuild is a handful of statements instead of one per row
  * (D1 counts every statement against the per-request query limit).
  */
-function jsonRows(sql: (src: string) => string, rows: unknown[][]): Stmt[] {
+function jsonRows(
+  sql: (src: string) => string,
+  rows: unknown[][],
+  params: SqlValue[] = [],
+): Stmt[] {
   const out: Stmt[] = [];
   let batch: unknown[][] = [];
   let size = 0;
   const flush = () => {
     if (batch.length) {
       const text = sql('json_each(?)');
-      const uses = text.split('json_each(?)').length - 1;
-      out.push(stmt(text, ...Array<string>(uses).fill(JSON.stringify(batch))));
+      // Each json_each(?) takes the batch; every other ? takes the next of `params`.
+      const json = JSON.stringify(batch);
+      let next = 0;
+      const args = [...text.matchAll(/json_each\(\?\)|\?/g)].map((m) =>
+        m[0] === '?' ? (params[next++] ?? null) : json,
+      );
+      out.push(stmt(text, ...args));
     }
     batch = [];
     size = 0;
@@ -96,7 +105,7 @@ function jsonRows(sql: (src: string) => string, rows: unknown[][]): Stmt[] {
   return out;
 }
 
-const col = (i: number) => `json_extract(value, '$[${i}]')`;
+const colSql = (i: number) => `json_extract(value, '$[${i}]')`;
 
 function hex(bytes: Uint8Array): string {
   let s = '';
@@ -313,54 +322,63 @@ export class Indexer {
       if (next !== l.target_path) relinks.push([l.rowid, next]);
     }
 
-    const pathsIn = `(SELECT value FROM json_each(?))`;
+    const pathsInSql = `(SELECT value FROM json_each(?))`;
     const stmts: Stmt[] = [];
     if (this.opts.fts)
       stmts.push(
         stmt(
-          `DELETE FROM notes_fts WHERE rowid IN (SELECT rowid FROM notes WHERE user_id = ? AND path IN ${pathsIn})`,
+          `DELETE FROM notes_fts WHERE rowid IN (SELECT rowid FROM notes WHERE user_id = ? AND path IN ${pathsInSql})`,
           u,
           changedJson,
         ),
       );
-    for (const t of ['notes', 'tags', 'chunks'])
-      stmts.push(stmt(`DELETE FROM ${t} WHERE user_id = ? AND path IN ${pathsIn}`, u, changedJson));
-    stmts.push(stmt(`DELETE FROM links WHERE user_id = ? AND src IN ${pathsIn}`, u, changedJson));
+    for (const tableSql of ['notes', 'tags', 'chunks'])
+      stmts.push(
+        stmt(`DELETE FROM ${tableSql} WHERE user_id = ? AND path IN ${pathsInSql}`, u, changedJson),
+      );
+    stmts.push(
+      stmt(`DELETE FROM links WHERE user_id = ? AND src IN ${pathsInSql}`, u, changedJson),
+    );
     stmts.push(
       ...jsonRows(
-        (src) =>
+        (srcSql) =>
           `INSERT INTO notes(user_id, path, title, frontmatter, body, sha, created_by, ai_agent, updated_at)
-           SELECT '${u}', ${col(0)}, ${col(1)}, ${col(2)}, ${col(3)}, '', ${col(4)}, ${col(5)}, ${col(6)} FROM ${src}`,
+           SELECT ?, ${colSql(0)}, ${colSql(1)}, ${colSql(2)}, ${colSql(3)}, '', ${colSql(4)}, ${colSql(5)}, ${colSql(6)} FROM ${srcSql}`,
         notes,
+        [u],
       ),
       ...jsonRows(
-        (src) =>
-          `INSERT INTO tags(user_id, path, tag) SELECT '${u}', ${col(0)}, ${col(1)} FROM ${src}`,
+        (srcSql) =>
+          `INSERT INTO tags(user_id, path, tag) SELECT ?, ${colSql(0)}, ${colSql(1)} FROM ${srcSql}`,
         tags,
+        [u],
       ),
       ...jsonRows(
-        (src) =>
-          `INSERT INTO links(user_id, src, target, target_path) SELECT '${u}', ${col(0)}, ${col(1)}, ${col(2)} FROM ${src}`,
+        (srcSql) =>
+          `INSERT INTO links(user_id, src, target, target_path) SELECT ?, ${colSql(0)}, ${colSql(1)}, ${colSql(2)} FROM ${srcSql}`,
         newLinks.map((l) => [l.src, l.target, resolve(l.target)]),
+        [u],
       ),
       ...jsonRows(
-        (src) =>
-          `UPDATE links SET target_path = (SELECT ${col(1)} FROM ${src} WHERE ${col(0)} = links.rowid)
-           WHERE user_id = '${u}' AND rowid IN (SELECT ${col(0)} FROM ${src})`,
+        (srcSql) =>
+          `UPDATE links SET target_path = (SELECT ${colSql(1)} FROM ${srcSql} WHERE ${colSql(0)} = links.rowid)
+           WHERE user_id = ? AND rowid IN (SELECT ${colSql(0)} FROM ${srcSql})`,
         relinks,
+        [u],
       ),
       ...jsonRows(
-        (src) =>
+        (srcSql) =>
           `INSERT INTO chunks(user_id, path, idx, text, model, vector)
-           SELECT '${u}', ${col(0)}, ${col(1)}, ${col(2)}, '${this.model}', unhex(${col(3)}) FROM ${src}`,
+           SELECT ?, ${colSql(0)}, ${colSql(1)}, ${colSql(2)}, ?, unhex(${colSql(3)}) FROM ${srcSql}`,
         chunkRows,
+        [u, this.model],
       ),
     );
     if (this.opts.fts)
       stmts.push(
         stmt(
           `INSERT INTO notes_fts(rowid, user_id, path, title, body)
-           SELECT rowid, user_id, path, title, body FROM notes WHERE user_id = ? AND path IN ${pathsIn}`,
+           SELECT rowid, user_id, path, title, body FROM notes WHERE user_id = ? AND path IN ${pathsInSql}`,
           u,
           changedJson,
         ),
@@ -395,10 +413,11 @@ export class Indexer {
     if (oldest) for (const p of missing) found.push([p, oldest]);
     await this.db.batch(
       jsonRows(
-        (src) =>
-          `UPDATE notes SET updated_at = (SELECT ${col(1)} FROM ${src} WHERE ${col(0)} = notes.path)
-           WHERE user_id = '${this.userId}' AND path IN (SELECT ${col(0)} FROM ${src})`,
+        (srcSql) =>
+          `UPDATE notes SET updated_at = (SELECT ${colSql(1)} FROM ${srcSql} WHERE ${colSql(0)} = notes.path)
+           WHERE user_id = ? AND path IN (SELECT ${colSql(0)} FROM ${srcSql})`,
         found,
+        [this.userId],
       ),
     );
   }
@@ -559,12 +578,12 @@ export class Indexer {
     } else {
       // Trigram FTS needs ≥3 characters (and may be unavailable); LIKE covers the rest.
       const words = q.split(/\s+/).filter(Boolean).slice(0, 5);
-      const where = words
+      const whereSql = words
         .map(() => `(title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\')`)
         .join(' AND ');
       const params = words.flatMap((w) => [likeContains(w), likeContains(w)]);
       const found = await this.db.all<{ path: string; title: string; body: string }>(
-        `SELECT path, title, body FROM notes WHERE user_id = ? AND ${where} ORDER BY updated_at DESC LIMIT ?`,
+        `SELECT path, title, body FROM notes WHERE user_id = ? AND ${whereSql} ORDER BY updated_at DESC LIMIT ?`,
         this.userId,
         ...params,
         limit,

@@ -31,8 +31,8 @@
 | POST     | `/api/note/editing`                        | ✓    |                   | 編集中の通知 `{ path, active }`                                                         |
 | GET      | `/api/note/backlinks?path=`                | ✓    | read              | バックリンクと発リンク                                                                  |
 | GET      | `/api/note/history?path=`                  | ✓    | read              | 履歴                                                                                    |
-| GET      | `/api/note/blame?path=`                    | ✓    | read              | 段落ごとの作成者                                                                        |
-| GET      | `/api/file?path=`                          | ✓    | read              | 添付ファイル                                                                            |
+| GET      | `/api/note/blame?path=`                    | ✓    | (人のみ)          | 段落ごとの作成者                                                                        |
+| GET      | `/api/file?path=`                          | ✓    | read              | 添付ファイル(エージェントには画像とPDFのみ)                                             |
 | POST     | `/api/attachments`                         | ✓    |                   | 添付のアップロード(multipart `file`)                                                    |
 | POST     | `/api/capture`                             | ✓    | capture / propose | クイックメモ `{ text, title?, folder?, url? }`                                          |
 | GET      | `/api/search?q=&mode=hybrid\|text\|vector` | ✓    | read              | 検索                                                                                    |

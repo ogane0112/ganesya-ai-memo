@@ -34,6 +34,7 @@ export class Platform {
     fetchImpl?: typeof fetch,
     authLimiter?: RateLimiter,
     auditConsole?: (line: string) => void,
+    resolveHost?: (host: string) => Promise<string[]>,
   ) {
     this.auth = new AuthService(db, cfg);
     this.audit = new AuditLog(
@@ -59,6 +60,7 @@ export class Platform {
         external: cfg.llm.external ? createLlmClient(cfg.llm.external, 'external') : null,
       },
       ...(fetchImpl ? { fetch: fetchImpl } : {}),
+      ...(resolveHost ? { resolveHost } : {}),
     };
   }
 
@@ -77,6 +79,8 @@ export class Platform {
       authLimiter?: RateLimiter;
       /** Where audit lines are printed (default: console.log, i.e. Workers Logs). */
       auditConsole?: (line: string) => void;
+      /** Host name → addresses (Node.js), so calendar URLs cannot point inside by name. */
+      resolveHost?: (host: string) => Promise<string[]>;
     } = {},
   ): Promise<Platform> {
     const { fts } = await migrate(db, opts.migrateKey ?? db);
@@ -85,7 +89,16 @@ export class Platform {
       (cfg.llm.local && cfg.llm.localEmbedModel
         ? new LocalModelEmbedder(cfg.llm.local, cfg.llm.localEmbedModel)
         : new HashingEmbedder());
-    return new Platform(cfg, db, fts, embedder, opts.fetch, opts.authLimiter, opts.auditConsole);
+    return new Platform(
+      cfg,
+      db,
+      fts,
+      embedder,
+      opts.fetch,
+      opts.authLimiter,
+      opts.auditConsole,
+      opts.resolveHost,
+    );
   }
 
   /** Open a user's workspace (cached while its storage settings are unchanged). */

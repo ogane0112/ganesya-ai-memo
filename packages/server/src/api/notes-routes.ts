@@ -50,9 +50,20 @@ export function notesRoutes(platform: Platform) {
       items: T[],
       pathOf: (t: T) => string,
     ): Promise<T[]> => (p ? ops.filter(p.agent, items, pathOf) : items);
-    const assertVisible = async (p: Principal | null, path: string) => {
+    /**
+     * Normalize the path, then check it is visible to the agent (humans see everything).
+     * Always use the returned path: checking one spelling and reading another
+     * (`/Private/a.md`, `Pub//a.md`) would bypass folder and policy checks.
+     */
+    const assertVisible = async (
+      p: Principal | null,
+      rawPath: string,
+      opts: { requireMarkdown?: boolean } = {},
+    ): Promise<string> => {
+      const path = normalizeNotePath(rawPath, opts);
       if (p && (await ops.filter(p.agent, [path], (x) => x)).length === 0)
         throw new HTTPException(403, { message: `no access to ${path}` });
+      return path;
     };
     // Brings the index up to date (GitHub repositories are re-checked at most every few seconds).
     await w.notes.currentHead();
@@ -109,25 +120,31 @@ export function notesRoutes(platform: Platform) {
   app.get('/note/history', async (c) => {
     const $ = await open(c);
     const { principal } = requireReader(c);
-    const path = str(c.req.query('path'), 'path');
-    await $.assertVisible(principal, path);
+    const path = await $.assertVisible(principal, str(c.req.query('path'), 'path'), {
+      requireMarkdown: false,
+    });
     return c.json(await $.notes.history({ path, limit: Number(c.req.query('limit') ?? 50) }));
   });
 
   app.get('/note/blame', async (c) => {
     const $ = await open(c);
     const { principal } = requireReader(c);
-    const path = str(c.req.query('path'), 'path');
-    await $.assertVisible(principal, path);
+    // Blame returns the note's text block by block, without masking: people only.
+    if (principal) throw new HTTPException(403, { message: 'blame is not available to agents' });
+    const path = normalizeNotePath(str(c.req.query('path'), 'path'));
     return c.json(await $.notes.blame(path));
   });
 
   app.get('/file', async (c) => {
     const $ = await open(c);
     const { principal } = requireReader(c);
-    const path = normalizeNotePath(str(c.req.query('path'), 'path'), { requireMarkdown: false });
-    if (principal && !inFolders(path, principal.agent.folders))
-      throw new HTTPException(403, { message: `no access to ${path}` });
+    const path = await $.assertVisible(principal, str(c.req.query('path'), 'path'), {
+      requireMarkdown: false,
+    });
+    // Agents get images and PDFs only. Notes and other text go through /note, where
+    // secrets are masked; raw text is for people.
+    if (principal && !AGENT_RAW_TYPES.has(contentType(path)))
+      throw new HTTPException(403, { message: 'use /api/note to read notes' });
     const data = await $.notes.readRaw(path);
     if (!data) throw new HTTPException(404, { message: 'file not found' });
     return new Response(new Uint8Array(data), {
@@ -301,6 +318,10 @@ export function notesRoutes(platform: Platform) {
       // note is recorded as written by the human. Agents use /api/changes instead.
       if (!principal.scope.has('notes:capture'))
         throw new HTTPException(403, { message: 'token lacks notes:capture' });
+      // The token's agent still limits where notes go.
+      const target = `${(b.folder ?? 'Inbox').replace(/^\/+|\/+$/g, '')}/x.md`;
+      if (!inFolders(target, principal.agent.folders))
+        throw new HTTPException(403, { message: 'this token cannot write to that folder' });
       return c.json(
         await $.notes.capture(text, {
           ...(b.title ? { title: b.title } : {}),
@@ -591,6 +612,15 @@ export function notesRoutes(platform: Platform) {
 
   return app;
 }
+
+/** File types agents may download as they are (no text to mask). */
+const AGENT_RAW_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+  'application/pdf',
+]);
 
 function contentType(path: string): string {
   const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase();

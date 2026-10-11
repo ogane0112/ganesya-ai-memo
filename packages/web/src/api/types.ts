@@ -33,7 +33,7 @@ export interface AuthState {
   env?: AppEnv;
   /** Who may create an account (after the first, admin, account). */
   signup: SignupMode;
-  user: { username: string; isAdmin: boolean } | null;
+  user: { id: string; username: string; isAdmin: boolean } | null;
   session: { via: 'passkey' | 'recovery'; expiresAt: string } | null;
   rpId: string;
   origin: string;

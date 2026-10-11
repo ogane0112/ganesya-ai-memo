@@ -3,8 +3,21 @@ import { useNavigate } from 'react-router-dom';
 import { api, describeError } from '../../api/client';
 import { Spinner } from '../../components/ui';
 import { deviceName, setDeviceName } from '../../lib/device';
+import { clearLocalData } from '../../lib/localData';
+import { syncQueue } from '../../lib/sync';
 import { useApp } from '../../state/app';
 import { useToast } from '../../state/toast';
+
+/** Signing out removes this device's copies, including writes not sent yet: ask first. */
+function confirmDiscardUnsent(): boolean {
+  const n = syncQueue.snapshot.items.length;
+  return (
+    n === 0 ||
+    confirm(
+      `まだ送信していない変更が${n}件あります。サインアウトすると、この端末から削除されます。続けますか?`,
+    )
+  );
+}
 
 export function DataSettings() {
   const toast = useToast();
@@ -113,13 +126,15 @@ export function DataSettings() {
           <button
             type="button"
             className="btn"
-            onClick={() =>
+            onClick={() => {
+              if (!confirmDiscardUnsent()) return;
               void run('logout', async () => {
                 await api.logout();
+                await clearLocalData();
                 await refreshAuth();
                 navigate('/login', { replace: true });
-              })
-            }
+              });
+            }}
           >
             サインアウト
           </button>
@@ -128,8 +143,10 @@ export function DataSettings() {
             className="btn btn-danger-text"
             onClick={() => {
               if (!confirm('すべての端末からサインアウトしますか?')) return;
+              if (!confirmDiscardUnsent()) return;
               void run('logoutAll', async () => {
                 await api.logoutAll();
+                await clearLocalData();
                 await refreshAuth();
                 navigate('/login', { replace: true });
               });
@@ -155,6 +172,7 @@ export function DataSettings() {
             if (!name) return;
             void run('delete', async () => {
               await api.deleteAccount(name);
+              await clearLocalData();
               await refreshAuth();
               navigate('/login', { replace: true });
             });

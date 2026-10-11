@@ -1,3 +1,4 @@
+import { lookup } from 'node:dns/promises';
 import { existsSync } from 'node:fs';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, normalize, relative, resolve } from 'node:path';
@@ -59,7 +60,11 @@ export async function createNodePlatform(
   await mkdir(cfg.dataDir, { recursive: true });
   await ensureSecretKey(cfg);
   const db = new SqliteDb(cfg.dbFile);
-  const platform = await Platform.create(cfg, db, opts);
+  const platform = await Platform.create(cfg, db, {
+    resolveHost: async (host) =>
+      (await lookup(host, { all: true, verbatim: true })).map((a) => a.address),
+    ...opts,
+  });
   return { platform, db };
 }
 

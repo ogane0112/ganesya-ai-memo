@@ -323,3 +323,194 @@ describe('secret key rotation', () => {
     expect(await decryptSecret(enc, 'old-key')).toBe('ghp_secret');
   });
 });
+
+/** Regressions from the baseline review (security/vulnerabilities.yaml GM-2026-002…007). */
+describe('agent access to notes', () => {
+  async function setup() {
+    const ctx = await make();
+    const me = await ctx.signIn('hanako');
+    const put = (path: string, content: string) =>
+      ctx.req('/api/note', { method: 'PUT', cookie: me, json: { path, content } });
+    await ctx.req('/api/admin/policy', {
+      method: 'PUT',
+      cookie: me,
+      json: {
+        ai: { default: 'external', folders: { 'Private/': 'none' } },
+        sensitive: { mode: 'mask' },
+      },
+    });
+    await put('Private/diary.md', '# Diary\n\nnobody may read this\n');
+    await put('Pub/hidden.md', '---\nai: none\n---\n# Hidden\n\nnot for AI\n');
+    await put('Pub/keys.md', '# Keys\n\npassword: Hunter2Secret!\n');
+    const agent = (await (
+      await ctx.req('/api/admin/agents', {
+        method: 'POST',
+        cookie: me,
+        json: { name: 'gpt', location: 'external', writeMode: 'direct' },
+      })
+    ).json()) as { id: string };
+    const { token } = (await (
+      await ctx.req(`/api/admin/agents/${agent.id}/tokens`, {
+        method: 'POST',
+        cookie: me,
+        json: { scope: ['notes:read', 'notes:write'] },
+      })
+    ).json()) as { token: string };
+    return { ...ctx, me, token, put };
+  }
+
+  it('does not hand raw notes to agents through /api/file', async () => {
+    const { req, token } = await setup();
+    for (const path of ['Private/diary.md', 'Pub/keys.md', '/Pub/hidden.md'])
+      expect(
+        (await req(`/api/file?path=${encodeURIComponent(path)}`, { bearer: token })).status,
+      ).toBe(403);
+  });
+
+  it('checks the normalized path for history and refuses blame to agents', async () => {
+    const { req, token, me } = await setup();
+    for (const path of ['/Private/diary.md', 'Private//diary.md', 'Pub//hidden.md'])
+      expect(
+        (await req(`/api/note/history?path=${encodeURIComponent(path)}`, { bearer: token })).status,
+      ).toBe(403);
+    expect((await req('/api/note/blame?path=Pub/keys.md', { bearer: token })).status).toBe(403);
+    expect((await req('/api/note/blame?path=Pub/keys.md', { cookie: me })).status).toBe(200);
+  });
+
+  it('keeps secrets masked when an agent moves a placeholder into a new context', async () => {
+    const { req, token } = await setup();
+    const doc = (await (await req('/api/note?path=Pub/keys.md', { bearer: token })).json()) as {
+      content: string;
+    };
+    expect(doc.content).not.toContain('Hunter2Secret!');
+    const ph = /\[SECRET_[0-9a-f]{16}\]/.exec(doc.content)?.[0];
+    expect(ph).toBeTruthy();
+    // Random, not a hash of the value.
+    expect(ph).not.toContain('df00f68a');
+
+    await req('/api/note', {
+      method: 'PUT',
+      bearer: token,
+      json: { path: 'Pub/leak.md', content: `# Leak\n\nx${ph}x\n` },
+    });
+    const back = (await (await req('/api/note?path=Pub/leak.md', { bearer: token })).json()) as {
+      content: string;
+    };
+    expect(back.content).not.toContain('Hunter2Secret!');
+    expect(back.content).toContain(ph);
+  });
+
+  it('does not let agents write where they cannot read', async () => {
+    const { req, token } = await setup();
+    for (const path of ['Private/new.md', 'Private/photo.png', 'Pub/hidden.md'])
+      expect(
+        (
+          await req('/api/changes', {
+            method: 'POST',
+            bearer: token,
+            json: { title: 't', changes: [{ path, content: 'x' }], mode: 'direct' },
+          })
+        ).status,
+        path,
+      ).toBe(403);
+  });
+
+  it('keeps capture inside the token’s folders and out of OAuth', async () => {
+    const { platform, req, me } = await setup();
+    const agent = (await (
+      await req('/api/admin/agents', {
+        method: 'POST',
+        cookie: me,
+        json: { name: 'phone', folders: ['Inbox/'] },
+      })
+    ).json()) as { id: string };
+    const { token } = (await (
+      await req(`/api/admin/agents/${agent.id}/tokens`, {
+        method: 'POST',
+        cookie: me,
+        json: { scope: ['notes:capture'] },
+      })
+    ).json()) as { token: string };
+    const capture = (json: unknown) => req('/api/capture', { method: 'POST', bearer: token, json });
+    expect((await capture({ text: 'hello' })).status).toBe(200);
+    expect((await capture({ text: 'x', folder: 'Private/journal' })).status).toBe(403);
+    // Paths with .. are rejected as invalid before any folder check.
+    expect((await capture({ text: 'x', folder: 'Inbox/../Private' })).status).toBe(400);
+
+    const client = await platform.oauth.register({
+      redirect_uris: ['https://client.example/cb'],
+      client_name: 'c',
+    });
+    const r = await platform.oauth.validateAuthorize({
+      client_id: String(client['client_id']),
+      redirect_uri: 'https://client.example/cb',
+      response_type: 'code',
+      code_challenge: 'x'.repeat(43),
+      code_challenge_method: 'S256',
+      scope: 'notes:read notes:capture',
+    });
+    expect(r.scope).toEqual(['notes:read']);
+  });
+});
+
+describe('server-side fetches', () => {
+  it('treats IPv4 addresses inside IPv6 and other special ranges as internal', async () => {
+    const { isPrivateHost } = await import('../src/calendar/calendar.js');
+    for (const h of [
+      '[::ffff:7f00:1]',
+      '[::ffff:127.0.0.1]',
+      '[::]',
+      '[::1]',
+      '[64:ff9b::a9fe:a9fe]',
+      '[fd00::1]',
+      '[fe80::1]',
+      '224.0.0.1',
+      '0.0.0.0',
+      '[not:an:ip::x]',
+    ])
+      expect(isPrivateHost(h), h).toBe(true);
+    for (const h of ['calendar.google.com', '8.8.8.8', '[2606:4700::1111]'])
+      expect(isPrivateHost(h), h).toBe(false);
+  });
+
+  it('refuses calendar URLs whose name resolves to an internal address', async () => {
+    db = new SqliteDb(':memory:');
+    let fetched = false;
+    const platform = await Platform.create(testConfig(), db, {
+      auditConsole: () => undefined,
+      embedder: new HashingEmbedder(),
+      resolveHost: async (host) => (host === 'evil.example' ? ['127.0.0.1'] : ['93.184.216.34']),
+    });
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      fetched = true;
+      return new Response('BEGIN:VCALENDAR\nEND:VCALENDAR');
+    }) as typeof fetch;
+    try {
+      await db.run(
+        'INSERT INTO users(id, username, is_admin, created_at) VALUES (?, ?, 0, ?)',
+        'u1',
+        'taro',
+        new Date().toISOString(),
+      );
+      const ws = await platform.workspace('u1');
+      const sub = await ws.calendar.addSubscription({
+        name: 'x',
+        url: 'https://evil.example/cal.ics',
+      });
+      await ws.calendar.refresh(sub.id);
+      const after = (await ws.calendar.subscriptions()).find((s) => s.id === sub.id);
+      expect(after?.lastError).toBe('このURLは使えません');
+      expect(fetched).toBe(false);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it('serves the same CSP on Cloudflare and Node.js', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const { HTML_CSP } = await import('../src/http-app.js');
+    const headers = await readFile(new URL('../../web/public/_headers', import.meta.url), 'utf8');
+    expect(headers).toContain(`Content-Security-Policy: ${HTML_CSP}`);
+  });
+});

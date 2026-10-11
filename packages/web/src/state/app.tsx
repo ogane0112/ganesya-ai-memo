@@ -11,6 +11,7 @@ import {
 import { api, NetworkError, onUnauthorized } from '../api/client';
 import type { AuthState, NoteSummary } from '../api/types';
 import type { QueueState } from '../lib/queue';
+import { claimDevice } from '../lib/localData';
 import { applyPrefs, normalizePrefs } from '../lib/theme';
 import { syncQueue } from '../lib/sync';
 
@@ -149,12 +150,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
       .catch(() => undefined);
   }, []);
 
+  const userId = auth?.user?.id;
+  const username = auth?.user?.username;
   useEffect(() => {
-    if (!signedIn || auth?.session?.via === 'recovery') return;
-    refreshNotes();
-    refreshProposals();
-    syncQueue.resume();
-  }, [signedIn, auth?.session?.via, refreshNotes, refreshProposals]);
+    if (!signedIn || auth?.session?.via === 'recovery' || !userId || !username) return;
+    let cancelled = false;
+    // Another account's offline copies and unsent writes are removed before anything runs.
+    void claimDevice({ id: userId, username }).then(() => {
+      if (cancelled) return;
+      refreshNotes();
+      refreshProposals();
+      syncQueue.resume();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [signedIn, auth?.session?.via, userId, username, refreshNotes, refreshProposals]);
 
   // Changes from other devices and agents: a cheap poll while the app is visible
   // (serverless hosting cannot keep event streams open).

@@ -74,9 +74,9 @@ export class DbGitStore implements NoteStore {
   private async commitRow(sha: string, prefetch = false): Promise<CommitRow | null> {
     const hit = this.commits.get(sha);
     if (hit) return hit;
-    const cols = 'sha, tree, parents, author_name, author_email, date, message, changed';
+    const colsSql = 'sha, tree, parents, author_name, author_email, date, message, changed';
     const r = await this.db.first<CommitRow>(
-      `SELECT ${cols} FROM git_commits WHERE user_id = ? AND sha = ?`,
+      `SELECT ${colsSql} FROM git_commits WHERE user_id = ? AND sha = ?`,
       this.userId,
       sha,
     );
@@ -84,7 +84,7 @@ export class DbGitStore implements NoteStore {
     this.commits.set(sha, r);
     if (prefetch) {
       const older = await this.db.all<CommitRow>(
-        `SELECT ${cols} FROM git_commits WHERE user_id = ? AND date <= ? ORDER BY date DESC LIMIT 300`,
+        `SELECT ${colsSql} FROM git_commits WHERE user_id = ? AND date <= ? ORDER BY date DESC LIMIT 300`,
         this.userId,
         r.date,
       );

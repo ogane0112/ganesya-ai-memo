@@ -461,6 +461,8 @@ export class NoteService {
     const date = `${part('year')}-${part('month')}-${part('day')}`;
     const time = `${part('hour')}:${part('minute')}`;
     const folder = (opts.folder ?? 'Inbox').replace(/^\/+|\/+$/g, '');
+    // Same rules as note paths (no "..", no .git, no control characters).
+    normalizeNotePath(`${folder}/x.md`);
     let path = '';
     if (opts.title) {
       const base = `${folder}/${opts.title.replace(/[\\/:*?"<>|#^[\]]/g, ' ').trim() || date}`;
