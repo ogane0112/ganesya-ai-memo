@@ -17,13 +17,14 @@
 サーバー不要で、無料枠から動かせます。手順は [Cloudflare にデプロイする](docs/deploy-cloudflare.md)。
 
 ```sh
-npm ci && npm run build -w @gmemo/core && npm run build -w @gmemo/web
-cd packages/server
-npx cf auth login
-GMEMO_ORIGIN=https://gmemo.<サブドメイン>.workers.dev npx cf deploy   # D1 も自動で作られる
-npx cf workers secrets update GMEMO_SETUP_TOKEN --worker gmemo --text '<長いランダム文字列>'
-npx cf workers secrets update GMEMO_SECRET_KEY  --worker gmemo --text '<長いランダム文字列>'
+npm ci
+(cd packages/server && npx cf auth login)   # 初回だけ
+source deploy.env                           # 公開URLなど(初回に作成)
+npm run deploy:stg                          # ステージング(自分だけ)で確認して
+npm run deploy:prod                         # 本番へ(main の CI が通ったコミットだけ)
 ```
+
+初回はシークレットの設定、ステージングを自分だけに制限する設定(Cloudflare Access)、最初のアカウント作成があります。上のリンク先に順番に書いてあります。
 
 Cloudflare の新しいCLI `cf`(ベータ)を使います。Wrangler でもデプロイできます(手順は同じページ)。
 

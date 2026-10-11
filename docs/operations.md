@@ -19,9 +19,9 @@
 
 1. `main` から作業ブランチを切り、変更を入れる
 2. ローカルで確認:`npm run lint && npm run typecheck && npm test && npm run build`
-3. ステージングへ:`cd packages/server && npm run deploy:stg`
+3. ステージングへ:`source deploy.env && npm run deploy:stg`(リポジトリの一番上で)
 4. ステージングで確認(下のチェックリスト)
-5. 本番へ:`npm run deploy:prod`
+5. 本番へ:`npm run deploy:prod`(`main` の、CI が通ったコミットからだけ実行できる。[手順](deploy-cloudflare.md#8-本番にデプロイする))
 6. 本番の **設定 → セキュリティログ** で、デプロイ直後にエラーや拒否が増えていないかを見る
 
 ステージングで確認すること:

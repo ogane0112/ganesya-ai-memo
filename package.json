@@ -22,7 +22,9 @@
     "format:check": "prettier --check .",
     "dev": "npm run build -w @gmemo/core && npm run dev -w @gmemo/server",
     "security:check": "node scripts/security-check.mjs",
-    "github:check": "node scripts/check-github-settings.mjs"
+    "github:check": "node scripts/check-github-settings.mjs",
+    "deploy:stg": "node scripts/deploy.mjs staging",
+    "deploy:prod": "node scripts/deploy.mjs production"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

@@ -9,3 +9,4 @@ coverage/
 .dev.vars
 .cloudflare/
 dist-design/
+deploy.env

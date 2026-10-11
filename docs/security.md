@@ -43,7 +43,7 @@
 
 ## ステージング環境
 
-- ステージングは Cloudflare Access の内側に置き、運用者本人だけが入れるようにします([手順](deploy-cloudflare.md#5-ステージングを自分だけに制限するcloudflare-access))。
+- ステージングは Cloudflare Access の内側に置き、運用者本人だけが入れるようにします([手順](deploy-cloudflare.md#6-ステージングを自分だけに制限するcloudflare-access))。
 - アプリも Access の署名付きトークン(RS256、`aud`・`iss`・有効期限)を検証し、Access の設定がないステージングは全リクエストを拒否します(fail closed)。
 - ステージングは新規登録を停止し、本番とは別の D1・シークレットを使います。`X-Robots-Tag: noindex` を付けます。
 
