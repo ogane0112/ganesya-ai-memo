@@ -5,3 +5,7 @@ coverage/
 .env
 /data/
 .DS_Store
+.wrangler/
+.dev.vars
+.cloudflare/
+dist-design/

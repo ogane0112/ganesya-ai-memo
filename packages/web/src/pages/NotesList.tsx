@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Icon } from '../components/Icon';
+import { NoteCard } from '../components/NoteCard';
 import { Badge, EmptyState, Loading, Modal, PageHeader } from '../components/ui';
-import { relativeTime } from '../lib/format';
 import { useDocumentTitle } from '../lib/hooks';
 import { noteUrl, toNotePath } from '../lib/paths';
 import { useApp } from '../state/app';
@@ -143,28 +143,7 @@ export function NotesListPage() {
           ))}
           {list.map((n) => (
             <li key={n.path}>
-              <Link to={noteUrl(n.path)} className="note-card">
-                <span className="note-card-title">{n.title}</span>
-                <span className="note-card-meta">
-                  {n.createdBy === 'ai' && (
-                    <Badge tone="ai">AI{n.aiAgent ? `: ${n.aiAgent}` : ''}</Badge>
-                  )}
-                  {pendingPaths.has(n.path) && <Badge tone="accent">未同期</Badge>}
-                  <span className="mono ellipsis">
-                    {n.path.includes('/') ? n.path.slice(0, n.path.lastIndexOf('/')) : ''}
-                  </span>
-                  {n.updatedAt && <time dateTime={n.updatedAt}>{relativeTime(n.updatedAt)}</time>}
-                </span>
-                {n.tags.length > 0 && (
-                  <span className="tags">
-                    {n.tags.slice(0, 5).map((t) => (
-                      <span key={t} className="tag">
-                        #{t}
-                      </span>
-                    ))}
-                  </span>
-                )}
-              </Link>
+              <NoteCard note={n} unsynced={pendingPaths.has(n.path)} />
             </li>
           ))}
         </ul>

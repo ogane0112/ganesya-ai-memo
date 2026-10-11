@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, describeError } from '../api/client';
 import { Icon } from '../components/Icon';
 import { Spinner } from '../components/ui';
@@ -18,6 +18,7 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<'passkey' | 'recovery'>('passkey');
   const [code, setCode] = useState('');
+  const [username, setUsername] = useState('');
 
   if (signedIn && auth?.session?.via === 'passkey') return <Navigate to={next} replace />;
   if (auth?.needsSetup && !auth.user) return <Navigate to="/setup" replace />;
@@ -41,7 +42,7 @@ export function LoginPage() {
     setBusy(true);
     setError(null);
     try {
-      await api.recoveryLogin(code.trim());
+      await api.recoveryLogin(username.trim(), code.trim());
       await refreshAuth();
       navigate('/register-passkey', { replace: true });
     } catch (err) {
@@ -85,12 +86,28 @@ export function LoginPage() {
             >
               リカバリーコードでログイン
             </button>
+            {auth && auth.signup !== 'closed' && (
+              <Link to="/signup" className="btn btn-text btn-block">
+                アカウントを作成
+              </Link>
+            )}
           </>
         ) : (
           <form onSubmit={(e) => void recovery(e)}>
             <p className="hint">
-              パスキーを使えなくなったときは、セットアップ時に保存したリカバリーコードを1つ入力してください。ログイン後、新しいパスキーの登録が必要です。
+              パスキーを使えなくなったときは、ユーザー名と、アカウント作成時に保存したリカバリーコードを1つ入力してください。ログイン後、新しいパスキーの登録が必要です。
             </p>
+            <div className="field">
+              <label htmlFor="recovery-user">ユーザー名</label>
+              <input
+                id="recovery-user"
+                className="input"
+                autoComplete="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+              />
+            </div>
             <div className="field">
               <label htmlFor="recovery-code">リカバリーコード</label>
               <input
@@ -107,7 +124,7 @@ export function LoginPage() {
             <button
               type="submit"
               className="btn btn-primary btn-block btn-large"
-              disabled={busy || !code.trim()}
+              disabled={busy || !code.trim() || !username.trim()}
             >
               {busy && <Spinner />}
               ログイン
@@ -126,6 +143,9 @@ export function LoginPage() {
             {error}
           </p>
         )}
+        <Link to="/privacy" className="btn btn-text btn-block hint">
+          データの扱い
+        </Link>
       </div>
     </div>
   );

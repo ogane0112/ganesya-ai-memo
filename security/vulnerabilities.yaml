@@ -1,0 +1,376 @@
+# 脆弱性対応台帳
+#
+# 依存ライブラリの脆弱性(npm audit / Dependabot / GitHub Advisory)と、
+# 実装起因の脆弱性(コードレビュー、テスト、外部からの報告)を1か所で管理する。
+# 運用のルールは docs/secure-development.md。`npm run security:check` が CI で
+# この台帳と実際の状態を突き合わせる(未登録の脆弱性、期限切れがあると失敗する)。
+#
+# 項目:
+#   id        GHSA-xxxx(依存ライブラリ)または GM-YYYY-NNN(実装起因)
+#   source    advisory | review | test | report | scan
+#   package   依存ライブラリの場合のパッケージ名
+#   severity  critical | high | moderate | low
+#   scope     production(本番で動くコード)| build(ビルド・デプロイ時)| dev(開発・テストのみ)
+#   status    open | fixed | not-affected | accepted
+#   found     見つけた日 / due 対応期限 / closed 閉じた日
+#   accepted の場合は reason と review_by(見直し期限)が必須
+
+entries:
+  - id: GHSA-82fw-gwwq-j7x9
+    source: advisory
+    package: '@vitest/mocker'
+    via: vitest
+    title: 'Vitest: Path Traversal / Arbitrary File Read via @vitest/mocker Redirect Mock'
+    severity: moderate
+    scope: dev
+    status: fixed
+    found: 2026-10-11
+    due: 2026-11-10
+    closed: 2026-10-11
+    resolution: vitest 3 → 5 に更新
+    notes: テストの実行時だけ使う開発用ツール。本番には含まれない。
+  - id: GHSA-wq5f-xc86-pv6w
+    aliases: [CVE-2026-96889]
+    source: advisory
+    package: 'sharp'
+    via: wrangler → miniflare
+    title: 'sharp: Vulnerability in librsvg dependency'
+    severity: high
+    scope: build
+    status: fixed
+    found: 2026-10-11
+    due: 2026-11-10
+    closed: 2026-10-11
+    resolution: npm audit fix(wrangler / miniflare を更新)
+    notes: ローカル実行(cf dev)とデプロイ時のビルドで使う。本番のWorkerには含まれない。
+  - id: GHSA-5gmw-xhrv-c9v3
+    source: advisory
+    package: 'tinypool'
+    via: vitest
+    title: 'Tinypool: Prototype Pollution gadget in worker options leads to RCE'
+    severity: critical
+    scope: dev
+    status: fixed
+    found: 2026-10-11
+    due: 2026-11-10
+    closed: 2026-10-11
+    resolution: vitest 3 → 5 に更新
+    notes: テストの実行時だけ使う開発用ツール。本番には含まれない。
+  - id: GHSA-85c8-ppgw-ccpr
+    source: advisory
+    package: 'tinypool'
+    via: vitest
+    title: 'Tinypool: Prototype Pollution Gadget to RCE in run() options'
+    severity: critical
+    scope: dev
+    status: fixed
+    found: 2026-10-11
+    due: 2026-11-10
+    closed: 2026-10-11
+    resolution: vitest 3 → 5 に更新
+    notes: テストの実行時だけ使う開発用ツール。本番には含まれない。
+  - id: GHSA-3wwx-pv8p-q78v
+    source: advisory
+    package: 'undici'
+    via: wrangler → miniflare
+    title: 'undici: DoS via unhandled error in WebSocket permessage-deflate decompression'
+    severity: moderate
+    scope: build
+    status: fixed
+    found: 2026-10-11
+    due: 2026-11-10
+    closed: 2026-10-11
+    resolution: npm audit fix(wrangler / miniflare を更新)
+    notes: ローカル実行(cf dev)とデプロイ時のビルドで使う。本番のWorkerには含まれない。
+  - id: GHSA-pmjh-fq2x-6v4x
+    source: advisory
+    package: 'undici'
+    via: wrangler → miniflare
+    title: 'undici: DoS via orphaned RetryHandler response body'
+    severity: moderate
+    scope: build
+    status: fixed
+    found: 2026-10-11
+    due: 2026-11-10
+    closed: 2026-10-11
+    resolution: npm audit fix(wrangler / miniflare を更新)
+    notes: ローカル実行(cf dev)とデプロイ時のビルドで使う。本番のWorkerには含まれない。
+  - id: GHSA-r53p-7pc4-xj5r
+    source: advisory
+    package: 'undici'
+    via: wrangler → miniflare
+    title: 'undici: downstream response splitting via retry interceptor'
+    severity: low
+    scope: build
+    status: fixed
+    found: 2026-10-11
+    due: 2026-11-10
+    closed: 2026-10-11
+    resolution: npm audit fix(wrangler / miniflare を更新)
+    notes: ローカル実行(cf dev)とデプロイ時のビルドで使う。本番のWorkerには含まれない。
+  - id: GHSA-rfgv-xxqx-mfg5
+    source: advisory
+    package: 'undici'
+    via: wrangler → miniflare
+    title: 'undici: DoS via unrequested WebSocket subprotocol'
+    severity: high
+    scope: build
+    status: fixed
+    found: 2026-10-11
+    due: 2026-11-10
+    closed: 2026-10-11
+    resolution: npm audit fix(wrangler / miniflare を更新)
+    notes: ローカル実行(cf dev)とデプロイ時のビルドで使う。本番のWorkerには含まれない。
+  - id: GHSA-3xpg-4rpp-hhhm
+    source: advisory
+    package: 'undici'
+    via: wrangler → miniflare
+    title: 'undici: DoS via unbounded decompression of compressed responses'
+    severity: moderate
+    scope: build
+    status: fixed
+    found: 2026-10-11
+    due: 2026-11-10
+    closed: 2026-10-11
+    resolution: npm audit fix(wrangler / miniflare を更新)
+    notes: ローカル実行(cf dev)とデプロイ時のビルドで使う。本番のWorkerには含まれない。
+  - id: GHSA-2jfj-6hjv-fm6j
+    source: advisory
+    package: 'undici'
+    via: wrangler → miniflare
+    title: 'undici: cross-user cookie disclosure via Set-Cookie caching in shared caches'
+    severity: moderate
+    scope: build
+    status: fixed
+    found: 2026-10-11
+    due: 2026-11-10
+    closed: 2026-10-11
+    resolution: npm audit fix(wrangler / miniflare を更新)
+    notes: ローカル実行(cf dev)とデプロイ時のビルドで使う。本番のWorkerには含まれない。
+  - id: GHSA-2gqq-gqf2-x968
+    source: advisory
+    package: 'undici'
+    via: wrangler → miniflare
+    title: 'undici: response truncation via oversized chunked responses in the dump interceptor'
+    severity: low
+    scope: build
+    status: fixed
+    found: 2026-10-11
+    due: 2026-11-10
+    closed: 2026-10-11
+    resolution: npm audit fix(wrangler / miniflare を更新)
+    notes: ローカル実行(cf dev)とデプロイ時のビルドで使う。本番のWorkerには含まれない。
+  - id: GHSA-w293-vg96-wgc3
+    source: advisory
+    package: 'undici'
+    via: wrangler → miniflare
+    title: 'undici: TLS certificate validation bypass via dropped connect options in BalancedPool'
+    severity: high
+    scope: build
+    status: fixed
+    found: 2026-10-11
+    due: 2026-11-10
+    closed: 2026-10-11
+    resolution: npm audit fix(wrangler / miniflare を更新)
+    notes: ローカル実行(cf dev)とデプロイ時のビルドで使う。本番のWorkerには含まれない。
+  - id: GHSA-8436-99hf-9mmv
+    source: advisory
+    package: 'undici'
+    via: wrangler → miniflare
+    title: 'undici: caching and replay of unsafe HTTP method responses'
+    severity: low
+    scope: build
+    status: fixed
+    found: 2026-10-11
+    due: 2026-11-10
+    closed: 2026-10-11
+    resolution: npm audit fix(wrangler / miniflare を更新)
+    notes: ローカル実行(cf dev)とデプロイ時のビルドで使う。本番のWorkerには含まれない。
+  - id: GHSA-rx4f-c7p8-82vq
+    source: advisory
+    package: 'undici'
+    via: wrangler → miniflare
+    title: 'undici: DoS via WebSocketStream unclean close'
+    severity: moderate
+    scope: build
+    status: fixed
+    found: 2026-10-11
+    due: 2026-11-10
+    closed: 2026-10-11
+    resolution: npm audit fix(wrangler / miniflare を更新)
+    notes: ローカル実行(cf dev)とデプロイ時のビルドで使う。本番のWorkerには含まれない。
+
+  # ---- 実装起因(2026-10-11 の総点検) -------------------------------------------
+  - id: GM-2026-001
+    source: review
+    title: 共有ブラウザで、前に使ったアカウントのノートの写しと未送信の変更が次のアカウントに見える・送られる
+    severity: moderate
+    scope: production
+    status: fixed
+    found: 2026-10-11
+    due: 2026-11-10
+    closed: 2026-10-11
+    resolution: >-
+      端末のデータ(Service Worker のキャッシュ、IndexedDB のキューと下書き)を、サインアウト時と
+      別アカウントのサインイン時に消す。アカウントが端末を確認するまでキューを送らない(web/src/lib/localData.ts)
+    tests: [packages/web/test/localData.test.ts]
+
+  - id: GM-2026-002
+    source: review
+    title: エージェントが /api/file でAIポリシーと伏せ字を迂回してノートの原文を読める
+    severity: high
+    scope: production
+    status: fixed
+    found: 2026-10-11
+    due: 2026-10-18
+    closed: 2026-10-11
+    resolution: エージェントにはフォルダとAIポリシーの確認を行い、画像とPDF以外は返さない(ノートは /api/note で伏せ字付き)
+    tests: [packages/server/test/security.test.ts]
+
+  - id: GM-2026-003
+    source: review
+    title: blame / history がパスを正規化する前に確認し、別の書き方(/Private/a.md、a//b.md)で非公開のノートを読める。blame は伏せ字なし
+    severity: high
+    scope: production
+    status: fixed
+    found: 2026-10-11
+    due: 2026-10-18
+    closed: 2026-10-11
+    resolution: 正規化したパスで確認し、そのパスを使う。blame はエージェントに提供しない
+    tests: [packages/server/test/security.test.ts]
+
+  - id: GM-2026-004
+    source: review
+    title: エージェントが伏せ字の文字列を、規則に一致しない文脈(x[SECRET_…]x)に書き戻して読み直すと、元の値が見える
+    severity: moderate
+    scope: production
+    status: fixed
+    found: 2026-10-11
+    due: 2026-11-10
+    closed: 2026-10-11
+    resolution: 一度伏せた値は、文脈にかかわらずエージェントに渡すたびに伏せる
+    tests: [packages/server/test/security.test.ts]
+
+  - id: GM-2026-005
+    source: review
+    title: 伏せ字の文字列が値の32ビットのハッシュで、電話番号などは総当たりで元に戻せる
+    severity: moderate
+    scope: production
+    status: fixed
+    found: 2026-10-11
+    due: 2026-11-10
+    closed: 2026-10-11
+    resolution: 伏せ字はランダムな64ビットの値にする。古いハッシュ形式の伏せ字は今後使わない
+    notes: すでにエージェントに渡した古い形式の伏せ字は、相手の手元に残っている(取り消せない)
+    tests: [packages/server/test/security.test.ts]
+
+  - id: GM-2026-006
+    source: review
+    title: カレンダーURLの取得で、名前解決・リダイレクト・IPv4射影IPv6を使うと内部アドレスに届く(SSRF、主に Node.js 版)
+    severity: moderate
+    scope: production
+    status: fixed
+    found: 2026-10-11
+    due: 2026-11-10
+    closed: 2026-10-11
+    resolution: >-
+      リダイレクトを手動で追い、毎回確認する。Node.js では名前解決した全アドレスを確認する。
+      IPv6 に埋め込まれた IPv4、マルチキャスト等も拒否。本文は2MBで読み込みを止める
+    notes: 確認と実際の接続の間に DNS の応答が変わる攻撃(DNS rebinding)は残る。Node.js を社内ネットワークで動かす場合は、外向き通信をプロキシで制限する
+    tests: [packages/server/test/security.test.ts]
+
+  - id: GM-2026-007
+    source: review
+    title: OAuth で notes:capture を要求でき、エージェントのフォルダ制限を受けずに本人名義で書き込める
+    severity: moderate
+    scope: production
+    status: fixed
+    found: 2026-10-11
+    due: 2026-11-10
+    closed: 2026-10-11
+    resolution: OAuth では notes:capture を発行しない。capture でもトークンのフォルダ制限を適用し、フォルダ名を検証する
+    tests: [packages/server/test/security.test.ts]
+
+  - id: GM-2026-008
+    source: review
+    title: 最後のアカウントが削除された瞬間に、セットアップトークンなしの登録が管理者になりうる
+    severity: low
+    scope: production
+    status: fixed
+    found: 2026-10-11
+    due: 2027-01-09
+    closed: 2026-10-11
+    resolution: セットアップトークンで始めた登録だけが管理者になれる
+    notes: WebAuthn の検証を通す必要があり、テストは未整備(threats.yaml T-02 の gap)
+
+  - id: GM-2026-009
+    source: review
+    title: エージェントが、読めないフォルダ(AIポリシーが none など)の添付ファイルや新しいノートを書き込める
+    severity: moderate
+    scope: production
+    status: fixed
+    found: 2026-10-11
+    due: 2026-11-10
+    closed: 2026-10-11
+    resolution: 読めない場所には書き込めないようにする(既存・新規・添付を問わない)
+    tests: [packages/server/test/security.test.ts]
+
+  - id: GM-2026-010
+    source: review
+    title: iCal の出力で単独の CR をエスケープしていない
+    severity: low
+    scope: production
+    status: fixed
+    found: 2026-10-11
+    due: 2027-01-09
+    closed: 2026-10-11
+    resolution: CR、LF、CRLF をすべて \n にする
+    notes: タイトルは本人のノート由来なので影響は小さい
+
+  - id: GM-2026-011
+    source: review
+    title: Node.js 版で、接続元IPのヘッダー(x-forwarded-for など)を無条件に信用している。回数制限の回避と、ログのIP偽装ができる
+    severity: low
+    scope: production
+    status: open
+    found: 2026-10-11
+    due: 2027-01-09
+    notes: >-
+      Cloudflare 版は cf-connecting-ip を Cloudflare が上書きするので影響なし。
+      対応案:信頼するプロキシの設定(GMEMO_TRUST_PROXY)を追加し、未設定ならソケットのアドレスを使う
+
+  - id: GM-2026-012
+    source: review
+    title: リフレッシュトークンの再利用を検出しても、同じ系列のトークンを失効させていない
+    severity: low
+    scope: production
+    status: open
+    found: 2026-10-11
+    due: 2027-01-09
+    notes: 再利用は失敗し記録される。盗まれたトークンが先に使われた場合に、正規のクライアント側で気づけるようにする
+
+  - id: GM-2026-013
+    source: review
+    title: パスキーの認証でユーザー確認(PIN・生体認証)を必須にしていない
+    severity: low
+    scope: production
+    status: accepted
+    found: 2026-10-11
+    due: 2027-01-09
+    closed: 2026-10-11
+    reason: >-
+      スマートフォンやPCのパスキーは実際にはユーザー確認を行う。PINなしのセキュリティキーも使えるようにするため。
+      端末を盗まれた場合は「すべての端末からサインアウト」とパスキーの削除で対応する
+    review_by: 2027-04-11
+
+  - id: GM-2026-014
+    source: scan
+    title: Node.js 版の暗号鍵ファイル(secret.key)を、存在確認と書き込みの2段階で作っていた(TOCTOU)
+    severity: low
+    scope: production
+    status: fixed
+    found: 2026-10-11
+    due: 2027-01-09
+    closed: 2026-10-11
+    resolution: 新規作成専用(flag wx)で一度に作り、すでにあれば読み込む
+    notes: CodeQL(js/file-system-race)が PR #1 で検出。データディレクトリに書き込める攻撃者が前提なので影響は小さい

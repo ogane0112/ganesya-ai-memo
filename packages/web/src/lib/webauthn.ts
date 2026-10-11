@@ -9,12 +9,17 @@ import type { PasskeyInfo } from '../api/types';
 
 export { browserSupportsWebAuthn };
 
-/** Register a passkey. With `setupToken` this is the very first one (creates the account). */
+/**
+ * Register a passkey. Signed out, this creates a new account (`username`, plus
+ * the setup token for the first account or an invite code); signed in, it adds
+ * another passkey to the current account.
+ */
 export async function registerPasskey(
-  opts: { setupToken?: string; username?: string; name?: string } = {},
+  opts: { setupToken?: string; inviteCode?: string; username?: string; name?: string } = {},
 ): Promise<{ passkey: PasskeyInfo; recoveryCodes: string[] | null }> {
   const { challengeId, options } = await api.registerOptions({
     ...(opts.setupToken ? { setupToken: opts.setupToken } : {}),
+    ...(opts.inviteCode ? { inviteCode: opts.inviteCode } : {}),
     ...(opts.username ? { username: opts.username } : {}),
   });
   const response = await startRegistration({
@@ -24,7 +29,6 @@ export async function registerPasskey(
     challengeId,
     response,
     ...(opts.name ? { name: opts.name } : {}),
-    ...(opts.setupToken ? { setupToken: opts.setupToken } : {}),
   });
 }
 

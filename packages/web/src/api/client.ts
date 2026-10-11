@@ -17,7 +17,12 @@ import type {
   NoteSummary,
   OAuthRequestInfo,
   PasskeyInfo,
-  PluginInfo,
+  InviteInfo,
+  SecurityEvent,
+  SecurityLogCheck,
+  SignupMode,
+  StorageSettings,
+  UserInfo,
   ProposalDetail,
   ProposalRow,
   ProposalStatus,
@@ -142,20 +147,16 @@ type Ok = { ok: true };
 export const api = {
   // ---- auth ----------------------------------------------------------------
   authState: () => get<AuthState>('/api/auth/state', { cache: 'no-store' }),
-  registerOptions: (b: { setupToken?: string; username?: string }) =>
+  registerOptions: (b: { setupToken?: string; username?: string; inviteCode?: string }) =>
     post<{ challengeId: string; options: unknown }>('/api/auth/register/options', b),
-  registerVerify: (b: {
-    challengeId: string;
-    response: unknown;
-    name?: string;
-    setupToken?: string;
-  }) =>
+  registerVerify: (b: { challengeId: string; response: unknown; name?: string }) =>
     post<{ passkey: PasskeyInfo; recoveryCodes: string[] | null }>('/api/auth/register/verify', b),
   loginOptions: () => post<{ challengeId: string; options: unknown }>('/api/auth/login/options'),
   loginVerify: (b: { challengeId: string; response: unknown }) =>
     post<Ok>('/api/auth/login/verify', b),
-  recoveryLogin: (code: string) =>
-    post<{ ok: true; mustRegisterPasskey: boolean }>('/api/auth/recovery', { code }),
+  recoveryLogin: (username: string, code: string) =>
+    post<{ ok: true; mustRegisterPasskey: boolean }>('/api/auth/recovery', { username, code }),
+  deleteAccount: (username: string) => post<Ok>('/api/auth/delete-account', { username }),
   logout: () => post<Ok>('/api/auth/logout'),
   logoutAll: () => post<Ok>('/api/auth/logout-all'),
   passkeys: () => get<PasskeyInfo[]>('/api/auth/passkeys'),
@@ -200,7 +201,12 @@ export const api = {
     get<HistoryEntry[]>(`/api/history${qs(opts)}`),
   revert: (commit: string) => post<SaveResult>('/api/revert', { commit }),
   revertAgent: (agentId: string) => post<SaveResult[]>('/api/revert-agent', { agentId }),
-  sync: () => post<{ committed: string[] }>('/api/sync'),
+  sync: () => post<{ changed: boolean }>('/api/sync'),
+  poll: (since?: string) =>
+    get<{ head: string | null; openProposals: number; paths: string[] | null }>(
+      `/api/poll${qs({ since })}`,
+      { cache: 'no-store' },
+    ),
 
   // ---- proposals -----------------------------------------------------------
   proposals: (status?: ProposalStatus) => get<ProposalRow[]>(`/api/proposals${qs({ status })}`),
@@ -255,7 +261,28 @@ export const api = {
   savePolicy: (p: WorkspacePolicy) => put<WorkspacePolicy>('/api/admin/policy', p),
   allowFinding: (fingerprint: string) => post<Ok>('/api/admin/policy/allow', { fingerprint }),
   reindex: () => post<Ok>('/api/admin/reindex'),
-  plugins: () => get<PluginInfo[]>('/api/admin/plugins'),
+  storage: () => get<StorageSettings>('/api/admin/storage'),
+  saveStorage: (b: {
+    storage: 'builtin' | 'github';
+    github?: { owner: string; repo: string; branch?: string; token?: string };
+    copy?: boolean;
+  }) =>
+    put<{ copied: number; closedProposals: number; settings: StorageSettings }>(
+      '/api/admin/storage',
+      b,
+    ),
+  forgetGitHub: () => del<Ok>('/api/admin/storage/github'),
+  securityLog: (q: { scope?: 'all'; outcome?: string; action?: string; before?: number } = {}) =>
+    get<SecurityEvent[]>(`/api/admin/security-log${qs({ ...q, limit: 100 })}`),
+  verifySecurityLog: () => post<SecurityLogCheck>('/api/admin/security-log/verify'),
+  users: () => get<{ users: UserInfo[]; signup: SignupMode }>('/api/admin/users'),
+  deleteUser: (id: string) => del<Ok>(`/api/admin/users/${encodeURIComponent(id)}`),
+  resetUser: (id: string) =>
+    post<{ codes: string[] }>(`/api/admin/users/${encodeURIComponent(id)}/reset`),
+  invites: () => get<InviteInfo[]>('/api/admin/invites'),
+  createInvite: (days = 7) =>
+    post<{ code: string; url: string; invite: InviteInfo }>('/api/admin/invites', { days }),
+  deleteInvite: (id: string) => del<Ok>(`/api/admin/invites/${encodeURIComponent(id)}`),
   preferences: () => get<UiPrefs>('/api/admin/preferences'),
   savePreferences: (p: UiPrefs) => put<UiPrefs>('/api/admin/preferences', p),
   // ---- calendar ------------------------------------------------------------
@@ -280,27 +307,8 @@ export const api = {
     ),
   deleteCalendarSubscription: (id: string) =>
     del<Ok>(`/api/admin/calendar/subscriptions/${encodeURIComponent(id)}`),
-  /** Returns the backup file as a Blob plus the server-suggested file name. */
-  backup: async (passphrase?: string): Promise<{ blob: Blob; filename: string }> => {
-    let res: Response;
-    try {
-      res = await fetch('/api/admin/backup', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(passphrase ? { passphrase } : {}),
-      });
-    } catch (e) {
-      throw new NetworkError(e);
-    }
-    if (!res.ok) {
-      const body: unknown = await res.json().catch(() => null);
-      throw new ApiError(res.status, body);
-    }
-    const cd = res.headers.get('content-disposition') ?? '';
-    const m = /filename="([^"]+)"/.exec(cd);
-    return { blob: await res.blob(), filename: m?.[1] ?? 'gmemo-backup.gmbk' };
-  },
+  /** Download URL for a .tar.gz of the current notes. */
+  exportUrl: '/api/admin/export',
 };
 
 /** Human readable Japanese message for any error thrown by the API layer. */
@@ -308,6 +316,8 @@ export function describeError(e: unknown): string {
   if (e instanceof NetworkError) return 'サーバーに接続できません。オフラインかもしれません。';
   if (e instanceof ApiError) {
     const msg = e.message;
+    // The server already explains these in Japanese (sign-up, GitHub storage, …).
+    if (/[\u3000-\u9fff]/.test(msg)) return msg;
     switch (e.status) {
       case 401:
         return 'サインインが必要です。';

@@ -3,12 +3,11 @@ import {
   type Finding,
   fingerprint,
   maskText,
-  type Rule,
   scanText,
   unmaskText,
   type WorkspacePolicy,
 } from '@gmemo/core';
-import { type DB, nowIso } from '../db/db.js';
+import { type Db, nowIso } from '../db/db.js';
 import { type ChatMessage, type LlmClient, parseJsonLoose } from './llm.js';
 
 export class AiUnavailableError extends Error {}
@@ -63,18 +62,12 @@ export function publicFinding(f: Finding): PublicFinding {
  * masks/unmasks placeholders, and keeps a local audit trail.
  */
 export class AiGateway {
-  private extraRules: Rule[] = [];
-
   constructor(
-    private readonly db: DB,
+    private readonly db: Db,
+    private readonly userId: string,
     private readonly local: LlmClient | null,
     private readonly external: LlmClient | null,
   ) {}
-
-  /** Additional detection rules registered by plugins (shared array, may grow). */
-  setExtraRules(rules: Rule[]): void {
-    this.extraRules = rules;
-  }
 
   status() {
     return { local: this.local?.label ?? null, external: this.external?.label ?? null };
@@ -103,7 +96,6 @@ export class AiGateway {
       dictionary: policy.sensitive.dictionary,
       allow: policy.sensitive.allow,
       disabledRules: policy.sensitive.disabledRules,
-      extraRules: this.extraRules,
     };
     const findings = scanText(text, opts);
     if (policy.sensitive.useLocalModel && this.local) {
@@ -192,7 +184,7 @@ export class AiGateway {
       if (findings.length) {
         const mode = input.policy.sensitive.mode;
         if (mode === 'block') {
-          this.audit('egress-blocked', input.actor, {
+          await this.audit('egress-blocked', input.actor, {
             purpose: input.purpose,
             target: client.label,
             paths: used.map((u) => u.path),
@@ -216,7 +208,7 @@ export class AiGateway {
 
     const answer = await client.chat({ system, messages, maxTokens: 1500 });
     if (client.location === 'external') {
-      this.audit('egress', input.actor, {
+      await this.audit('egress', input.actor, {
         purpose: input.purpose,
         target: client.label,
         paths: used.map((u) => u.path),
@@ -235,19 +227,26 @@ export class AiGateway {
     };
   }
 
-  audit(kind: string, actor: string, detail: Record<string, unknown>): void {
-    this.db
-      .prepare('INSERT INTO audit(at, kind, actor, detail) VALUES (?, ?, ?, ?)')
-      .run(nowIso(), kind, actor, JSON.stringify(detail));
+  async audit(kind: string, actor: string, detail: Record<string, unknown>): Promise<void> {
+    await this.db.run(
+      'INSERT INTO audit(user_id, at, kind, actor, detail) VALUES (?, ?, ?, ?, ?)',
+      this.userId,
+      nowIso(),
+      kind,
+      actor,
+      JSON.stringify(detail),
+    );
   }
 
-  auditLog(
+  async auditLog(
     limit = 100,
-  ): { at: string; kind: string; actor: string; detail: Record<string, unknown> }[] {
+  ): Promise<{ at: string; kind: string; actor: string; detail: Record<string, unknown> }[]> {
     return (
-      this.db
-        .prepare('SELECT at, kind, actor, detail FROM audit ORDER BY id DESC LIMIT ?')
-        .all(limit) as { at: string; kind: string; actor: string; detail: string }[]
+      await this.db.all<{ at: string; kind: string; actor: string; detail: string }>(
+        'SELECT at, kind, actor, detail FROM audit WHERE user_id = ? ORDER BY id DESC LIMIT ?',
+        this.userId,
+        Math.min(limit, 500),
+      )
     ).map((r) => ({
       ...r,
       detail: JSON.parse(r.detail) as Record<string, unknown>,

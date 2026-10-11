@@ -1,10 +1,12 @@
-# セットアップ
+# セルフホスト(Node.js / Docker)
+
+Cloudflare を使わず、自分のサーバーで動かす方法です。サーバー管理をしたくない場合は [Cloudflare にデプロイする](deploy-cloudflare.md) を使ってください。機能は同じです(データベースが D1 か SQLite ファイルかの違いだけ)。
 
 ## 必要なもの
 
 - 自分で管理できるサーバー(VPS、自宅サーバー、NASなど)
 - ドメイン名(例:`notes.example.com`)とそのDNSレコード
-- Docker と Docker Compose
+- Docker と Docker Compose、または Node.js 22 以上
 
 ## パスキーの制約(先に読んでください)
 
@@ -27,11 +29,13 @@ docker compose logs app
 ログに次のような行が出ます。
 
 ```
-No passkey is registered yet. Open the app and use this one-time setup token:
+No account exists yet. Create the first (admin) account with this token:
   https://notes.example.com/setup?token=XXXXXXXX
 ```
 
-このURLを開いてユーザー名を決め、パスキーを登録します。登録直後に**リカバリーコード(10個)**が一度だけ表示されるので保存してください。セットアップトークンは24時間有効で、最初のパスキー登録に使うと無効になります。
+このURLを開いてユーザー名を決め、パスキーを登録します。このアカウントが管理者になります。登録直後に**リカバリーコード(10個)**が一度だけ表示されるので保存してください。セットアップトークンは24時間有効で、最初のアカウント作成に使うと無効になります。`GMEMO_SETUP_TOKEN` を環境変数で指定した場合は、その値がトークンになります。
+
+2人目以降は、`GMEMO_SIGNUP`(既定 `invite`)に従って登録します。招待制の場合、管理者が **設定 → サーバー管理** で招待リンクを作って渡します。
 
 ### ローカルLLM(Ollama)も動かす
 
@@ -53,55 +57,45 @@ GMEMO_LOCAL_EMBED_MODEL=nomic-embed-text
 
 ## Dockerを使わない場合
 
-Node.js 22 以上と git が必要です。
-
 ```sh
 npm ci
 npm run build
 GMEMO_DATA_DIR=/var/lib/gmemo GMEMO_ORIGIN=https://notes.example.com node packages/server/dist/cli.js serve
 ```
 
-HTTPSはリバースプロキシ(Caddy、nginx など)で終端してください。SSE(`/api/events`)とMCP用に、プロキシのバッファリングは無効にしてください。
+HTTPSはリバースプロキシ(Caddy、nginx など)で終端してください。MCP用に、プロキシのバッファリングは無効にしてください。
 
 ## データの場所
 
 `GMEMO_DATA_DIR`(Dockerでは `/data` ボリューム)に次が入ります。
 
-| パス       | 中身                                                             | 消えたら                                 |
-| ---------- | ---------------------------------------------------------------- | ---------------------------------------- |
-| `notes/`   | ノートのGitリポジトリ(正のデータ)                                | **復元不可。必ずバックアップ**           |
-| `app.db`   | パスキー公開鍵、エージェント、トークン(ハッシュ)、提案の管理情報 | パスキー再登録・エージェント再接続が必要 |
-| `index.db` | 全文検索・埋め込み・リンクグラフ                                 | `gmemo reindex` で再生成できる           |
-| `plugins/` | プラグイン                                                       | 入れ直せばよい                           |
+| パス         | 中身                                                                                                     |
+| ------------ | -------------------------------------------------------------------------------------------------------- |
+| `gmemo.db`   | すべて(アカウント、パスキー公開鍵、エージェント、トークンのハッシュ、ノートとその履歴、検索インデックス) |
+| `secret.key` | GitHubトークンの暗号化キー(`GMEMO_SECRET_KEY` を指定しない場合に自動生成)                                |
 
-`notes/` はそのままObsidianで開けます。サーバー外での編集(Obsidian、エディタ、`git pull` など)は数秒ごとに検出され、人間の編集としてコミットされます。
+GitHub 保存を選んだユーザーのノートは、そのユーザーの GitHub リポジトリにあります([保存先](storage.md))。
 
 ## バックアップ
 
-設定画面の「バックアップ」から、ノートの全履歴(git bundle)と `app.db` を1ファイルにまとめてダウンロードできます。パスフレーズを入れるとAES-256-GCMで暗号化されます。CLIでも作れます。
-
-```sh
-docker compose exec -e PASS='長いパスフレーズ' app gmemo backup /data/backup.gmbk --passphrase-env PASS
-```
-
-復元は空のデータディレクトリに対して行います。
-
-```sh
-GMEMO_DATA_DIR=/var/lib/gmemo-new PASS='...' gmemo restore backup.gmbk --passphrase-env PASS
-```
+- サーバー全体:`gmemo.db` と `secret.key` をコピーします。SQLite は WAL モードなので、稼働中は `sqlite3 gmemo.db ".backup backup.db"` を使うか、サーバーを止めてからコピーしてください。
+- 各ユーザー:**設定 → データ・アカウント → エクスポート** で、自分のノートを .tar.gz でダウンロードできます。
 
 サーバーのディスク自体も、OSの機能(LUKS、FileVault、BitLockerなど)で暗号化することを推奨します。
 
 ## 管理者CLI
 
 ```sh
-docker compose exec app gmemo admin reset-passkeys   # 全パスキーを削除して新しいセットアップトークンを表示
-docker compose exec app gmemo admin recovery-codes   # リカバリーコードを作り直す
-docker compose exec app gmemo admin revoke-agent <名前>
-docker compose exec app gmemo reindex                # 検索インデックスを作り直す
+docker compose exec app gmemo admin users                  # アカウント一覧
+docker compose exec app gmemo admin reset-user <ユーザー名>  # サインアウトさせ、新しいリカバリーコードを表示
+docker compose exec app gmemo admin make-admin <ユーザー名>  # 管理者にする
+docker compose exec app gmemo admin setup-token            # 最初のアカウント用のトークンを再発行
+docker compose exec app gmemo audit verify                 # セキュリティログの改ざんチェック(問題があれば終了コード2)
+docker compose exec app gmemo audit export --days 90       # セキュリティログをJSON Linesで出力
+docker compose exec app gmemo reindex [<ユーザー名>]         # 検索インデックスを作り直す
 ```
 
-パスキーをすべて失い、リカバリーコードもない場合は `reset-passkeys` を使います。サーバーに入れる人=管理者、という前提です。
+パスキーをすべて失い、リカバリーコードもない利用者には、管理者が `reset-user`(または画面の **サーバー管理 → 復旧コードを再発行**)で新しいリカバリーコードを発行し、本人に直接渡します。
 
 ## アップデート
 
@@ -111,3 +105,5 @@ docker compose up -d --build
 ```
 
 データベースのマイグレーションは起動時に自動で実行されます。念のため、アップデート前にバックアップを取ってください。
+
+> 以前のバージョン(1人用、`notes/` のGitリポジトリと `app.db` / `index.db`)からは自動では移行しません。新しいバージョンで管理者アカウントを作り、**設定 → 保存先** で以前の `notes/` を push した GitHub リポジトリに接続するか、ノートを取り込み直してください。

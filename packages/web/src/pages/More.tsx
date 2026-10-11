@@ -14,6 +14,12 @@ const ITEMS = [
     label: '設定',
     desc: '見た目・パスキー・AIエージェント・AIポリシー・バックアップ',
   },
+  {
+    to: '/privacy',
+    icon: 'shield',
+    label: 'データの扱い',
+    desc: '誰が読めるか、AIに何を渡すか、何を記録しているか',
+  },
 ];
 
 export function MorePage() {

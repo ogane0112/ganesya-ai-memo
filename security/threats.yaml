@@ -1,0 +1,237 @@
+# 脅威・対策台帳
+#
+# このアプリで起こりうる「実装起因の穴」と、それを防ぐ仕組み、そしてその仕組みが
+# 壊れていないことを確かめるテストの対応表。
+# - 新しい機能で新しい入口(API、外部への通信、保存するデータ)を作ったら、ここに行を足す
+# - tests に書いたテストが見つからないと `npm run security:check` が失敗する
+#   (テストの名前を変えたら、ここも直す)
+# - tests が空の行は「テストで守られていない」ことを意味する。gap に理由と予定を書く
+#
+# 項目:
+#   id        T-NN
+#   area      分類
+#   threat    何が起きると困るか(攻撃者と結果)
+#   controls  防いでいる仕組み(実装の場所)
+#   tests     { file, name }  name はテストのタイトルの一部
+#   gap       まだ足りないこと(なければ省略)
+#   reviewed  最後に見直した日
+
+threats:
+  - id: T-01
+    area: アカウントの分離
+    threat: ほかのユーザーのノート・エージェント・トークン・提案・ログを読み書きされる
+    controls:
+      - すべての表とクエリを user_id で絞る。user_id はセッションかトークンから取り、リクエストの値は使わない
+      - Workspace をユーザーごとに開く(platform.workspace)
+    tests:
+      - {
+          file: packages/server/test/http.test.ts,
+          name: keeps accounts apart,
+          including agent tokens,
+        }
+      - { file: packages/server/test/service.test.ts, name: keeps users apart }
+      - { file: packages/server/test/security.test.ts, name: shows users only their own events }
+    reviewed: 2026-10-11
+
+  - id: T-02
+    area: 認証
+    threat: 公開直後に第三者が管理者になる、招待なしで登録される、リカバリーコードを他人に使われる
+    controls:
+      - 最初のアカウントはセットアップトークンが必要
+      - 招待コードは1回限り・期限付き・ハッシュで保存
+      - リカバリーコードはユーザー名との組で検証、1回限り
+    tests:
+      - {
+          file: packages/server/test/http.test.ts,
+          name: needs the setup token for the first account,
+        }
+      - { file: packages/server/test/http.test.ts, name: invite mode needs an unused invite }
+      - { file: packages/server/test/http.test.ts, name: recovery codes are per user }
+    gap: 登録の最中に最後のアカウントが消えた場合(GM-2026-008)は、WebAuthn を模擬するテスト基盤がなく未テスト
+    reviewed: 2026-10-11
+
+  - id: T-03
+    area: 認証
+    threat: 総当たりでサインインやトークンを試される
+    controls:
+      - サインイン・登録・リカバリー・OAuthトークン・クライアント登録に接続元ごとの回数制限
+      - 失敗はセキュリティログに記録
+    tests:
+      - { file: packages/server/test/security.test.ts, name: rate-limits sign-in attempts }
+      - { file: packages/server/test/security.test.ts, name: records sign-in failures }
+    reviewed: 2026-10-11
+
+  - id: T-04
+    area: セッション
+    threat: 別サイトからサインイン中のユーザーとして書き込まれる(CSRF)、クッキーを盗まれる・植え付けられる
+    controls:
+      - クッキー認証の書き込みは Origin を検証
+      - HttpOnly / SameSite=Lax / HTTPSでは __Host- 接頭辞
+    tests:
+      - { file: packages/server/test/http.test.ts, name: rejects cross-origin cookie writes }
+      - { file: packages/server/test/security.test.ts, name: uses a __Host- session cookie }
+      - { file: packages/server/test/http.test.ts, name: requires a session }
+    reviewed: 2026-10-11
+
+  - id: T-05
+    area: AIエージェント
+    threat: エージェントが許可されていないフォルダや「外部AIに送らない」ノートを読む・書く
+    controls:
+      - AgentLens / AgentOps がフォルダ制限とAIポリシーを一か所で適用(REST と MCP の両方)
+      - パスは正規化してから確認し、確認したパスだけを使う
+      - エージェントには blame を出さず、/api/file は画像とPDFのみ
+      - 読めない場所には書き込めない
+      - 機密情報のマスキングとブロック。伏せ字はランダムで、一度伏せた値は文脈にかかわらず伏せる
+    tests:
+      - {
+          file: packages/server/test/security.test.ts,
+          name: does not hand raw notes to agents through /api/file,
+        }
+      - {
+          file: packages/server/test/security.test.ts,
+          name: checks the normalized path for history and refuses blame to agents,
+        }
+      - {
+          file: packages/server/test/security.test.ts,
+          name: keeps secrets masked when an agent moves a placeholder,
+        }
+      - {
+          file: packages/server/test/security.test.ts,
+          name: does not let agents write where they cannot read,
+        }
+      - { file: packages/server/test/service.test.ts, name: enforces folder restrictions }
+      - { file: packages/server/test/http.test.ts, name: external agents get masked secrets }
+      - { file: packages/server/test/http.test.ts, name: 'ask: policy gating' }
+      - { file: packages/core/test/misc.test.ts, name: detects secrets and PII }
+    reviewed: 2026-10-11
+
+  - id: T-06
+    area: OAuth / MCP
+    threat: 認可コードの横取り、リダイレクト先のすり替え、トークンの使い回し
+    controls:
+      - PKCE S256 必須、公開クライアントのみ、redirect_uri の完全一致、リフレッシュトークンのローテーション
+      - トークンはハッシュのみ保存、スコープと期限付き
+      - OAuth では notes:capture(本人名義の書き込み)を発行しない
+    tests:
+      - { file: packages/server/test/http.test.ts, name: OAuth + PKCE + MCP end to end }
+      - {
+          file: packages/server/test/security.test.ts,
+          name: keeps capture inside the token’s folders and out of OAuth,
+        }
+    gap: >-
+      認可コードの再利用、redirect_uri の不一致、失効済みリフレッシュトークンの再利用を個別に確かめるテストがない。
+      リフレッシュトークンの再利用時に系列を失効させていない(GM-2026-012)
+    reviewed: 2026-10-11
+
+  - id: T-07
+    area: 入力の解釈
+    threat: ノートのパスで保存先の外を読み書きされる(パストラバーサル)
+    controls:
+      - normalizeNotePath / core のパス検証で .. や絶対パスを拒否
+    tests:
+      - { file: packages/core/test/misc.test.ts, name: rejects traversal }
+    reviewed: 2026-10-11
+
+  - id: T-08
+    area: 外部への通信
+    threat: カレンダーのURLを使ってサーバーから社内・クラウドのメタデータにアクセスされる(SSRF)
+    controls:
+      - プライベート・ループバック・リンクローカル・IPv6に埋め込んだIPv4などを拒否(開発モードを除く)
+      - リダイレクトは手動で追い、毎回確認する。Node.js では名前解決した全アドレスを確認する
+      - 本文は2MBで読み込みを止める
+    tests:
+      - { file: packages/server/test/calendar.test.ts, name: recognises private addresses }
+      - {
+          file: packages/server/test/calendar.test.ts,
+          name: refuses internal URLs outside development mode,
+        }
+      - { file: packages/server/test/security.test.ts, name: treats IPv4 addresses inside IPv6 }
+      - {
+          file: packages/server/test/security.test.ts,
+          name: refuses calendar URLs whose name resolves to an internal address,
+        }
+    gap: 確認と接続の間の DNS rebinding は残る(GM-2026-006 の notes)
+    reviewed: 2026-10-11
+
+  - id: T-09
+    area: データの公開
+    threat: カレンダーの公開URLから「外部AIに送らない」ノートの予定が漏れる
+    controls:
+      - 公開フィードはAIポリシーと機密検出に従い、タイトルと日時だけを出す
+    tests:
+      - { file: packages/server/test/calendar.test.ts, name: respecting the AI policy }
+    reviewed: 2026-10-11
+
+  - id: T-10
+    area: Webアプリ
+    threat: ノートやAIの書いた内容に仕込んだスクリプトが実行される(XSS)
+    controls:
+      - Markdown の出力は必ず DOMPurify を通す(lib/markdown.ts)
+      - CSP(script-src 'self')、X-Frame-Options、nosniff。Cloudflare では public/_headers、Node.js では HTML_CSP
+      - 添付ファイルは制限的な CSP と nosniff 付きで配信
+    tests:
+      - { file: packages/web/test/markdown.test.ts, name: escapes link labels and sanitizes HTML }
+      - {
+          file: packages/server/test/security.test.ts,
+          name: serves the same CSP on Cloudflare and Node.js,
+        }
+    reviewed: 2026-10-11
+
+  - id: T-11
+    area: 端末
+    threat: 共有のブラウザで、前に使った人のノートの写しや未送信の変更が次の人に見える・送られる
+    controls:
+      - 端末のデータ(オフラインキャッシュ、未送信キュー、下書き)は1アカウントのもの。サインアウト時と、別のアカウントがサインインしたときに消す(lib/localData.ts)
+      - アカウントが端末を確認するまで未送信キューを送らない
+    tests:
+      - { file: packages/web/test/localData.test.ts, name: clears another account’s data }
+      - {
+          file: packages/web/test/localData.test.ts,
+          name: does not send queued writes before an account claims the device,
+        }
+    reviewed: 2026-10-11
+
+  - id: T-12
+    area: 秘密情報
+    threat: 保存した GitHub トークンが漏れる、ログが改ざんされる
+    controls:
+      - GitHub トークンは AES-256-GCM で暗号化、画面やAPIで再表示しない
+      - セキュリティログは行ごとの HMAC と連番で改ざんと削除を検出
+      - 鍵の入れ替えに対応(GMEMO_SECRET_KEY_PREVIOUS)
+    tests:
+      - { file: packages/server/test/security.test.ts, name: detects edited and deleted events }
+      - { file: packages/server/test/security.test.ts, name: keeps old audit events verifiable }
+      - { file: packages/server/test/store.test.ts, name: reports bad credentials }
+    reviewed: 2026-10-11
+
+  - id: T-13
+    area: 環境
+    threat: ステージングに第三者が入る
+    controls:
+      - Cloudflare Access と、アプリ側での Access トークンの検証(設定がなければ全拒否)
+    tests:
+      - { file: packages/server/test/security.test.ts, name: verifies Access tokens }
+      - { file: packages/server/test/security.test.ts, name: refuses staging without Access }
+    reviewed: 2026-10-11
+
+  - id: T-14
+    area: SQL
+    threat: 入力値がSQLに埋め込まれる(SQLインジェクション)
+    controls:
+      - 値は必ずプレースホルダ(?)で渡す
+      - SQL文字列に値を埋め込む書き方は ESLint(gmemo/no-sql-interpolation)で禁止。
+        許されるのはプレースホルダ列(?, ?, …)と、名前が …Sql で終わるコード内の固定SQL断片だけ
+    tests: []
+    gap: 静的解析で担保(テストではない)。例外箇所はコードレビューで確認する
+    reviewed: 2026-10-11
+
+  - id: T-15
+    area: サプライチェーン
+    threat: 依存ライブラリの脆弱性、乗っ取られたパッケージ、改ざんされた GitHub Actions
+    controls:
+      - npm ci(ロックファイル固定)、npm audit と npm audit signatures を CI で実行
+      - 脆弱性対応台帳で全件を管理し、期限切れで CI を失敗させる
+      - Dependabot、GitHub Actions はコミットSHAで固定
+    tests: []
+    gap: 自動検査で担保(scripts/security-check.mjs)
+    reviewed: 2026-10-11

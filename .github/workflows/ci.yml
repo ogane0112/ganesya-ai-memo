@@ -4,13 +4,23 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # Weekly, so newly published vulnerabilities fail CI even without new commits.
+    - cron: '23 0 * * 1'
+
+# Least privilege for every job; jobs that need more ask for it themselves.
+permissions:
+  contents: read
 
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # Actions are pinned to commit SHAs (tags can be moved); Dependabot updates them.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -22,13 +32,41 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Packages really come from the npm registry and were not tampered with.
+      - run: npm audit signatures
+      # Ledgers vs. reality: unregistered or overdue vulnerabilities, unregistered
+      # dependencies, threats whose tests are gone (docs/secure-development.md).
+      - run: npm run security:check
+      - name: SBOM (CycloneDX)
+        run: |
+          npm sbom --sbom-format cyclonedx --omit dev > sbom-production.cdx.json
+          npm sbom --sbom-format cyclonedx > sbom-all.cdx.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sbom
+          path: sbom-*.cdx.json
+          retention-days: 90
+
   docker:
     runs-on: ubuntu-latest
     needs: check
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           push: false

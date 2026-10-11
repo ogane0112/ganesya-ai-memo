@@ -1,4 +1,4 @@
-import type { GitIdentity } from '../git/repo.js';
+import type { GitIdentity } from '../store/types.js';
 
 export interface HumanActor {
   kind: 'human';

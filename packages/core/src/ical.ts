@@ -89,7 +89,7 @@ export function unescapeText(v: string): string {
 }
 
 export function escapeText(v: string): string {
-  return v.replace(/[\\;,]/g, (c) => '\\' + c).replace(/\r?\n/g, '\\n');
+  return v.replace(/[\\;,]/g, (c) => '\\' + c).replace(/\r\n|\r|\n/g, '\\n');
 }
 
 function parseDateValue(value: string, params: Record<string, string>): IcalDate | null {

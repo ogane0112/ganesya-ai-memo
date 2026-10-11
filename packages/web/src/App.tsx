@@ -1,6 +1,7 @@
 import { lazy, type ReactNode, Suspense } from 'react';
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useRegisterSW } from 'virtual:pwa-register/react';
+import { EnvBanner } from './components/EnvBanner';
 import { Layout } from './components/Layout';
 import { EmptyState, Loading } from './components/ui';
 import { CapturePage } from './pages/Capture';
@@ -11,7 +12,8 @@ import { NotesListPage } from './pages/NotesList';
 import { RegisterPasskeyPage } from './pages/RegisterPasskey';
 import { ReviewPage } from './pages/Review';
 import { SearchPage } from './pages/Search';
-import { NeedsSetupPage, SetupPage } from './pages/Setup';
+import { PrivacyPage } from './pages/Privacy';
+import { NeedsSetupPage, SetupPage, SignupPage } from './pages/Setup';
 import { WritePage } from './pages/Write';
 import { AppProvider, useApp } from './state/app';
 import { ToastProvider } from './state/toast';
@@ -78,6 +80,11 @@ function UpdatePrompt() {
   );
 }
 
+function EnvBannerFromAuth() {
+  const { auth } = useApp();
+  return <EnvBanner env={auth?.env} />;
+}
+
 function NotFound() {
   return (
     <div className="page">
@@ -95,10 +102,13 @@ export function App() {
     <BrowserRouter>
       <ToastProvider>
         <AppProvider>
+          <EnvBannerFromAuth />
           <Suspense fallback={<Loading />}>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/setup" element={<SetupPage />} />
+              <Route path="/signup" element={<SignupPage />} />
+              <Route path="/privacy" element={<PrivacyPage />} />
               <Route
                 path="/register-passkey"
                 element={

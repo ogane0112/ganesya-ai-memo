@@ -1,4 +1,4 @@
-import { createStore, get, set, type UseStore } from 'idb-keyval';
+import { clear, createStore, get, set, type UseStore } from 'idb-keyval';
 import { emptyQueue, type QueueState } from './queue';
 
 let store: UseStore | null = null;
@@ -54,5 +54,16 @@ export async function saveDraft(key: string, draft: Draft | undefined): Promise<
     await set(`draft:${key}`, draft, s);
   } catch {
     /* storage full or unavailable: drafts are best effort */
+  }
+}
+
+/** Forget the queue and every draft on this device (sign-out, or another account signed in). */
+export async function clearLocalStore(): Promise<void> {
+  const s = db();
+  if (!s) return;
+  try {
+    await clear(s);
+  } catch {
+    /* unavailable: nothing stored */
   }
 }

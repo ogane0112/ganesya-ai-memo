@@ -65,6 +65,8 @@ class SyncQueue {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private persistChain: Promise<void> = Promise.resolve();
   private authPaused = false;
+  /** Nothing is sent until the signed-in account has claimed this device (see localData.ts). */
+  private active = false;
   /** Paths this device created/saved in this session (the note index may lag behind). */
   private saved = new Set<string>();
 
@@ -166,8 +168,24 @@ class SyncQueue {
 
   /** Call after signing in again so paused writes resume. */
   resume() {
+    this.active = true;
     this.authPaused = false;
     void this.flush();
+  }
+
+  /** Drop everything queued on this device and stop sending (another account, or sign-out). */
+  async reset(): Promise<void> {
+    await this.ready;
+    this.active = false;
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    this.state = emptyQueue;
+    this.saved.clear();
+    // Let pending writes land first, so clearing the store afterwards really empties it.
+    await this.persistChain;
+    this.emit();
   }
 
   async flush(): Promise<void> {
@@ -181,7 +199,7 @@ class SyncQueue {
     }
     try {
       for (;;) {
-        if (this.authPaused) break;
+        if (this.authPaused || !this.active) break;
         const item = nextSendable(this.state);
         if (!item) break;
         this.dispatch({ type: 'sending', id: item.id });

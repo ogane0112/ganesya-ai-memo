@@ -1,5 +1,7 @@
-import { join, resolve } from 'node:path';
-
+/**
+ * Runtime-neutral configuration. Built from a plain environment record so the
+ * same code works with `process.env` (Node) and the Workers `env` binding.
+ */
 export interface LlmEndpointConfig {
   /** `ollama`, `openai` (any OpenAI-compatible API) or `anthropic`. */
   provider: 'ollama' | 'openai' | 'anthropic';
@@ -8,46 +10,64 @@ export interface LlmEndpointConfig {
   apiKey?: string;
 }
 
+export type SignupMode = 'open' | 'invite' | 'closed';
+export type AppEnv = 'production' | 'staging' | 'development';
+
 export interface Config {
-  dataDir: string;
-  notesDir: string;
-  appDbFile: string;
-  indexDbFile: string;
-  pluginsDir: string;
-  port: number;
-  host: string;
+  /** Which deployment this is. Staging adds a banner, noindex and requires Cloudflare Access. */
+  env: AppEnv;
   /** Public origin, e.g. https://notes.example.com. Required for passkeys. */
   origin: string;
   /** WebAuthn relying-party id (the domain). */
   rpId: string;
   rpName: string;
-  /** Directory with the built web app (served statically when present). */
-  webDir: string;
-  /** Seconds between scans for edits made outside the app (0 disables). */
-  externalScanSeconds: number;
+  /** Who may create an account once the first (admin) account exists. */
+  signup: SignupMode;
+  /**
+   * Token required to create the first account. On Workers it comes from the
+   * GMEMO_SETUP_TOKEN secret; on Node one is generated and printed when unset.
+   */
+  setupToken?: string;
+  /** Encrypts GitHub tokens at rest and signs audit events. Required for GitHub storage. */
+  secretKey?: string;
+  /** The key before the last rotation: still accepted for decrypting and verifying. */
+  previousSecretKey?: string;
   sessionDays: number;
   accessTokenMinutes: number;
+  /** Seconds between checks for commits pushed to a GitHub repo from elsewhere. */
+  githubCheckSeconds: number;
+  githubApiBase: string;
   llm: {
     local?: LlmEndpointConfig;
     external?: LlmEndpointConfig;
     /** Embedding model served by the local endpoint; empty = built-in hashing embedder. */
     localEmbedModel?: string;
   };
-  /** Allow non-HTTPS origins (development only). */
+  /** Allow non-HTTPS origins and http calendar URLs (development only). */
   insecureDev: boolean;
   /** IANA time zone for dates without an offset (note dates, floating calendar times). */
   timeZone: string;
+  audit: {
+    /** How client addresses are stored in the security log. */
+    ip: 'off' | 'hash' | 'full';
+    /** Days to keep security events (0 = forever). */
+    retentionDays: number;
+  };
+  /**
+   * Cloudflare Access in front of the app: when set, every request must carry
+   * a valid Access token for this application (required in staging).
+   */
+  access?: { teamDomain: string; aud: string };
 }
 
-function env(name: string): string | undefined {
-  const v = process.env[name];
-  return v === undefined || v === '' ? undefined : v;
-}
+export type EnvRecord = Record<string, string | undefined>;
 
-export function loadConfig(overrides: Partial<Config> = {}): Config {
-  const dataDir = resolve(overrides.dataDir ?? env('GMEMO_DATA_DIR') ?? './data');
-  const port = Number(env('GMEMO_PORT') ?? 8787);
-  const origin = (env('GMEMO_ORIGIN') ?? `http://localhost:${port}`).replace(/\/+$/, '');
+export function configFromEnv(envRec: EnvRecord, overrides: Partial<Config> = {}): Config {
+  const env = (name: string): string | undefined => {
+    const v = envRec[name];
+    return v === undefined || v === '' ? undefined : v;
+  };
+  const origin = (env('GMEMO_ORIGIN') ?? 'http://localhost:8787').replace(/\/+$/, '');
   const rpId = env('GMEMO_RP_ID') ?? new URL(origin).hostname;
 
   const localUrl = env('GMEMO_LOCAL_LLM_URL');
@@ -81,21 +101,33 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
       }
     : undefined;
 
-  const cfg: Config = {
-    dataDir,
-    notesDir: join(dataDir, 'notes'),
-    appDbFile: join(dataDir, 'app.db'),
-    indexDbFile: join(dataDir, 'index.db'),
-    pluginsDir: env('GMEMO_PLUGINS_DIR') ?? join(dataDir, 'plugins'),
-    port,
-    host: env('GMEMO_HOST') ?? '0.0.0.0',
+  const signup = env('GMEMO_SIGNUP');
+  const appEnv = env('GMEMO_ENV');
+  const auditIp = env('GMEMO_AUDIT_IP');
+  const team = env('GMEMO_ACCESS_TEAM_DOMAIN')
+    ?.replace(/^https?:\/\//, '')
+    .replace(/\/+$/, '');
+  const aud = env('GMEMO_ACCESS_AUD');
+  return {
+    env: appEnv === 'staging' || appEnv === 'development' ? appEnv : 'production',
+    audit: {
+      ip: auditIp === 'off' || auditIp === 'full' ? auditIp : 'hash',
+      retentionDays: Number(env('GMEMO_AUDIT_RETENTION_DAYS') ?? 400),
+    },
+    ...(team && aud ? { access: { teamDomain: team, aud } } : {}),
     origin,
     rpId,
     rpName: env('GMEMO_RP_NAME') ?? 'Ganesya AI Memo',
-    webDir: env('GMEMO_WEB_DIR') ?? resolve(import.meta.dirname, '../../web/dist'),
-    externalScanSeconds: Number(env('GMEMO_EXTERNAL_SCAN_SECONDS') ?? 15),
+    signup: signup === 'open' || signup === 'closed' ? signup : 'invite',
+    ...(env('GMEMO_SETUP_TOKEN') ? { setupToken: env('GMEMO_SETUP_TOKEN')! } : {}),
+    ...(env('GMEMO_SECRET_KEY') ? { secretKey: env('GMEMO_SECRET_KEY')! } : {}),
+    ...(env('GMEMO_SECRET_KEY_PREVIOUS')
+      ? { previousSecretKey: env('GMEMO_SECRET_KEY_PREVIOUS')! }
+      : {}),
     sessionDays: Number(env('GMEMO_SESSION_DAYS') ?? 30),
     accessTokenMinutes: Number(env('GMEMO_ACCESS_TOKEN_MINUTES') ?? 60),
+    githubCheckSeconds: Number(env('GMEMO_GITHUB_CHECK_SECONDS') ?? 30),
+    githubApiBase: (env('GMEMO_GITHUB_API') ?? 'https://api.github.com').replace(/\/+$/, ''),
     llm: {
       ...(local ? { local } : {}),
       ...(external ? { external } : {}),
@@ -104,14 +136,9 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
         : {}),
     },
     insecureDev: env('GMEMO_INSECURE_DEV') === '1',
-    timeZone:
-      env('GMEMO_TIMEZONE') ??
-      env('TZ') ??
-      Intl.DateTimeFormat().resolvedOptions().timeZone ??
-      'UTC',
+    timeZone: env('GMEMO_TIMEZONE') ?? env('TZ') ?? 'Asia/Tokyo',
     ...overrides,
   };
-  return cfg;
 }
 
 /** Problems that would make passkeys fail; printed at startup. */
@@ -128,6 +155,16 @@ export function configWarnings(cfg: Config): string[] {
   }
   if (!url.hostname.endsWith(cfg.rpId)) {
     warnings.push(`GMEMO_RP_ID (${cfg.rpId}) must be the origin's host or a parent domain of it.`);
+  }
+  if (!cfg.secretKey) {
+    warnings.push(
+      'GMEMO_SECRET_KEY is not set: GitHub storage is disabled and audit log entries are not signed.',
+    );
+  }
+  if (cfg.env === 'staging' && !cfg.access && !cfg.insecureDev) {
+    warnings.push(
+      'Staging without Cloudflare Access (GMEMO_ACCESS_TEAM_DOMAIN / GMEMO_ACCESS_AUD): every request is refused.',
+    );
   }
   return warnings;
 }

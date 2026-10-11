@@ -1,17 +1,15 @@
 import { createServer, type Server } from 'node:http';
-import { mkdtemp, rm } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { parseIcal } from '@gmemo/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { type AppContext, createApp } from '../src/app.js';
-import { loadConfig } from '../src/config.js';
-import { createHttpApp } from '../src/server.js';
+import { isPrivateHost } from '../src/calendar/calendar.js';
+import { SqliteDb } from '../src/db/sqlite.js';
+import { createHttpApp } from '../src/http-app.js';
+import { Platform } from '../src/platform.js';
+import { testConfig } from './helpers.js';
 
 const ORIGIN = 'http://localhost:8787';
-let dir: string;
-let ctx: AppContext;
+let db: SqliteDb;
 let app: ReturnType<typeof createHttpApp>;
 let cookie: string;
 let icsServer: Server;
@@ -30,24 +28,14 @@ async function req(path: string, init: RequestInit & { json?: unknown } = {}) {
 }
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'gmemo-cal-'));
-  ctx = await createApp(
-    loadConfig({
-      dataDir: dir,
-      notesDir: join(dir, 'notes'),
-      appDbFile: join(dir, 'app.db'),
-      indexDbFile: join(dir, 'index.db'),
-      origin: ORIGIN,
-      rpId: 'localhost',
-      pluginsDir: join(dir, 'p'),
-      webDir: join(dir, 'w'),
-      timeZone: 'Asia/Tokyo',
-    }),
-    { loadPlugins: false },
-  );
-  app = createHttpApp(ctx);
-  ctx.appDb.prepare(`INSERT INTO users(id, username, created_at) VALUES ('u1', 'me', 'now')`).run();
-  cookie = `gm_session=${ctx.auth.createSession('u1', 'passkey')}`;
+  db = new SqliteDb(':memory:');
+  // The test iCal server runs on 127.0.0.1, which is only allowed in development mode.
+  const platform = await Platform.create(testConfig({ GMEMO_INSECURE_DEV: '1' }), db, {
+    auditConsole: () => undefined,
+  });
+  app = createHttpApp(platform);
+  await db.run(`INSERT INTO users(id, username, created_at) VALUES ('u1', 'me', 'now')`);
+  cookie = `gm_session=${await platform.auth.createSession('u1', 'passkey')}`;
   icsHits = 0;
   icsServer = createServer((_req, res) => {
     icsHits++;
@@ -57,10 +45,48 @@ beforeEach(async () => {
   await new Promise<void>((r) => icsServer.listen(0, '127.0.0.1', r));
 });
 
-afterEach(async () => {
+afterEach(() => {
   icsServer.close();
-  ctx.close();
-  await rm(dir, { recursive: true, force: true });
+  db.close();
+});
+
+describe('calendar URL safety', () => {
+  it('recognises private addresses', () => {
+    for (const h of [
+      '127.0.0.1',
+      '10.1.2.3',
+      '192.168.0.1',
+      '172.20.0.1',
+      '169.254.169.254',
+      '[::1]',
+      'localhost',
+      'fd00::1',
+    ])
+      expect(isPrivateHost(h)).toBe(true);
+    for (const h of ['calendar.google.com', '8.8.8.8', '172.32.0.1'])
+      expect(isPrivateHost(h)).toBe(false);
+  });
+
+  it('refuses internal URLs outside development mode', async () => {
+    const strict = new SqliteDb(':memory:');
+    const p = await Platform.create(testConfig(), strict, { auditConsole: () => undefined });
+    const a = createHttpApp(p);
+    await strict.run(`INSERT INTO users(id, username, created_at) VALUES ('u1', 'me', 'now')`);
+    const c = `gm_session=${await p.auth.createSession('u1', 'passkey')}`;
+    const r = await a.request(`${ORIGIN}/api/admin/calendar/subscriptions`, {
+      method: 'POST',
+      headers: { cookie: c, 'content-type': 'application/json' },
+      body: JSON.stringify({ url: 'https://169.254.169.254/latest/meta-data' }),
+    });
+    expect(r.status).toBe(400);
+    const plain = await a.request(`${ORIGIN}/api/admin/calendar/subscriptions`, {
+      method: 'POST',
+      headers: { cookie: c, 'content-type': 'application/json' },
+      body: JSON.stringify({ url: 'http://example.com/x.ics' }),
+    });
+    expect(plain.status).toBe(400);
+    strict.close();
+  });
 });
 
 describe('calendar', () => {
@@ -151,14 +177,6 @@ describe('calendar', () => {
       'END:VCALENDAR',
     ].join('\r\n');
     const port = (icsServer.address() as AddressInfo).port;
-    expect(
-      (
-        await req('/api/admin/calendar/subscriptions', {
-          method: 'POST',
-          json: { url: 'http://example.com/x.ics' },
-        })
-      ).status,
-    ).toBe(400);
     const sub = (await (
       await req('/api/admin/calendar/subscriptions', {
         method: 'POST',

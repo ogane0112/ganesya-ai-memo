@@ -25,9 +25,15 @@ export type {
   WorkspacePolicy,
 };
 
+export type AppEnv = 'production' | 'staging' | 'development';
+
 export interface AuthState {
   needsSetup: boolean;
-  user: { username: string } | null;
+  /** Which deployment this is (staging shows a banner). */
+  env?: AppEnv;
+  /** Who may create an account (after the first, admin, account). */
+  signup: SignupMode;
+  user: { id: string; username: string; isAdmin: boolean } | null;
   session: { via: 'passkey' | 'recovery'; expiresAt: string } | null;
   rpId: string;
   origin: string;
@@ -246,11 +252,29 @@ export interface OAuthRequestInfo {
   agents: Agent[];
 }
 
-export interface PluginInfo {
-  name: string;
-  error: string | null;
-  routes: string[];
-  tools: string[];
+export type SignupMode = 'open' | 'invite' | 'closed';
+
+export interface StorageSettings {
+  storage: 'builtin' | 'github';
+  github: { owner: string; repo: string; branch: string; hasToken: boolean } | null;
+  updatedAt: string;
+  /** The server has a secret key, so GitHub tokens can be stored. */
+  githubAvailable: boolean;
+}
+
+export interface UserInfo {
+  id: string;
+  username: string;
+  isAdmin: boolean;
+  createdAt: string;
+}
+
+export interface InviteInfo {
+  id: string;
+  createdAt: string;
+  expiresAt: string | null;
+  usedBy: string | null;
+  usedAt: string | null;
 }
 
 // ---- calendar ---------------------------------------------------------------
@@ -288,4 +312,31 @@ export interface ExternalEvent {
   subscriptionId: string;
   calendar: string;
   color: string;
+}
+
+export type SecurityOutcome = 'success' | 'failure' | 'denied';
+
+/** One entry of the security audit log. */
+export interface SecurityEvent {
+  id: number;
+  at: string;
+  userId: string | null;
+  actor: string;
+  action: string;
+  outcome: SecurityOutcome;
+  target: string | null;
+  /** Keyed hash of the client address (h:…), the address, or null. */
+  ip: string | null;
+  /** Coarse "browser / OS". */
+  ua: string | null;
+  detail: Record<string, unknown>;
+}
+
+export interface SecurityLogCheck {
+  checked: number;
+  firstId: number | null;
+  lastId: number | null;
+  tampered: number[];
+  missing: { from: number; to: number }[];
+  unsigned: number;
 }

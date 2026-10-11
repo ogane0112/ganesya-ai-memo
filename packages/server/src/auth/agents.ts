@@ -1,10 +1,11 @@
-import { type DB, nowIso } from '../db/db.js';
+import { type Db, nowIso, stmt } from '../db/db.js';
 import { randomId } from '../util/crypto.js';
 
 export type WriteMode = 'none' | 'propose' | 'direct';
 
 export interface Agent {
   id: string;
+  userId: string;
   name: string;
   description: string;
   canRead: boolean;
@@ -23,6 +24,7 @@ export interface Agent {
 
 interface AgentRow {
   id: string;
+  user_id: string;
   name: string;
   description: string;
   can_read: number;
@@ -38,6 +40,7 @@ interface AgentRow {
 function fromRow(r: AgentRow): Agent {
   return {
     id: r.id,
+    userId: r.user_id,
     name: r.name,
     description: r.description,
     canRead: !!r.can_read,
@@ -51,85 +54,110 @@ function fromRow(r: AgentRow): Agent {
   };
 }
 
-export type AgentInput = Partial<Omit<Agent, 'id' | 'createdAt' | 'revokedAt'>> & { name: string };
+export type AgentInput = Partial<Omit<Agent, 'id' | 'userId' | 'createdAt' | 'revokedAt'>> & {
+  name: string;
+};
 
+/** Load any agent by id (token verification), regardless of the owner. */
+export async function agentById(db: Db, id: string): Promise<Agent | null> {
+  const r = await db.first<AgentRow>('SELECT * FROM agents WHERE id = ?', id);
+  return r ? fromRow(r) : null;
+}
+
+/** A user's AI agents. */
 export class AgentStore {
-  constructor(private readonly db: DB) {}
+  constructor(
+    private readonly db: Db,
+    readonly userId: string,
+  ) {}
 
-  list(): Agent[] {
-    return (this.db.prepare('SELECT * FROM agents ORDER BY created_at').all() as AgentRow[]).map(
-      fromRow,
+  async list(): Promise<Agent[]> {
+    return (
+      await this.db.all<AgentRow>(
+        'SELECT * FROM agents WHERE user_id = ? ORDER BY created_at',
+        this.userId,
+      )
+    ).map(fromRow);
+  }
+
+  async get(id: string): Promise<Agent | null> {
+    const r = await this.db.first<AgentRow>(
+      'SELECT * FROM agents WHERE id = ? AND user_id = ?',
+      id,
+      this.userId,
     );
-  }
-
-  get(id: string): Agent | null {
-    const r = this.db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as AgentRow | undefined;
     return r ? fromRow(r) : null;
   }
 
-  getByName(name: string): Agent | null {
-    const r = this.db.prepare('SELECT * FROM agents WHERE name = ?').get(name) as
-      AgentRow | undefined;
+  async getByName(name: string): Promise<Agent | null> {
+    const r = await this.db.first<AgentRow>(
+      'SELECT * FROM agents WHERE name = ? AND user_id = ?',
+      name,
+      this.userId,
+    );
     return r ? fromRow(r) : null;
   }
 
-  create(input: AgentInput): Agent {
+  async create(input: AgentInput): Promise<Agent> {
     const name = sanitizeAgentName(input.name);
     let unique = name;
-    for (let n = 2; this.getByName(unique); n++) unique = `${name}-${n}`;
+    for (let n = 2; await this.getByName(unique); n++) unique = `${name}-${n}`;
     const id = randomId('ag_');
-    this.db
-      .prepare(
-        `INSERT INTO agents(id, name, description, can_read, write_mode, folders, auto_merge, auto_merge_folders, location, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        id,
-        unique,
-        input.description ?? '',
-        input.canRead === false ? 0 : 1,
-        input.writeMode ?? 'propose',
-        JSON.stringify(input.folders ?? []),
-        input.autoMerge ? 1 : 0,
-        JSON.stringify(input.autoMergeFolders ?? []),
-        input.location === 'local' ? 'local' : 'external',
-        nowIso(),
-      );
-    return this.get(id)!;
+    await this.db.run(
+      `INSERT INTO agents(id, user_id, name, description, can_read, write_mode, folders, auto_merge, auto_merge_folders, location, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id,
+      this.userId,
+      unique,
+      input.description ?? '',
+      input.canRead === false ? 0 : 1,
+      input.writeMode ?? 'propose',
+      JSON.stringify(input.folders ?? []),
+      input.autoMerge ? 1 : 0,
+      JSON.stringify(input.autoMergeFolders ?? []),
+      input.location === 'local' ? 'local' : 'external',
+      nowIso(),
+    );
+    return (await this.get(id))!;
   }
 
-  update(id: string, patch: Partial<AgentInput>): Agent | null {
-    const cur = this.get(id);
+  async update(id: string, patch: Partial<AgentInput>): Promise<Agent | null> {
+    const cur = await this.get(id);
     if (!cur) return null;
     const next = { ...cur, ...patch };
-    this.db
-      .prepare(
-        `UPDATE agents SET name = ?, description = ?, can_read = ?, write_mode = ?, folders = ?, auto_merge = ?, auto_merge_folders = ?, location = ? WHERE id = ?`,
-      )
-      .run(
-        patch.name ? sanitizeAgentName(patch.name) : cur.name,
-        next.description,
-        next.canRead ? 1 : 0,
-        next.writeMode,
-        JSON.stringify(next.folders),
-        next.autoMerge ? 1 : 0,
-        JSON.stringify(next.autoMergeFolders),
-        next.location,
-        id,
-      );
+    await this.db.run(
+      `UPDATE agents SET name = ?, description = ?, can_read = ?, write_mode = ?, folders = ?, auto_merge = ?, auto_merge_folders = ?, location = ? WHERE id = ? AND user_id = ?`,
+      patch.name ? sanitizeAgentName(patch.name) : cur.name,
+      next.description,
+      next.canRead ? 1 : 0,
+      next.writeMode,
+      JSON.stringify(next.folders),
+      next.autoMerge ? 1 : 0,
+      JSON.stringify(next.autoMergeFolders),
+      next.location,
+      id,
+      this.userId,
+    );
     return this.get(id);
   }
 
   /** Revoke an agent: all its tokens stop working immediately. */
-  revoke(id: string): void {
-    this.db.transaction(() => {
-      this.db
-        .prepare('UPDATE agents SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL')
-        .run(nowIso(), id);
-      this.db
-        .prepare('UPDATE tokens SET revoked_at = ? WHERE agent_id = ? AND revoked_at IS NULL')
-        .run(nowIso(), id);
-    })();
+  async revoke(id: string): Promise<void> {
+    const now = nowIso();
+    await this.db.batch([
+      stmt(
+        'UPDATE agents SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL',
+        now,
+        id,
+        this.userId,
+      ),
+      stmt(
+        'UPDATE tokens SET revoked_at = ? WHERE agent_id = ? AND user_id = ? AND revoked_at IS NULL',
+        now,
+        id,
+        this.userId,
+      ),
+    ]);
   }
 }
 

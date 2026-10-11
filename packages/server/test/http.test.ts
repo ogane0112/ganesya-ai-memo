@@ -1,17 +1,17 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { AiGateway } from '../src/ai/gateway.js';
 import type { LlmClient } from '../src/ai/llm.js';
-import { type AppContext, createApp } from '../src/app.js';
-import { loadConfig } from '../src/config.js';
-import { readBackup } from '../src/backup.js';
-import { createHttpApp } from '../src/server.js';
+import { SqliteDb } from '../src/db/sqlite.js';
+import { createHttpApp } from '../src/http-app.js';
+import { Platform } from '../src/platform.js';
+import { HashingEmbedder } from '../src/search/embedder.js';
+import { gunzip, untar } from '../src/util/tar.js';
+import { fakeGitHub } from './fake-github.js';
+import { testConfig } from './helpers.js';
 
-let dir: string;
-let ctx: AppContext;
+let db: SqliteDb;
+let platform: Platform;
+let gh: ReturnType<typeof fakeGitHub>;
 let app: ReturnType<typeof createHttpApp>;
 let cookie: string;
 const ORIGIN = 'http://localhost:8787';
@@ -40,32 +40,39 @@ async function req(path: string, init: RequestInit & { json?: unknown; bearer?: 
   });
 }
 
-beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'gmemo-http-'));
-  ctx = await createApp(
-    loadConfig({
-      dataDir: dir,
-      notesDir: join(dir, 'notes'),
-      appDbFile: join(dir, 'app.db'),
-      indexDbFile: join(dir, 'index.db'),
-      origin: ORIGIN,
-      rpId: 'localhost',
-      pluginsDir: join(dir, 'plugins'),
-      webDir: join(dir, 'noweb'),
-    }),
-    { loadPlugins: false },
+/** Simulate a registered user with a session (the passkey ceremony needs a real authenticator). */
+async function signIn(username: string, isAdmin = false): Promise<string> {
+  const id = `u_${username}`;
+  await db.run(
+    'INSERT INTO users(id, username, is_admin, created_at) VALUES (?, ?, ?, ?)',
+    id,
+    username,
+    isAdmin ? 1 : 0,
+    new Date().toISOString(),
   );
-  ctx.ai = new AiGateway(ctx.appDb, fakeLlm('local'), fakeLlm('external'));
-  app = createHttpApp(ctx);
-  // Simulate a registered user with a session (passkey ceremony needs a real authenticator).
-  ctx.appDb.prepare(`INSERT INTO users(id, username, created_at) VALUES ('u1', 'me', 'now')`).run();
-  cookie = `gm_session=${ctx.auth.createSession('u1', 'passkey')}`;
+  return `gm_session=${await platform.auth.createSession(id, 'passkey')}`;
+}
+
+async function makeApp(env: Record<string, string> = {}) {
+  db = new SqliteDb(':memory:');
+  gh = fakeGitHub();
+  platform = await Platform.create(testConfig(env), db, {
+    auditConsole: () => undefined,
+    embedder: new HashingEmbedder(),
+    fetch: gh.fetch,
+  });
+  platform.deps.llm = { local: fakeLlm('local'), external: fakeLlm('external') };
+  app = createHttpApp(platform);
+}
+
+beforeEach(async () => {
+  await makeApp();
+  cookie = await signIn('me', true);
   sent.length = 0;
 });
 
-afterEach(async () => {
-  ctx.close();
-  await rm(dir, { recursive: true, force: true });
+afterEach(() => {
+  db.close();
 });
 
 describe('HTTP API', () => {
@@ -333,7 +340,7 @@ describe('HTTP API', () => {
       sha: string;
     };
     expect(doc.content).not.toContain('AKIA');
-    expect(doc.content).toMatch(/\[SECRET_[0-9a-f]{8}\]/);
+    expect(doc.content).toMatch(/\[SECRET_[0-9a-f]{16}\]/);
     expect((await req('/api/note?path=secret/s.md', { bearer: token })).status).toBe(403);
 
     const w = (await (
@@ -474,14 +481,143 @@ describe('HTTP API', () => {
     expect(bad).toEqual({ accent: 'green', mode: 'system' });
   });
 
-  it('creates an encrypted backup', async () => {
-    const r = await req('/api/admin/backup', {
-      method: 'POST',
-      json: { passphrase: 'correct horse' },
+  it('exports the current notes as tar.gz', async () => {
+    await req('/api/note', { method: 'PUT', json: { path: 'a/b.md', content: 'hello\n' } });
+    const r = await req('/api/admin/export');
+    expect(r.headers.get('content-type')).toBe('application/gzip');
+    const files = untar(await gunzip(new Uint8Array(await r.arrayBuffer())), 1);
+    expect(files.map((f) => f.path).sort()).toEqual(['Welcome.md', 'a/b.md']);
+  });
+
+  it('keeps accounts apart, including agent tokens', async () => {
+    await req('/api/note', { method: 'PUT', json: { path: 'mine.md', content: 'my diary\n' } });
+    const mine = cookie;
+    cookie = await signIn('other');
+    expect(
+      ((await (await req('/api/notes')).json()) as { path: string }[]).map((n) => n.path),
+    ).toEqual(['Welcome.md']);
+    expect((await req('/api/note?path=mine.md')).status).toBe(404);
+    expect(((await (await req('/api/search?q=diary')).json()) as unknown[]).length).toBe(0);
+    // An agent of the other user only sees the other user's notes.
+    const agent = (await (
+      await req('/api/admin/agents', { method: 'POST', json: { name: 'bot' } })
+    ).json()) as { id: string };
+    const { token } = (await (
+      await req(`/api/admin/agents/${agent.id}/tokens`, { method: 'POST', json: {} })
+    ).json()) as { token: string };
+    expect((await req('/api/note?path=mine.md', { bearer: token })).status).toBe(404);
+    // ...and cannot touch the first user's agents or tokens.
+    cookie = mine;
+    expect(
+      (await req(`/api/admin/agents/${agent.id}`, { method: 'PATCH', json: { name: 'x' } })).status,
+    ).toBe(404);
+    expect((await req('/api/admin/users')).status).toBe(200);
+    cookie = await signIn('third');
+    expect((await req('/api/admin/users')).status).toBe(403);
+  });
+
+  it('polls for changes instead of streaming events', async () => {
+    const p0 = (await (await req('/api/poll')).json()) as { head: string; openProposals: number };
+    await req('/api/note', { method: 'PUT', json: { path: 'x.md', content: 'x\n' } });
+    const p1 = (await (await req(`/api/poll?since=${p0.head}`)).json()) as {
+      head: string;
+      openProposals: number;
+      paths: string[];
+    };
+    expect(p1.paths).toEqual(['x.md']);
+    expect(p1.head).not.toBe(p0.head);
+    expect(p1.openProposals).toBe(0);
+  });
+
+  it('switches storage to GitHub, copying the notes, and back', async () => {
+    await req('/api/note', { method: 'PUT', json: { path: 'keep.md', content: 'keep me\n' } });
+    const bad = await req('/api/admin/storage', {
+      method: 'PUT',
+      json: { storage: 'github', github: { owner: gh.owner, repo: gh.repo, token: 'wrong' } },
     });
-    const buf = Buffer.from(await r.arrayBuffer());
-    expect(() => readBackup(buf, 'wrong')).toThrow();
-    const { files } = readBackup(buf, 'correct horse');
-    expect([...files.keys()]).toEqual(['notes.bundle', 'app.db']);
+    expect(bad.status).toBe(409);
+    expect(((await bad.json()) as { error: string }).error).toMatch(/トークン/);
+    const ok = (await (
+      await req('/api/admin/storage', {
+        method: 'PUT',
+        json: { storage: 'github', github: { owner: gh.owner, repo: gh.repo, token: gh.token } },
+      })
+    ).json()) as { copied: number; settings: { storage: string; github: { hasToken: boolean } } };
+    expect(ok.settings.storage).toBe('github');
+    expect(ok.settings.github.hasToken).toBe(true);
+    expect(ok.copied).toBe(2);
+    const doc = (await (await req('/api/note?path=keep.md')).json()) as { content: string };
+    expect(doc.content).toContain('keep me');
+    // The token never comes back out.
+    expect(JSON.stringify(await (await req('/api/admin/storage')).json())).not.toContain(gh.token);
+
+    await req('/api/note', { method: 'PUT', json: { path: 'gh.md', content: 'on github\n' } });
+    expect(gh.calls.some((c) => c.startsWith('POST /repos/me/notes/git/commits'))).toBe(true);
+    const back = (await (
+      await req('/api/admin/storage', { method: 'PUT', json: { storage: 'builtin' } })
+    ).json()) as { settings: { storage: string } };
+    expect(back.settings.storage).toBe('builtin');
+    expect(
+      ((await (await req('/api/notes')).json()) as { path: string }[]).map((n) => n.path),
+    ).toContain('gh.md');
+  });
+});
+
+describe('sign-up', () => {
+  const regOptions = (json: Record<string, string>) =>
+    req('/api/auth/register/options', { method: 'POST', json });
+
+  it('needs the setup token for the first account', async () => {
+    db.close();
+    await makeApp({ GMEMO_SETUP_TOKEN: 'let-me-in', GMEMO_SIGNUP: 'invite' });
+    cookie = '';
+    const st = (await (await req('/api/auth/state')).json()) as { needsSetup: boolean };
+    expect(st.needsSetup).toBe(true);
+    expect((await regOptions({ username: 'alice', setupToken: 'nope' })).status).toBe(403);
+    expect((await regOptions({ username: 'a', setupToken: 'let-me-in' })).status).toBe(400);
+    expect((await regOptions({ username: 'alice', setupToken: 'let-me-in' })).status).toBe(200);
+  });
+
+  it('invite mode needs an unused invite; closed mode refuses', async () => {
+    const admin = cookie;
+    const { code } = (await (
+      await req('/api/admin/invites', { method: 'POST', json: {} })
+    ).json()) as {
+      code: string;
+    };
+    cookie = '';
+    expect((await regOptions({ username: 'bob' })).status).toBe(403);
+    expect((await regOptions({ username: 'bob', inviteCode: 'bad' })).status).toBe(403);
+    expect((await regOptions({ username: 'me', inviteCode: code })).status).toBe(409);
+    expect((await regOptions({ username: 'bob', inviteCode: code })).status).toBe(200);
+    cookie = admin;
+    expect(((await (await req('/api/admin/invites')).json()) as unknown[]).length).toBe(1);
+
+    db.close();
+    await makeApp({ GMEMO_SIGNUP: 'closed' });
+    await signIn('admin', true);
+    cookie = '';
+    expect((await regOptions({ username: 'carol' })).status).toBe(403);
+  });
+
+  it('recovery codes are per user', async () => {
+    const codes = await platform.auth.replaceRecoveryCodes('u_me');
+    await signIn('other');
+    cookie = '';
+    const wrongUser = await req('/api/auth/recovery', {
+      method: 'POST',
+      json: { username: 'other', code: codes[0] },
+    });
+    expect(wrongUser.status).toBe(401);
+    const ok = await req('/api/auth/recovery', {
+      method: 'POST',
+      json: { username: 'me', code: codes[0] },
+    });
+    expect(ok.status).toBe(200);
+    const again = await req('/api/auth/recovery', {
+      method: 'POST',
+      json: { username: 'me', code: codes[0] },
+    });
+    expect(again.status).toBe(401);
   });
 });
