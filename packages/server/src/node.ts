@@ -44,13 +44,17 @@ export function loadNodeConfig(overrides: Partial<NodeConfig> = {}): NodeConfig 
 async function ensureSecretKey(cfg: NodeConfig): Promise<void> {
   if (cfg.secretKey) return;
   const file = join(cfg.dataDir, 'secret.key');
-  if (existsSync(file)) {
+  const key = randomToken(32);
+  try {
+    // Create only if absent ('wx'), in one step: no window between checking and writing
+    // (two processes starting at once, or a planted symlink, cannot swap the key).
+    await writeFile(file, key + '\n', { mode: 0o600, flag: 'wx' });
+    await chmod(file, 0o600);
+    cfg.secretKey = key;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
     cfg.secretKey = (await readFile(file, 'utf8')).trim();
-    return;
   }
-  cfg.secretKey = randomToken(32);
-  await writeFile(file, cfg.secretKey + '\n', { mode: 0o600 });
-  await chmod(file, 0o600);
 }
 
 export async function createNodePlatform(

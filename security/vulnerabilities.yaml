@@ -362,3 +362,15 @@ entries:
       スマートフォンやPCのパスキーは実際にはユーザー確認を行う。PINなしのセキュリティキーも使えるようにするため。
       端末を盗まれた場合は「すべての端末からサインアウト」とパスキーの削除で対応する
     review_by: 2027-04-11
+
+  - id: GM-2026-014
+    source: scan
+    title: Node.js 版の暗号鍵ファイル(secret.key)を、存在確認と書き込みの2段階で作っていた(TOCTOU)
+    severity: low
+    scope: production
+    status: fixed
+    found: 2026-10-11
+    due: 2027-01-09
+    closed: 2026-10-11
+    resolution: 新規作成専用(flag wx)で一度に作り、すでにあれば読み込む
+    notes: CodeQL(js/file-system-race)が PR #1 で検出。データディレクトリに書き込める攻撃者が前提なので影響は小さい
