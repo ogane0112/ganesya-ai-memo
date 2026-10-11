@@ -34,7 +34,7 @@ import {
 const MAX_BUILTIN_BYTES = 1_900_000;
 const MAX_NOTE_BYTES = 5 * 1024 * 1024;
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
-/** Object storage: the upload is held in memory once on its way through. */
+/** Object storage: the form upload is held in memory once; from there it is streamed. */
 const MAX_STORED_FILE_BYTES = 50 * 1024 * 1024;
 /** Files in object storage are linked from notes under this folder. */
 const STORED_PREFIX = 'files/';
@@ -428,9 +428,13 @@ export function notesRoutes(platform: Platform) {
     if (!/\.[a-z0-9]{1,5}$/i.test(safe) || /\.md$/i.test(safe)) safe += '.bin';
     const name = `${new Date().toISOString().slice(0, 10)}-${Date.now().toString(36)}-${safe}`;
     const path = files ? `${STORED_PREFIX}${name}` : `attachments/${name}`;
-    const data = new Uint8Array(await file.arrayBuffer());
-    if (files) await files.put(fileKey($.w.userId, path), data, { contentType: contentType(path) });
-    else await $.notes.commitAs($.w.human(), [{ path, content: data }], `Attach ${safe}`);
+    if (files) await files.put(fileKey($.w.userId, path), file.stream(), file.size);
+    else
+      await $.notes.commitAs(
+        $.w.human(),
+        [{ path, content: new Uint8Array(await file.arrayBuffer()) }],
+        `Attach ${safe}`,
+      );
     return c.json({
       path,
       markdown: /\.(png|jpe?g|gif|webp|svg)$/i.test(safe) ? `![[${path}]]` : `[[${path}]]`,

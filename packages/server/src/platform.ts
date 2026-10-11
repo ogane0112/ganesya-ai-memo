@@ -5,6 +5,7 @@ import { OAuthService } from './auth/oauth.js';
 import { TokenService } from './auth/tokens.js';
 import type { Config } from './config.js';
 import { type Db, migrate, stmt } from './db/db.js';
+import { EncryptedFileStore } from './files/encrypted-store.js';
 import type { FileStore } from './files/file-store.js';
 import { type Embedder, HashingEmbedder, LocalModelEmbedder } from './search/embedder.js';
 import { MemoryRateLimiter, type RateLimiter } from './util/rate-limit.js';
@@ -25,7 +26,10 @@ export class Platform {
   /** Sign-in and token endpoints: attempts per client address per minute. */
   readonly authLimiter: RateLimiter;
   readonly deps: WorkspaceDeps;
-  /** Object storage for uploaded files; null keeps them in the note store. */
+  /**
+   * Object storage for uploaded files, always encrypted with the server secret.
+   * null (no storage, or no secret to encrypt with) keeps files in the note store.
+   */
   readonly files: FileStore | null;
   private cache = new Map<string, { key: string; ws: Workspace }>();
 
@@ -40,7 +44,10 @@ export class Platform {
     resolveHost?: (host: string) => Promise<string[]>,
     files?: FileStore,
   ) {
-    this.files = files ?? null;
+    this.files =
+      files && cfg.secretKey
+        ? new EncryptedFileStore(files, cfg.secretKey, cfg.previousSecretKey)
+        : null;
     this.auth = new AuthService(db, cfg);
     this.audit = new AuditLog(
       db,
@@ -86,7 +93,7 @@ export class Platform {
       auditConsole?: (line: string) => void;
       /** Host name → addresses (Node.js), so calendar URLs cannot point inside by name. */
       resolveHost?: (host: string) => Promise<string[]>;
-      /** Object storage for uploaded files (Workers: an R2 bucket). */
+      /** Object storage for uploaded files (Workers: an R2 bucket). Needs GMEMO_SECRET_KEY. */
       files?: FileStore;
     } = {},
   ): Promise<Platform> {
