@@ -11,7 +11,7 @@
 | 1   | アカウントの2段階認証          | 個人の Settings → Password and authentication | リポジトリを乗っ取られないため                 |
 | 2   | デフォルトブランチを `main` に | Settings → General                            | CI・Dependabot・定期実行が `main` を基準に動く |
 | 3   | Actions の権限を最小に         | Settings → Actions → General                  | CI が勝手にリポジトリを書き換えられないように  |
-| 4   | Code security の各機能         | Settings → Code security                      | 脆弱性・漏れたシークレットを見つける           |
+| 4   | Advanced Security の各機能     | Settings → Advanced Security                  | 脆弱性・漏れたシークレットを見つける           |
 | 5   | `main` の保護(ルールセット)    | Settings → Rules → Rulesets                   | CI が通らない変更や、履歴の書き換えを止める    |
 | 6   | 古いブランチの削除             | Code → Branches                               | `claude/ai-note-app` を残さない                |
 
@@ -113,25 +113,61 @@ CI には次のものが渡ります。そのため、CI が乗っ取られる�
 - CI の動き方や結果は今までどおりです(PR を出せば check、security、docker、CodeQL が動く)。
 - あとで Cloudflare への自動デプロイを CI に追加する場合は、デプロイ用のシークレットを **Settings** → **Environments** で `production` 環境に登録し、その環境に「承認が必要」を付けて、人が承認したときだけ使えるようにします(必要になったら手順を追加します)。
 
-## 4. Code security
+## 4. Advanced Security(脆弱性とシークレットの検出)
 
-**Settings** → **Code security**(**Security** → **Code security and analysis** の場合もあります)。公開リポジトリはすべて無料です。
+**Settings** → 左メニューの **Advanced Security**。公開リポジトリはすべて無料です。
 
-| 項目                                | 設定       | 説明                                                                |
-| ----------------------------------- | ---------- | ------------------------------------------------------------------- |
-| **Private vulnerability reporting** | Enable     | 外部の人が非公開で脆弱性を報告できる([SECURITY.md](../SECURITY.md)) |
-| **Dependency graph**                | Enable     | 依存関係の一覧(Dependabot の前提)                                   |
-| **Dependabot alerts**               | Enable     | 依存ライブラリの脆弱性を通知                                        |
-| **Dependabot security updates**     | Enable     | 脆弱性の修正PRを自動で作成                                          |
-| **Grouped security updates**        | Enable     | 修正PRをまとめる                                                    |
-| **Dependabot version updates**      | (設定済み) | `.github/dependabot.yml` で週次の更新PRが作られる                   |
-| **Code scanning**(CodeQL)           | 下記       | `.github/workflows/codeql.yml` で設定済み                           |
-| **Secret scanning**                 | Enable     | コミットされたAPIキーなどを検出                                     |
-| **Push protection**                 | Enable     | シークレットを含む push をその場で止める                            |
+ページは上から「Private vulnerability reporting」「Dependency Scanning」「Code Security」「Secret Protection」の4つのブロックに分かれています。上から順に設定します。
 
-Code scanning は **Default setup** を有効に**しないで**ください。このリポジトリは独自のワークフロー(Advanced setup、`security-extended` のクエリを使用)で動かしているので、Default setup を有効にすると二重になるか、ワークフローが止められます。
+### ① Private vulnerability reporting → **Enable**
 
-通知を受け取るために、リポジトリ上部の **Watch** → **Custom** → **Security alerts** にチェックを入れておきます。
+**意味**:外部の人が、脆弱性を**公開の Issue ではなく非公開で**あなたに報告できる窓口を作ります。
+
+**なぜ必要か**:脆弱性が公開の Issue に書かれると、直す前に攻撃者に知られてしまいます。[SECURITY.md](../SECURITY.md) にこの窓口を案内してあるので、有効にしないと案内先が存在しないことになります。
+
+### ② Dependency Scanning(依存ライブラリ)
+
+| 項目                            | 設定       | 意味                                                                                                       |
+| ------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------- |
+| **Dependency graph**            | **Enable** | `package-lock.json` から依存ライブラリの一覧を作る。下の Dependabot はこれが前提なので**最初に**有効にする |
+| **Dependabot alerts**           | **Enable** | 使っているライブラリに脆弱性が公開されたら通知する                                                         |
+| **Dependabot security updates** | **Enable** | 脆弱性に修正版があれば、更新のPRを自動で作る                                                               |
+| **Grouped security updates**    | **Enable** | 上の修正PRを、1回にまとめる(PRが大量に来ないように)                                                        |
+| **Dependabot version updates**  | (操作不要) | `.github/dependabot.yml` で設定済み。毎週月曜に、脆弱性と関係ない通常の更新PRも届く                        |
+
+**security updates と version updates の違い**:security updates は「脆弱性があるから直す」更新で、見つかり次第すぐ届きます。version updates は「新しい版が出たから上げる」更新で、毎週まとめて届きます。どちらも PR として届き、CI が通ることを確認してからあなたがマージします(勝手に本番に入ることはありません)。
+
+**届いたら**:security updates の PR は、[方針](secure-development.md#2-脆弱性cveへの対応)の期限内にマージし、`security/vulnerabilities.yaml` に記録します(記録を忘れると `security:check` が教えてくれます)。
+
+### ③ Code Security(自分たちのコードの検査)
+
+| 項目                                   | 設定                                | 意味                                                                                                                                                                                   |
+| -------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **CodeQL analysis**                    | **Advanced setup のまま**(操作不要) | `.github/workflows/codeql.yml` で動いている状態。右の「…」から **Default setup** に切り替え**ない**(切り替えると、このリポジトリ用の厳しめの設定 `security-extended` が使われなくなる) |
+| **Other tools**                        | 操作不要                            | CodeQL 以外の検査ツールを追加する場所。今は不要                                                                                                                                        |
+| **AI Scan for pull requests**(Preview) | **Off のまま**                      | CodeQL が対応していない言語を AI で検査する機能。このリポジトリは TypeScript で、CodeQL が対応しているので不要                                                                         |
+| **Copilot Autofix**                    | **On のまま**                       | CodeQL が問題を見つけたときに、AI が修正案を PR に提案する。提案は自動では入らず、採用するかはあなたが決める。提案もほかのコードと同じくレビューしてから採用する                       |
+
+**Protection rules → Check runs failure threshold**:CodeQL の結果で PR のチェックを「失敗」にする基準です。次のように設定します(初期値のままならそのままで構いません)。
+
+- **Security alert severity level**:**High or higher**(重大度が高以上の脆弱性があれば失敗)
+- **Standard alert severity level**:**Only errors**
+
+ここで「失敗」にしても、それだけではマージを止められません。止めるには、手順5のルールセットで CodeQL のチェックを必須にします。
+
+### ④ Secret Protection(パスワードや鍵の流出防止)
+
+**Push protection** → **Enable**。
+
+**意味**:API キー、トークン、秘密鍵などがコミットに含まれていると、**push の時点で止めます**。
+
+**なぜ必要か**:公開リポジトリに一度 push したシークレットは、すぐに消しても、履歴やコピーから誰かに拾われる可能性があります。push の前に止めるのが一番確実です。止められた場合は、そのシークレットをコードから外してコミットし直します(本当にシークレットでない場合だけ、理由を選んで通過できます)。
+
+**補足**:すでに公開されているシークレットの検出(Secret scanning)は、公開リポジトリでは GitHub が自動で行っています。Cloudflare の API トークンなどが見つかると、GitHub から Cloudflare に通知され、トークンが無効化されることがあります。
+
+### 通知を受け取る
+
+リポジトリ上部の **Watch** → **Custom** → **Security alerts** にチェックを入れます。これで、Dependabot や CodeQL の警告がメールや通知で届きます。
 
 ## 5. `main` を保護する(ルールセット)
 
