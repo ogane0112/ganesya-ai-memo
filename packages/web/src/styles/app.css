@@ -1774,6 +1774,64 @@ select.input {
 .note-editor-head .mono {
   flex: 1;
 }
+.note-editor-head .ellipsis {
+  flex: 1;
+  min-width: 0;
+}
+.editor-modes {
+  margin-bottom: 0;
+  flex: 0 0 auto;
+}
+.editor-modes button {
+  padding: 4px 12px;
+  min-height: 28px;
+}
+/* Side by side needs room for two columns. */
+@media (max-width: 999px) {
+  .editor-modes .wide-only {
+    display: none;
+  }
+  .editor-panes.mode-split .editor-preview {
+    display: none;
+  }
+}
+@media (max-width: 559px) {
+  .note-editor-head .ellipsis {
+    display: none;
+  }
+}
+.editor-panes {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.editor-panes > .write-editor {
+  flex: 1;
+  min-width: 0;
+}
+.editor-panes > .write-editor[hidden] {
+  display: none;
+}
+.editor-preview {
+  flex: 1;
+  min-width: 0;
+  min-height: 40dvh;
+  padding: 16px;
+  overflow-y: auto;
+}
+@media (min-width: 760px) {
+  .editor-preview {
+    padding: 16px 40px;
+  }
+}
+@media (min-width: 1000px) {
+  .note-editor:has(.mode-split) {
+    max-width: 1440px;
+  }
+  .editor-panes.mode-split > .editor-preview {
+    border-left: 1px solid var(--border);
+  }
+}
 
 .editor-toolbar {
   position: sticky;
