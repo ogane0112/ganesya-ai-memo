@@ -211,6 +211,11 @@ name = "WRITE_LIMITER"
 namespace_id = "7011"
 simple = { limit = 120, period = 60 }
 
+[[ratelimits]]
+name = "WRITE_ACCOUNT_LIMITER"
+namespace_id = "7021"
+simple = { limit = 600, period = 60 }
+
 [[d1_databases]]
 binding = "DB"
 database_name = "gmemo"

@@ -18,6 +18,7 @@ import { ConflictError, ForbiddenError, NotFoundError } from '../notes/service.j
 import type { Session } from '../auth/auth.js';
 import type { Platform } from '../platform.js';
 import { ConcurrentUpdateError, StoreError } from '../store/types.js';
+import { sha256 } from '../util/crypto.js';
 import type { Workspace } from '../workspace.js';
 
 /**
@@ -139,31 +140,50 @@ export function securityMiddleware(platform: Platform): MiddlewareHandler<Env> {
 const AUTH_PREFIX = '/api/auth/';
 
 /**
- * Per-account cap on mutating requests, so one signed-in account (or a leaked
- * agent token) cannot hammer the write API. Reads are not limited here. Runs
- * after authMiddleware, so the caller is known; unauthenticated writes fall
- * through to the route, which answers 401.
+ * Caps write requests so a signed-in browser, or an agent token (leaked or just
+ * busy), cannot hammer the API and run up database usage for everyone.
+ *
+ * - Each session and each agent token has its own budget, so an agent using
+ *   up its budget never blocks the person's own saves (or another agent).
+ * - The account as a whole has a higher ceiling, so signing in again or minting
+ *   more tokens does not buy more writes.
+ *
+ * Covered: POST/PUT/PATCH/DELETE under /api/ (sign-in endpoints have their own
+ * per-address limit) and every POST to /mcp, where agents do their writes. MCP
+ * reads count too: one JSON-RPC call is one request either way. Runs after
+ * authMiddleware, so the caller is known; unauthenticated writes fall through
+ * to the route, which answers 401.
  */
 export function writeLimitMiddleware(platform: Platform): MiddlewareHandler<Env> {
   const mutating = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
   return async (c, next) => {
     const path = c.req.path;
     const limited =
-      mutating.has(c.req.method) && path.startsWith('/api/') && !path.startsWith(AUTH_PREFIX);
-    if (limited) {
-      const userId = c.get('principal')?.userId ?? c.get('session')?.userId;
-      if (userId && !(await platform.writeLimiter.allow(`write:${userId}`))) {
-        await audit(platform, c, {
-          action: 'security.rate_limited',
-          outcome: 'denied',
-          target: path,
-        });
-        return c.json({ error: '操作が多すぎます。少し待ってからやり直してください' }, 429, {
-          'retry-after': '60',
-        });
-      }
-    }
-    return next();
+      mutating.has(c.req.method) &&
+      ((path.startsWith('/api/') && !path.startsWith(AUTH_PREFIX)) || path === '/mcp');
+    if (!limited) return next();
+    const principal = c.get('principal');
+    const token = c.get('sessionToken');
+    const userId = principal?.userId ?? c.get('session')?.userId;
+    if (!userId) return next();
+    // The token id is a hash prefix; a session is keyed by a hash of its token,
+    // never by the token itself.
+    const caller = principal
+      ? `t:${principal.tokenId}`
+      : `s:${token ? (await sha256(token)).slice(0, 16) : userId}`;
+    const allowed =
+      (await platform.writeLimiter.allow(`write:${caller}`)) &&
+      (await platform.accountWriteLimiter.allow(`write:u:${userId}`));
+    if (allowed) return next();
+    await audit(platform, c, {
+      action: 'security.rate_limited',
+      outcome: 'denied',
+      target: path,
+      detail: { by: principal ? 'token' : 'session' },
+    });
+    return c.json({ error: '操作が多すぎます。少し待ってからやり直してください' }, 429, {
+      'retry-after': '60',
+    });
   };
 }
 
