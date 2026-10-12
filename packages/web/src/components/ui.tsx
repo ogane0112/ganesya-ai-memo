@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { describeError } from '../api/client';
 import { Icon } from './Icon';
 
@@ -103,6 +103,8 @@ export function Modal({
   wide?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  // Own id: a modal can open on top of another one (the folder picker in a form).
+  const titleId = useId();
   useEffect(() => {
     const d = ref.current;
     if (!d) return;
@@ -113,16 +115,19 @@ export function Modal({
     <dialog
       ref={ref}
       className={wide ? 'modal modal-wide' : 'modal'}
-      aria-labelledby="modal-title"
+      aria-labelledby={titleId}
       onCancel={(e) => {
         e.preventDefault();
+        // React passes this event up to the dialogs this one sits inside; Escape
+        // should only close the one on top.
+        e.stopPropagation();
         onClose();
       }}
     >
       {open && (
         <div className="modal-inner">
           <div className="modal-head">
-            <h2 id="modal-title">{title}</h2>
+            <h2 id={titleId}>{title}</h2>
             <button type="button" className="icon-btn" aria-label="閉じる" onClick={onClose}>
               <Icon name="x" />
             </button>
