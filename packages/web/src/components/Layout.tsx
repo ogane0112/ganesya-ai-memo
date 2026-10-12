@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
-import { useOnline } from '../lib/hooks';
+import { useIsPhone, useOnline } from '../lib/hooks';
 import { displayPath } from '../lib/paths';
 import { syncQueue } from '../lib/sync';
 import { useApp } from '../state/app';
 import { useDeleteFolder } from '../state/folders';
 import { Icon } from './Icon';
+import { NavDrawer } from './NavDrawer';
 import { NoteTree } from './NoteTree';
 
 const NAV = [
@@ -91,6 +92,14 @@ export function Layout() {
   const { openProposals, notes, notesLoaded, folders, auth } = useApp();
   const loc = useLocation();
   const [typing, setTyping] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const phone = useIsPhone();
+
+  // Leaving the phone layout (rotating, resizing) or changing page closes the menu.
+  useEffect(() => {
+    if (!phone) setMenuOpen(false);
+  }, [phone]);
+  useEffect(() => setMenuOpen(false), [loc.pathname, loc.search]);
 
   const deleteFolder = useDeleteFolder();
 
@@ -181,11 +190,34 @@ export function Layout() {
         </div>
       </aside>
       <div className="main-col">
+        <header className="topbar">
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="フォルダーとノートを開く"
+            aria-haspopup="dialog"
+            onClick={() => setMenuOpen(true)}
+          >
+            <Icon name="menu" size={22} />
+          </button>
+          <Link to="/" className="topbar-brand">
+            AI Memo
+          </Link>
+        </header>
         <SyncStatus />
         <main id="main" className="main" tabIndex={-1}>
           <Outlet />
         </main>
       </div>
+      <NavDrawer
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        notes={notes}
+        folders={folders}
+        notesLoaded={notesLoaded}
+        username={auth?.user?.username}
+        onDeleteFolder={(path, opts) => void deleteFolder(path, opts)}
+      />
       <nav className="tabbar" aria-label="メイン">
         {NAV.filter((n) => !('desktopOnly' in n)).map((n) => (
           <NavLink key={n.to} to={n.to} end={'end' in n ? n.end : false} className="tab">
