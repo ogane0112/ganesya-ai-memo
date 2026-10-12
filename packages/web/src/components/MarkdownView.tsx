@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { inlineViewSource } from '@gmemo/core';
+import { type ReactNode, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { BlockAttribution } from '../api/types';
 import { formatDateTime } from '../lib/format';
@@ -25,18 +26,50 @@ export function useInternalLinks() {
   };
 }
 
+/**
+ * Renders a ```gmemo-view block (its YAML, and its position among the note's
+ * inline views). Without it the block shows as code, as in any Markdown tool.
+ */
+export type RenderInlineView = (source: string, index: number) => ReactNode;
+
 /** Render Markdown (no blame). */
 export function Markdown({
   text,
   paths,
   className,
+  renderView,
 }: {
   text: string;
   paths: readonly string[];
   className?: string;
+  renderView?: RenderInlineView;
 }) {
-  const html = useMemo(() => renderMarkdown(text, { paths }), [text, paths]);
+  const html = useMemo(
+    () => (renderView ? '' : renderMarkdown(text, { paths })),
+    [text, paths, renderView],
+  );
+  const blocks = useMemo(
+    () => (renderView ? renderBlocks(text, [], { paths }) : []),
+    [text, paths, renderView],
+  );
   const onClick = useInternalLinks();
+  if (renderView) {
+    let n = 0;
+    return (
+      <div className={className ? `md ${className}` : 'md'} onClick={onClick}>
+        {blocks.map((b) => {
+          const src = inlineViewSource(b.text);
+          if (src !== null)
+            return (
+              <div key={b.key} className="blk">
+                {renderView(src, n++)}
+              </div>
+            );
+          return <div key={b.key} className="blk" dangerouslySetInnerHTML={{ __html: b.html }} />;
+        })}
+      </div>
+    );
+  }
   return (
     <div
       className={className ? `md ${className}` : 'md'}
@@ -55,11 +88,13 @@ export function BlameView({
   blame,
   paths,
   hideTitle,
+  renderView,
 }: {
   body: string;
   blame: readonly BlockAttribution[];
   paths: readonly string[];
   hideTitle?: string | undefined;
+  renderView?: RenderInlineView | undefined;
 }) {
   const blocks = useMemo(() => {
     const all = renderBlocks(body, blame, { paths });
@@ -71,9 +106,17 @@ export function BlameView({
   const [open, setOpen] = useState<string | null>(null);
   const onClick = useInternalLinks();
   if (!body.trim()) return <p className="hint">(本文はまだありません)</p>;
+  let viewIndex = 0;
   return (
     <div className="md blame" onClick={onClick}>
       {blocks.map((b) => {
+        const src = renderView ? inlineViewSource(b.text) : null;
+        if (src !== null)
+          return (
+            <div key={b.key} className="blk">
+              {renderView!(src, viewIndex++)}
+            </div>
+          );
         const ai = b.author?.kind === 'ai';
         if (!ai)
           return <div key={b.key} className="blk" dangerouslySetInnerHTML={{ __html: b.html }} />;

@@ -1,5 +1,5 @@
 import { getProperty, updateFrontmatter, type ViewDefinition, type ViewNote } from '@gmemo/core';
-import { useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, describeError } from '../api/client';
 import type { ExternalEvent, ViewRows } from '../api/types';
@@ -10,7 +10,7 @@ import { displayValue, localDateKey } from '../lib/format';
 import { moveCard, movableProperty } from '../lib/kanban';
 import { readProps } from '../lib/properties';
 import { syncQueue } from '../lib/sync';
-import { useAsync, useDocumentTitle, useIsPhone } from '../lib/hooks';
+import { type AsyncState, useAsync, useDocumentTitle, useIsPhone } from '../lib/hooks';
 import { noteUrl } from '../lib/paths';
 import {
   emptyViewForm,
@@ -86,11 +86,45 @@ export function ViewPage() {
   const data = useAsync(() => api.viewRows(id), [id, changeTick]);
   const phone = useIsPhone();
   const navigate = useNavigate();
-  const toast = useToast();
   useDocumentTitle(data.data?.view.name ?? 'ビュー');
   if (data.loading && !data.data) return <Loading />;
   if (data.error) return <ErrorBox error={data.error} onRetry={data.reload} />;
   const { view, rows } = data.data!;
+
+  return (
+    <div className="page page-wide">
+      <PageHeader
+        title={view.name}
+        back={() => navigate('/views')}
+        sub={`${rows.length} 件${phone && view.type !== 'list' ? '(スマホではリスト表示)' : ''}`}
+        actions={
+          <Link to={`/views/${encodeURIComponent(id)}/edit`} className="btn">
+            <Icon name="edit" size={18} />
+            編集
+          </Link>
+        }
+      />
+      <ViewBody data={data} />
+    </div>
+  );
+}
+
+/**
+ * The rows of a view as a table, kanban, calendar or list (phones get the
+ * list). Kanban cards can be moved between columns. Shared by view pages and
+ * by views placed inside notes.
+ */
+export function ViewBody({
+  data,
+  empty = <EmptyState icon="table" title="条件に合うノートがありません" />,
+}: {
+  data: AsyncState<ViewRows>;
+  empty?: ReactNode;
+}) {
+  const phone = useIsPhone();
+  const toast = useToast();
+  if (!data.data) return null;
+  const { view, rows } = data.data;
 
   // Moving a kanban card writes the column's value into the note's property,
   // the same change a person could make in the note itself.
@@ -118,38 +152,33 @@ export function ViewPage() {
     }
   };
   const moveTo = view.type === 'kanban' && movableProperty(view) ? move : undefined;
+  // An empty board with columns set up still shows them, so cards can be added.
+  const hasColumns = view.type === 'kanban' && !phone && (data.data.groups?.length ?? 0) > 0;
   return (
-    <div className="page page-wide">
-      <PageHeader
-        title={view.name}
-        back={() => navigate('/views')}
-        sub={`${rows.length} 件${phone && view.type !== 'list' ? '(スマホではリスト表示)' : ''}`}
-        actions={
-          <Link to={`/views/${encodeURIComponent(id)}/edit`} className="btn">
-            <Icon name="edit" size={18} />
-            編集
-          </Link>
-        }
-      />
+    <>
       {phone && view.type === 'calendar' && <Agenda view={view} rows={rows} />}
-      {rows.length === 0 ? (
-        <EmptyState icon="table" title="条件に合うノートがありません" />
+      {rows.length === 0 && !(view.type === 'calendar' && !phone) && !hasColumns ? (
+        empty
       ) : phone || view.type === 'list' ? (
-        <RowList
-          view={view}
-          rows={rows}
-          {...(moveTo && data.data?.groups
-            ? { move: { groups: data.data.groups, onMove: moveTo } }
-            : {})}
-        />
+        rows.length === 0 ? (
+          empty
+        ) : (
+          <RowList
+            view={view}
+            rows={rows}
+            {...(moveTo && data.data.groups
+              ? { move: { groups: data.data.groups, onMove: moveTo } }
+              : {})}
+          />
+        )
       ) : view.type === 'table' ? (
         <TableView view={view} rows={rows} />
       ) : view.type === 'kanban' ? (
-        <KanbanView view={view} data={data.data!} {...(moveTo ? { onMove: moveTo } : {})} />
+        <KanbanView view={view} data={data.data} {...(moveTo ? { onMove: moveTo } : {})} />
       ) : (
         <CalendarView view={view} rows={rows} />
       )}
-    </div>
+    </>
   );
 }
 

@@ -120,6 +120,36 @@ describe('HTTP API', () => {
     cookie = mine;
   });
 
+  it('lists the notes of an inline view, grouped for a kanban', async () => {
+    const save = (path: string, content: string) =>
+      req('/api/note', { method: 'PUT', json: { path, content } });
+    await save('A/タスク/one.md', '---\nstatus: 進行中\n---\n# One\n');
+    await save('A/タスク/two.md', '# Two\n');
+    await save('Elsewhere/three.md', '---\nstatus: 進行中\n---\n# Three\n');
+    const source = 'name: タスク\ntype: kanban\nfolder: A/タスク';
+    const r = await req(`/api/views/inline/rows?source=${encodeURIComponent(source)}`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as {
+      view: { type: string };
+      rows: { path: string }[];
+      groups: { key: string; rows: { path: string }[] }[];
+    };
+    expect(body.view.type).toBe('kanban');
+    expect(body.rows.map((x) => x.path).sort()).toEqual(['A/タスク/one.md', 'A/タスク/two.md']);
+    expect(body.groups.find((g) => g.key === '進行中')!.rows.map((x) => x.path)).toEqual([
+      'A/タスク/one.md',
+    ]);
+    // Settings that are not a view are refused, and the read needs a session.
+    const bad = await req(`/api/views/inline/rows?source=${encodeURIComponent('type: nope')}`);
+    expect(bad.status).toBe(400);
+    const saved = cookie;
+    cookie = '';
+    expect((await req(`/api/views/inline/rows?source=${encodeURIComponent(source)}`)).status).toBe(
+      401,
+    );
+    cookie = saved;
+  });
+
   it('saves, reads, searches and lists notes', async () => {
     const put = await req('/api/note', {
       method: 'PUT',
