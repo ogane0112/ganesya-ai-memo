@@ -85,6 +85,16 @@ export default defineConfig(({ mode }) => {
           namespace: staging ? '7002' : production ? '7001' : '7003',
           simple: { limit: 30, period: 60 },
         }),
+        // Write requests: 120 per minute per session or agent token…
+        WRITE_LIMITER: bindings.rateLimit({
+          namespace: staging ? '7012' : production ? '7011' : '7013',
+          simple: { limit: 120, period: 60 },
+        }),
+        // …and 600 per minute per account, across all of its sessions and tokens.
+        WRITE_ACCOUNT_LIMITER: bindings.rateLimit({
+          namespace: staging ? '7022' : production ? '7021' : '7023',
+          simple: { limit: 600, period: 60 },
+        }),
       },
     },
   };

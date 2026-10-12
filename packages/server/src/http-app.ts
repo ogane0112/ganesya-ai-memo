@@ -9,6 +9,7 @@ import {
   errorResponse,
   securityMiddleware,
   workspaceOf,
+  writeLimitMiddleware,
 } from './api/http.js';
 import { notesRoutes } from './api/notes-routes.js';
 import { OAuthError } from './auth/oauth.js';
@@ -42,6 +43,7 @@ export function createHttpApp(
 
   app.use('*', securityMiddleware(platform));
   app.use('*', authMiddleware(platform));
+  app.use('*', writeLimitMiddleware(platform));
 
   app.get('/api/health', (c) => c.json({ ok: true }));
   // The web app navigates here when Cloudflare Access wants a new sign-in: the

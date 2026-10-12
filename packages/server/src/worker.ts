@@ -14,6 +14,10 @@ interface WorkerEnv {
   ASSETS?: { fetch(req: Request): Promise<Response> };
   /** Workers Rate Limiting binding for sign-in and token endpoints. */
   AUTH_LIMITER?: WorkersRateLimitBinding;
+  /** Workers Rate Limiting binding for writes, per session or agent token. */
+  WRITE_LIMITER?: WorkersRateLimitBinding;
+  /** Workers Rate Limiting binding for writes, per account. */
+  WRITE_ACCOUNT_LIMITER?: WorkersRateLimitBinding;
   /** R2 bucket for uploaded files. Without it, files go into the note store. */
   FILES?: R2BucketLike;
 }
@@ -31,6 +35,10 @@ async function appFor(env: WorkerEnv) {
   const platform = await Platform.create(cfg, new D1Db(env.DB), {
     migrateKey: env.DB,
     ...(env.AUTH_LIMITER ? { authLimiter: workersRateLimiter(env.AUTH_LIMITER) } : {}),
+    ...(env.WRITE_LIMITER ? { writeLimiter: workersRateLimiter(env.WRITE_LIMITER) } : {}),
+    ...(env.WRITE_ACCOUNT_LIMITER
+      ? { accountWriteLimiter: workersRateLimiter(env.WRITE_ACCOUNT_LIMITER) }
+      : {}),
     ...(env.FILES ? { files: new R2FileStore(env.FILES) } : {}),
   });
   const app = createHttpApp(platform, {
