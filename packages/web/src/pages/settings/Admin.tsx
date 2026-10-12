@@ -60,7 +60,8 @@ export function AdminSettings() {
       <section className="card">
         <h2>アカウント</h2>
         <p className="hint">
-          登録方法: {SIGNUP_LABEL[signup]}(サーバー設定 <code>GMEMO_SIGNUP</code> で変更)
+          登録方法: {SIGNUP_LABEL[signup]}(安全のため画面からは変更できません。サーバー設定{' '}
+          <code>GMEMO_SIGNUP</code> で変更)
         </p>
         <ul className="item-list">
           {list.map((u) => (

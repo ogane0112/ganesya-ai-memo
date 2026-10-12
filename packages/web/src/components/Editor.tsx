@@ -43,6 +43,8 @@ const theme = EditorView.theme({
 export interface EditorHandle {
   focus(): void;
   getValue(): string;
+  /** The selected text (empty when nothing is selected). */
+  getSelection(): string;
   setValue(text: string): void;
   /** Replace the first `length` characters (the frontmatter block); the rest, the cursor and undo history stay. */
   replaceStart(length: number, text: string): void;
@@ -135,6 +137,10 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
   useImperativeHandle(ref, () => ({
     focus: () => view.current?.focus(),
     getValue: () => view.current?.state.doc.toString() ?? '',
+    getSelection: () => {
+      const s = view.current?.state;
+      return s ? s.sliceDoc(s.selection.main.from, s.selection.main.to) : '';
+    },
     setValue: (text) => {
       const v = view.current;
       if (!v) return;
