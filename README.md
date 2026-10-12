@@ -62,6 +62,7 @@ MCPに対応したクライアント(Claude など)に、サーバーURL `https:
 | [GitHub の設定手順](docs/github-setup.md)          | ブランチ保護、Dependabot、Secret scanning、CodeQL                    |
 | [アーキテクチャ](docs/architecture.md)             | データ設計、マージモデル、インデックス                               |
 | [デザインシステム](docs/design-system.md)          | 部品カタログ([公開版](https://ogane0112.github.io/ganesya-ai-memo/)) |
+| [画面の基本方針](docs/ui-baseline.md)              | GUIとテキストの両方で操作できるようにする方針と対応状況              |
 | [REST API](docs/api.md)                            | エンドポイント一覧                                                   |
 | [カレンダー連携](docs/calendar.md)                 | Googleカレンダーの取り込みと、ノートの予定の公開                     |
 | [設計判断](docs/decisions.md)                      | 要件定義の未決事項をどう決めたか                                     |

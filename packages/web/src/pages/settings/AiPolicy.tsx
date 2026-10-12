@@ -124,8 +124,8 @@ export function AiPolicySettings() {
       <section className="card">
         <h2>送信範囲(フォルダ単位)</h2>
         <p className="hint">
-          ノートの中身をどこまでAIに送ってよいかを決めます。ノートの frontmatter に{' '}
-          <code>sensitivity: secret</code> があると、常にローカルAIのみになります。
+          ノートの中身をどこまでAIに送ってよいかを決めます。編集画面の「プロパティ」で「機密ノート」にしたノート(
+          <code>sensitivity: secret</code>)は、常にローカルAIのみになります。
         </p>
         <div className="field">
           <label htmlFor="pol-default">ワークスペース全体の既定</label>

@@ -687,7 +687,9 @@ export function ViewEditPage() {
                     onChange={(e) => set('dateProperty', e.target.value)}
                   />
                   <div className="hint">
-                    値は <code>2026-10-12</code>(終日)または <code>2026-10-12 10:00</code>
+                    ノートの日付は、編集画面の「プロパティ」→「日付」で設定できます(
+                    <code>date</code> の場合)。直接書くなら <code>2026-10-12</code>(終日)または{' '}
+                    <code>2026-10-12 10:00</code>
                   </div>
                 </div>
                 <div className="field">

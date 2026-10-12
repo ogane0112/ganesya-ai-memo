@@ -44,6 +44,8 @@ export interface EditorHandle {
   focus(): void;
   getValue(): string;
   setValue(text: string): void;
+  /** Replace the first `length` characters (the frontmatter block); the rest, the cursor and undo history stay. */
+  replaceStart(length: number, text: string): void;
   /** Insert text at the cursor (replacing the selection). `cursorOffset` places the caret inside the inserted text. */
   insert(text: string, cursorOffset?: number): void;
   /** Wrap the selection, or insert `before`+`after` with the caret between. */
@@ -137,6 +139,11 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
       const v = view.current;
       if (!v) return;
       v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: text } });
+    },
+    replaceStart: (length, text) => {
+      const v = view.current;
+      if (!v) return;
+      v.dispatch({ changes: { from: 0, to: Math.min(length, v.state.doc.length), insert: text } });
     },
     insert: (text, cursorOffset) => {
       const v = view.current;

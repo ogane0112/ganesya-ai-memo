@@ -247,9 +247,8 @@ function FeedsSection() {
         <strong>外に出る情報:</strong>
         予定のタイトルと日時(と、選んだ場合はノートへのリンク)。対象は
         <Link to="/settings/ai">AIポリシー</Link>で<strong>「外部AI可」</strong>
-        のフォルダにあるノートだけで、
-        <code>sensitivity: secret</code>
-        のノートは含まれません。機密情報が検出されたタイトルは「予定」に置き換わります。Googleがこのサーバーに取りに来るので、サーバーがインターネットから見えている必要があります。
+        のフォルダにあるノートだけで、「機密ノート」(<code>sensitivity: secret</code>)
+        は含まれません。機密情報が検出されたタイトルは「予定」に置き換わります。Googleがこのサーバーに取りに来るので、サーバーがインターネットから見えている必要があります。
       </div>
 
       {created && (
