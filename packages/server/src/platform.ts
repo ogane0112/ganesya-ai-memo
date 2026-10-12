@@ -14,6 +14,9 @@ import { loadWorkspaceRow, Workspace, type WorkspaceDeps } from './workspace.js'
 /** Recently used workspaces per isolate/process (their stores cache immutable git objects). */
 const CACHE_SIZE = 32;
 
+/** Mutating API requests allowed per account per minute (Node fallback; Workers sets its own). */
+const WRITE_LIMIT_PER_MIN = 120;
+
 /**
  * Process-wide (or Workers-isolate-wide) services. Per-user state lives in
  * `Workspace`, opened per request with `workspace(userId)`.
@@ -25,6 +28,8 @@ export class Platform {
   readonly audit: AuditLog;
   /** Sign-in and token endpoints: attempts per client address per minute. */
   readonly authLimiter: RateLimiter;
+  /** Mutating API requests: attempts per account per minute. */
+  readonly writeLimiter: RateLimiter;
   readonly deps: WorkspaceDeps;
   /**
    * Object storage for uploaded files, always encrypted with the server secret.
@@ -43,6 +48,7 @@ export class Platform {
     auditConsole?: (line: string) => void,
     resolveHost?: (host: string) => Promise<string[]>,
     files?: FileStore,
+    writeLimiter?: RateLimiter,
   ) {
     this.files =
       files && cfg.secretKey
@@ -60,6 +66,7 @@ export class Platform {
       auditConsole,
     );
     this.authLimiter = authLimiter ?? new MemoryRateLimiter(30, 60_000);
+    this.writeLimiter = writeLimiter ?? new MemoryRateLimiter(WRITE_LIMIT_PER_MIN, 60_000);
     this.tokens = new TokenService(db, cfg.accessTokenMinutes);
     this.oauth = new OAuthService(db, cfg, this.tokens);
     this.deps = {
@@ -89,6 +96,8 @@ export class Platform {
       fetch?: typeof fetch;
       migrateKey?: object;
       authLimiter?: RateLimiter;
+      /** Per-account limiter for mutating requests (Workers: a Rate Limiting binding). */
+      writeLimiter?: RateLimiter;
       /** Where audit lines are printed (default: console.log, i.e. Workers Logs). */
       auditConsole?: (line: string) => void;
       /** Host name → addresses (Node.js), so calendar URLs cannot point inside by name. */
@@ -113,6 +122,7 @@ export class Platform {
       opts.auditConsole,
       opts.resolveHost,
       opts.files,
+      opts.writeLimiter,
     );
   }
 

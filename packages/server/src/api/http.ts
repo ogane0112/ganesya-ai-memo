@@ -135,6 +135,38 @@ export function securityMiddleware(platform: Platform): MiddlewareHandler<Env> {
   };
 }
 
+/** Endpoints with their own per-address limiter (handled in securityMiddleware). */
+const AUTH_PREFIX = '/api/auth/';
+
+/**
+ * Per-account cap on mutating requests, so one signed-in account (or a leaked
+ * agent token) cannot hammer the write API. Reads are not limited here. Runs
+ * after authMiddleware, so the caller is known; unauthenticated writes fall
+ * through to the route, which answers 401.
+ */
+export function writeLimitMiddleware(platform: Platform): MiddlewareHandler<Env> {
+  const mutating = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+  return async (c, next) => {
+    const path = c.req.path;
+    const limited =
+      mutating.has(c.req.method) && path.startsWith('/api/') && !path.startsWith(AUTH_PREFIX);
+    if (limited) {
+      const userId = c.get('principal')?.userId ?? c.get('session')?.userId;
+      if (userId && !(await platform.writeLimiter.allow(`write:${userId}`))) {
+        await audit(platform, c, {
+          action: 'security.rate_limited',
+          outcome: 'denied',
+          target: path,
+        });
+        return c.json({ error: '操作が多すぎます。少し待ってからやり直してください' }, 429, {
+          'retry-after': '60',
+        });
+      }
+    }
+    return next();
+  };
+}
+
 /** Run work after the response (Workers: waitUntil; Node: just let it run). */
 export function deferTo(c: Context): (p: Promise<unknown>) => void {
   return (p) => {

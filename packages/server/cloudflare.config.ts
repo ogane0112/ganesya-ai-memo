@@ -85,6 +85,11 @@ export default defineConfig(({ mode }) => {
           namespace: staging ? '7002' : production ? '7001' : '7003',
           simple: { limit: 30, period: 60 },
         }),
+        // 120 mutating requests per minute per account (keyed by user id, not address).
+        WRITE_LIMITER: bindings.rateLimit({
+          namespace: staging ? '7012' : production ? '7011' : '7013',
+          simple: { limit: 120, period: 60 },
+        }),
       },
     },
   };
