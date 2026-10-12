@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { FolderPicker } from '../components/FolderPicker';
 import { Icon } from '../components/Icon';
 import { PageHeader, Spinner } from '../components/ui';
 import { useDocumentTitle, useOnline } from '../lib/hooks';
-import { noteUrl } from '../lib/paths';
+import { folderList, noteUrl } from '../lib/paths';
 import { syncQueue } from '../lib/sync';
+import { useApp } from '../state/app';
 import { useToast } from '../state/toast';
 
 /** Share target: text/links shared from other apps land here. */
@@ -17,6 +19,15 @@ export function CapturePage() {
   const [text, setText] = useState(sharedText);
   const [url, setUrl] = useState(params.get('url') ?? '');
   const [folder, setFolder] = useState('Inbox');
+  const { notes, folders: created } = useApp();
+  const folders = useMemo(
+    () =>
+      folderList(
+        notes.map((n) => n.path),
+        ['Inbox', ...created],
+      ),
+    [notes, created],
+  );
   const [busy, setBusy] = useState(false);
   const online = useOnline();
   const toast = useToast();
@@ -86,12 +97,13 @@ export function CapturePage() {
         />
       </div>
       <div className="field">
-        <label htmlFor="cap-folder">フォルダ</label>
-        <input
-          id="cap-folder"
-          className="input"
+        <span className="label">フォルダ</span>
+        <FolderPicker
+          label="保存先のフォルダー"
           value={folder}
-          onChange={(e) => setFolder(e.target.value)}
+          onChange={setFolder}
+          folders={folders}
+          allowEmpty={false}
         />
         <div className="hint">タイトルが空なら、このフォルダの「今日のメモ」に追記します。</div>
       </div>
