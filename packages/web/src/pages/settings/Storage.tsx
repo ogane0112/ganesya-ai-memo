@@ -35,7 +35,7 @@ function Current({ s }: { s: StorageSettings }) {
 /** Where notes and their history live: inside the service, or in the user's own GitHub repository. */
 export function StorageSettings() {
   const toast = useToast();
-  const { refreshNotes, refreshProposals } = useApp();
+  const { refreshNotes, refreshProposals, refreshStorage } = useApp();
   const settings = useAsync(() => api.storage(), []);
   const [mode, setMode] = useState<'builtin' | 'github'>('builtin');
   const [owner, setOwner] = useState('');
@@ -96,6 +96,7 @@ export function StorageSettings() {
       settings.setData({ ...res.settings, githubAvailable: s.githubAvailable });
       refreshNotes();
       refreshProposals();
+      refreshStorage();
       toast.show(
         res.copied
           ? `${res.copied} 個のファイルをコピーして切り替えました`

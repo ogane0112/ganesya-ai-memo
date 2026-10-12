@@ -1,4 +1,5 @@
 import { gunzip, untar } from '../util/tar.js';
+import { pathClash, treeOf } from '@gmemo/core';
 import { blobId } from './gitobj.js';
 import {
   asBytes,
@@ -16,6 +17,7 @@ import {
   StoreError,
   TRAILER_PROPOSAL,
   WELCOME_NOTE,
+  PathClashError,
 } from './types.js';
 
 export interface GitHubConfig {
@@ -323,6 +325,16 @@ export class GitHubStore implements NoteStore {
     const parent = opts.parent === undefined ? current : opts.parent;
     const existing = parent ? await this.fileMap(parent) : new Map<string, string>();
     const parentTree = parent ? await this.commitTree(parent) : null;
+
+    // The repository's latest tree is the truth: a name that differs from it
+    // only in case, or a file where a folder is (or the other way round), is
+    // refused rather than committed into a tree that breaks clones.
+    const shape = treeOf(existing.keys());
+    for (const c of changes) {
+      if (c.content === null) continue;
+      const clash = pathClash(shape, c.path, 'file');
+      if (clash) throw new PathClashError(clash);
+    }
 
     const entries: Record<string, unknown>[] = [];
     for (const c of changes) {

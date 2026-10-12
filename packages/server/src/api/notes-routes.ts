@@ -6,14 +6,16 @@ import {
   normalizeNotePath,
   parseNoteLenient,
   parseView,
+  pathClash,
   scanText,
+  treeOf,
 } from '@gmemo/core';
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { stringify as stringifyYaml } from 'yaml';
 import { ASK_SYSTEM_PROMPT, publicFinding } from '../ai/gateway.js';
 import type { Principal } from '../auth/tokens.js';
-import { nowIso } from '../db/db.js';
+import { nowIso, stmt } from '../db/db.js';
 import { fileKey } from '../files/file-store.js';
 import type { FileResolution } from '../notes/service.js';
 import type { Platform } from '../platform.js';
@@ -102,18 +104,55 @@ export function notesRoutes(platform: Platform) {
     return path;
   };
 
+  /** The latest tree of a GitHub repository, which wins over folders kept by the app. */
+  const repoTree = async (w: Workspace, fresh: boolean) =>
+    w.store.kind === 'github'
+      ? treeOf(
+          (await w.store.listFiles(fresh ? await w.notes.head() : await w.notes.currentHead())).map(
+            (f) => f.path,
+          ),
+        )
+      : null;
+
   app.get('/folders', async (c) => {
     const { userId } = requireHuman(c);
     const rows = await platform.db.all<{ path: string }>(
       'SELECT path FROM folders WHERE user_id = ? ORDER BY path',
       userId,
     );
-    return c.json(rows.map((r) => r.path));
+    let paths = rows.map((r) => r.path);
+    // Folders that no longer fit the repository (renamed in another case, or
+    // replaced by a file there) are dropped: the latest commit is the truth.
+    const tree = paths.length ? await repoTree(await workspaceOf(platform, c), false) : null;
+    if (tree) {
+      const stale = paths.filter((p) => pathClash(tree, p, 'folder') !== null);
+      if (stale.length) {
+        await platform.db.batch(
+          stale.map((p) => stmt('DELETE FROM folders WHERE user_id = ? AND path = ?', userId, p)),
+        );
+        paths = paths.filter((p) => !stale.includes(p));
+      }
+    }
+    return c.json(paths);
   });
 
   app.post('/folders', async (c) => {
     const { userId } = requireHuman(c);
     const path = folderPath((await jsonBody<{ path: string }>(c)).path);
+    const tree = await repoTree(await workspaceOf(platform, c), true);
+    const clash = tree ? pathClash(tree, path, 'folder') : null;
+    if (clash) throw new HTTPException(409, { message: clash });
+    // Folders the app keeps must not differ from each other only in case either.
+    const twin = await platform.db.first<{ path: string }>(
+      'SELECT path FROM folders WHERE user_id = ? AND lower(path) = lower(?) AND path != ?',
+      userId,
+      path,
+      path,
+    );
+    if (twin)
+      throw new HTTPException(409, {
+        message: `「${twin.path}」があります。大文字・小文字だけが違う「${path}」は作れません。`,
+      });
     await platform.db.run(
       `INSERT INTO folders(user_id, path, created_at) VALUES (?, ?, ?)
        ON CONFLICT(user_id, path) DO NOTHING`,
