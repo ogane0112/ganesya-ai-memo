@@ -10,6 +10,7 @@ import { NoteEditor } from '../components/NoteEditor';
 import { Badge, EmptyState, ErrorBox, Loading, Modal } from '../components/ui';
 import { displayValue, formatDateTime, relativeTime } from '../lib/format';
 import { useAsync, useDocumentTitle, useOnline } from '../lib/hooks';
+import { linkKindLabel } from '../lib/links';
 import {
   displayPath,
   folderOf,
@@ -336,14 +337,16 @@ export function NotePage() {
               <ul className="link-list">
                 {links.data.backlinks.map((b) => (
                   <li key={b.path}>
-                    <Link to={noteUrl(b.path)}>{b.title}</Link>
+                    <Link to={noteUrl(b.path)}>{b.title}</Link>{' '}
+                    <span className="hint">({b.kinds.map(linkKindLabel).join('・')})</span>
                     {b.context && <p className="hint">{b.context}</p>}
                   </li>
                 ))}
               </ul>
             ) : (
               <p className="hint">
-                まだありません。他のノートから [[{titleFromPath(path)}]] と書くとリンクできます。
+                まだありません。他のノートから [[{titleFromPath(path)}]] と書くか、Markdownリンクや
+                frontmatter の related に {path} を書くとリンクできます。
               </p>
             )}
             {links.data && links.data.outgoing.some((o) => !o.path) && (

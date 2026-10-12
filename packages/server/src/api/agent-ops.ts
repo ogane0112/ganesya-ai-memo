@@ -151,6 +151,12 @@ export class AgentOps {
     );
   }
 
+  /** Links that point nowhere, from the notes this agent may read. */
+  async brokenLinks(agent: Agent, limit = 200) {
+    const canSee = await this.visibility(agent);
+    return (await this.ws.indexer.brokenLinks()).filter((l) => canSee(l.src)).slice(0, limit);
+  }
+
   async write(
     principal: Principal,
     changes: { path: string; content: string | null }[],

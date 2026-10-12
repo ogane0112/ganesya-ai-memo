@@ -5,6 +5,7 @@ import type { GraphData } from '../api/types';
 import { EmptyState, ErrorBox, Loading, PageHeader } from '../components/ui';
 import { bounds, createSimulation, type Simulation, tick } from '../lib/forceGraph';
 import { useAsync, useDocumentTitle } from '../lib/hooks';
+import { linkKindLabel } from '../lib/links';
 import { noteUrl } from '../lib/paths';
 import { useApp } from '../state/app';
 
@@ -16,6 +17,7 @@ export function GraphPage() {
   useDocumentTitle('グラフ');
   const { changeTick } = useApp();
   const data = useAsync(() => api.graph(), [changeTick]);
+  const broken = useAsync(() => api.brokenLinks(), [changeTick]);
   const [hideOrphans, setHideOrphans] = useState(false);
   const [query, setQuery] = useState('');
   const graph = useMemo<GraphData | null>(() => {
@@ -81,6 +83,21 @@ export function GraphPage() {
               ))}
             </ul>
           </details>
+          {broken.data?.broken.length ? (
+            <details className="graph-list">
+              <summary>リンク切れ ({broken.data.broken.length})</summary>
+              <ul>
+                {broken.data.broken.map((b) => (
+                  <li key={`${b.src} ${b.kind} ${b.target}`}>
+                    <Link to={noteUrl(b.src)}>{b.src}</Link>{' '}
+                    <span className="hint">
+                      → {b.target}({linkKindLabel(b.kind)})
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
         </>
       )}
     </div>
