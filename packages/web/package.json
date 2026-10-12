@@ -14,7 +14,7 @@
     "build:design": "vite build --config vite.design.config.ts"
   },
   "devDependencies": {
-    "@types/react": "^18.3.31",
+    "@types/react": "^19.3.0",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^4.7.0",
     "jsdom": "^29.1.1",
@@ -36,7 +36,7 @@
     "dompurify": "^3.4.16",
     "idb-keyval": "^6.3.0",
     "marked": "^18.1.0",
-    "react": "^18.3.1",
+    "react": "^19.3.0",
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.18.4",
     "yaml": "^2.9.1"
