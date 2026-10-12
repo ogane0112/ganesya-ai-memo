@@ -26,7 +26,7 @@ export function NoteTree({
   folders?: string[];
   onNavigate?: () => void;
   /** Offered on empty folders. */
-  onDeleteFolder?: (path: string) => void;
+  onDeleteFolder?: (path: string, opts: { hasSubfolders: boolean }) => void;
 }) {
   const tree = useMemo(() => buildTree(notes, folders), [notes, folders]);
   const [open, setOpen] = useState<Set<string>>(loadOpen);
@@ -87,24 +87,30 @@ export function NoteTree({
               <span className="tree-label">{sub.name}</span>
               <span className="tree-count">{countNotes(sub)}</span>
             </button>
-            {isOpen &&
-              (countNotes(sub) === 0 && sub.folders.length === 0 ? (
-                <div className="tree-empty" style={{ paddingLeft: 8 + (depth + 1) * 14 + 18 }}>
-                  <NavLink
-                    to={`/notes?new=1&folder=${encodeURIComponent(sub.path)}`}
-                    onClick={onNavigate}
+            {isOpen && countNotes(sub) === 0 && (
+              // No notes in it or below it (empty folders inside are fine): it can go.
+              <div className="tree-empty" style={{ paddingLeft: 8 + (depth + 1) * 14 + 18 }}>
+                <NavLink
+                  to={`/notes?new=1&folder=${encodeURIComponent(sub.path)}`}
+                  onClick={onNavigate}
+                >
+                  ノートを追加
+                </NavLink>
+                {onDeleteFolder && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onDeleteFolder(sub.path, { hasSubfolders: sub.folders.length > 0 })
+                    }
                   >
-                    ノートを追加
-                  </NavLink>
-                  {onDeleteFolder && (
-                    <button type="button" onClick={() => onDeleteFolder(sub.path)}>
-                      フォルダーを削除
-                    </button>
-                  )}
-                </div>
-              ) : (
-                renderFolder(sub, depth + 1)
-              ))}
+                    フォルダーを削除
+                  </button>
+                )}
+              </div>
+            )}
+            {isOpen &&
+              (sub.folders.length > 0 || sub.notes.length > 0) &&
+              renderFolder(sub, depth + 1)}
           </li>
         );
       })}
