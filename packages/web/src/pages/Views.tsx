@@ -1,4 +1,4 @@
-import { getProperty, type ViewDefinition, type ViewNote } from '@gmemo/core';
+import { getProperty, updateFrontmatter, type ViewDefinition, type ViewNote } from '@gmemo/core';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, describeError } from '../api/client';
@@ -7,6 +7,9 @@ import { Icon } from '../components/Icon';
 import { EmptyState, ErrorBox, Loading, PageHeader } from '../components/ui';
 import { addDayKey, bucketEvents, eventTimeLabel, monthRange } from '../lib/calendar';
 import { displayValue, localDateKey } from '../lib/format';
+import { moveCard, movableProperty } from '../lib/kanban';
+import { readProps } from '../lib/properties';
+import { syncQueue } from '../lib/sync';
 import { useAsync, useDocumentTitle, useIsPhone } from '../lib/hooks';
 import { noteUrl } from '../lib/paths';
 import {
@@ -83,10 +86,38 @@ export function ViewPage() {
   const data = useAsync(() => api.viewRows(id), [id, changeTick]);
   const phone = useIsPhone();
   const navigate = useNavigate();
+  const toast = useToast();
   useDocumentTitle(data.data?.view.name ?? 'ビュー');
   if (data.loading && !data.data) return <Loading />;
   if (data.error) return <ErrorBox error={data.error} onRetry={data.reload} />;
   const { view, rows } = data.data!;
+
+  // Moving a kanban card writes the column's value into the note's property,
+  // the same change a person could make in the note itself.
+  const move = async (row: ViewNote, to: string) => {
+    const prop = movableProperty(view, row);
+    const before = data.data;
+    if (!prop || !before) return;
+    data.setData(moveCard(before, row.path, to, prop));
+    try {
+      const doc = await api.note(row.path);
+      if (!readProps(doc.content).ok)
+        throw new Error('ノートのプロパティの書き方に誤りがあるため移動できません');
+      const next = updateFrontmatter(doc.content, { [prop]: to === '' ? undefined : to });
+      if (next !== doc.content)
+        await syncQueue.enqueue({
+          kind: 'save',
+          path: row.path,
+          content: next,
+          baseSha: doc.sha,
+          baseCommit: doc.commit,
+        });
+    } catch (e) {
+      data.setData(before);
+      toast.show(`移動できませんでした: ${describeError(e)}`, { kind: 'error' });
+    }
+  };
+  const moveTo = view.type === 'kanban' && movableProperty(view) ? move : undefined;
   return (
     <div className="page page-wide">
       <PageHeader
@@ -104,11 +135,17 @@ export function ViewPage() {
       {rows.length === 0 ? (
         <EmptyState icon="table" title="条件に合うノートがありません" />
       ) : phone || view.type === 'list' ? (
-        <RowList view={view} rows={rows} />
+        <RowList
+          view={view}
+          rows={rows}
+          {...(moveTo && data.data?.groups
+            ? { move: { groups: data.data.groups, onMove: moveTo } }
+            : {})}
+        />
       ) : view.type === 'table' ? (
         <TableView view={view} rows={rows} />
       ) : view.type === 'kanban' ? (
-        <KanbanView view={view} data={data.data!} />
+        <KanbanView view={view} data={data.data!} {...(moveTo ? { onMove: moveTo } : {})} />
       ) : (
         <CalendarView view={view} rows={rows} />
       )}
@@ -116,7 +153,48 @@ export function ViewPage() {
   );
 }
 
-function RowList({ view, rows }: { view: ViewDefinition; rows: ViewNote[] }) {
+type Groups = NonNullable<ViewRows['groups']>;
+
+/** The column a kanban card is in, as a picker (works on phones and with the keyboard). */
+function ColumnPicker({
+  row,
+  view,
+  groups,
+  onMove,
+}: {
+  row: ViewNote;
+  view: ViewDefinition;
+  groups: Groups;
+  onMove: (row: ViewNote, to: string) => void;
+}) {
+  if (!movableProperty(view, row)) return null;
+  const current = groups.find((g) => g.rows.some((r) => r.path === row.path))?.key ?? '';
+  const keys = [...new Set(['', ...groups.map((g) => g.key)])];
+  return (
+    <select
+      className="input select kanban-move"
+      aria-label={`「${row.title}」の列`}
+      value={current}
+      onChange={(e) => onMove(row, e.target.value)}
+    >
+      {keys.map((k) => (
+        <option key={k} value={k}>
+          {k || '(未設定)'}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function RowList({
+  view,
+  rows,
+  move,
+}: {
+  view: ViewDefinition;
+  rows: ViewNote[];
+  move?: { groups: Groups; onMove: (row: ViewNote, to: string) => void };
+}) {
   const cols = view.columns.filter((c) => c !== '$title');
   const extra =
     view.type === 'kanban'
@@ -128,7 +206,7 @@ function RowList({ view, rows }: { view: ViewDefinition; rows: ViewNote[] }) {
   return (
     <ul className="card-list">
       {rows.map((r) => (
-        <li key={r.path}>
+        <li key={r.path} className={move ? 'card-with-move' : undefined}>
           <Link to={noteUrl(r.path)} className="note-card">
             <span className="note-card-title">{r.title}</span>
             <span className="note-card-meta">
@@ -142,6 +220,7 @@ function RowList({ view, rows }: { view: ViewDefinition; rows: ViewNote[] }) {
               })}
             </span>
           </Link>
+          {move && <ColumnPicker row={r} view={view} groups={move.groups} onMove={move.onMove} />}
         </li>
       ))}
     </ul>
@@ -182,21 +261,67 @@ function TableView({ view, rows }: { view: ViewDefinition; rows: ViewNote[] }) {
   );
 }
 
-function KanbanView({ view, data }: { view: ViewDefinition; data: ViewRows }) {
+const DRAG_TYPE = 'application/x-gmemo-note';
+
+function KanbanView({
+  view,
+  data,
+  onMove,
+}: {
+  view: ViewDefinition;
+  data: ViewRows;
+  onMove?: (row: ViewNote, to: string) => void;
+}) {
   const groups = data.groups ?? [];
   const cols = view.columns.filter((c) => c !== '$title' && c !== view.groupBy).slice(0, 3);
+  const [over, setOver] = useState<string | null>(null);
   return (
     <div className="kanban" role="list">
       {groups.map((g) => (
-        <section key={g.key} className="kanban-col" role="listitem" aria-label={g.key || '未設定'}>
+        <section
+          key={g.key}
+          className={over === g.key ? 'kanban-col drop-target' : 'kanban-col'}
+          role="listitem"
+          aria-label={g.key || '未設定'}
+          {...(onMove
+            ? {
+                onDragOver: (e: React.DragEvent) => {
+                  if (!e.dataTransfer.types.includes(DRAG_TYPE)) return;
+                  e.preventDefault();
+                  setOver(g.key);
+                },
+                onDragLeave: (e: React.DragEvent) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) setOver(null);
+                },
+                onDrop: (e: React.DragEvent) => {
+                  e.preventDefault();
+                  setOver(null);
+                  const path = e.dataTransfer.getData(DRAG_TYPE);
+                  const row = data.rows.find((r) => r.path === path);
+                  if (row && !g.rows.some((r) => r.path === path)) onMove(row, g.key);
+                },
+              }
+            : {})}
+        >
           <h2 className="kanban-head">
             <span className="kanban-label">{g.key || '(未設定)'}</span>
             <span className="count">{g.rows.length}</span>
           </h2>
           <ul className="kanban-cards">
             {g.rows.map((r) => (
-              <li key={r.path}>
-                <Link to={noteUrl(r.path)} className="kanban-card">
+              <li
+                key={r.path}
+                {...(onMove && movableProperty(view, r)
+                  ? {
+                      draggable: true,
+                      onDragStart: (e: React.DragEvent) => {
+                        e.dataTransfer.setData(DRAG_TYPE, r.path);
+                        e.dataTransfer.effectAllowed = 'move';
+                      },
+                    }
+                  : {})}
+              >
+                <Link to={noteUrl(r.path)} className="kanban-card" draggable={false}>
                   <span className="note-card-title">{r.title}</span>
                   {cols.map((c) => {
                     const v = displayValue(getProperty(r, c));
@@ -207,6 +332,7 @@ function KanbanView({ view, data }: { view: ViewDefinition; data: ViewRows }) {
                     ) : null;
                   })}
                 </Link>
+                {onMove && <ColumnPicker row={r} view={view} groups={groups} onMove={onMove} />}
               </li>
             ))}
           </ul>

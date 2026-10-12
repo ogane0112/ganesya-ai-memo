@@ -4,6 +4,7 @@ import { useKeyboardInset, useOnline } from '../lib/hooks';
 import { useToast } from '../state/toast';
 import type { EditorHandle } from './Editor';
 import { Icon } from './Icon';
+import { NoteLinkPicker } from './NoteLinkPicker';
 import { Spinner } from './ui';
 
 /** Big-target formatting bar. On phones it sticks to the bottom, above the keyboard. */
@@ -23,6 +24,7 @@ export function EditorToolbar({
   const inset = useKeyboardInset();
   const file = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [linking, setLinking] = useState<string | null>(null);
   const online = useOnline();
   const toast = useToast();
 
@@ -83,9 +85,9 @@ export function EditorToolbar({
           type="button"
           className="tool"
           onMouseDown={keep}
-          onClick={() => editor.current?.wrap('[[', ']]')}
+          onClick={() => setLinking(editor.current?.getSelection() ?? '')}
           aria-label="ノートへのリンク"
-          title="ノートへのリンク [[ ]]"
+          title="ノートへのリンク(検索して挿入)"
         >
           <Icon name="link" size={22} />
         </button>
@@ -142,6 +144,15 @@ export function EditorToolbar({
         {saveLabel}
         {dirty && <span className="dirty-dot" aria-label="未保存の変更あり" />}
       </button>
+      <NoteLinkPicker
+        open={linking !== null}
+        selection={linking ?? ''}
+        onClose={() => setLinking(null)}
+        onPick={(md) => {
+          setLinking(null);
+          editor.current?.insert(md);
+        }}
+      />
     </div>
   );
 }
