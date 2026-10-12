@@ -126,7 +126,8 @@ export function extractNoteLinks(
 
   for (const l of extractLinks(body)) add('wikilink', l.target, l.embed);
 
-  const dir = src.replace(/\\/g, '/').replace(/[^/]*$/, '');
+  const slashed = src.replace(/\\/g, '/');
+  const dir = slashed.slice(0, slashed.lastIndexOf('/') + 1);
   // Wiki links are already in; blanking them keeps `[[a]](b)` from reading as a Markdown link.
   const text = stripCode(body).replace(WIKILINK_RE, ' ');
   for (const m of text.matchAll(MD_INLINE_RE))
