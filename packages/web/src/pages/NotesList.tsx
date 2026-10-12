@@ -7,6 +7,7 @@ import { Badge, EmptyState, Loading, Modal, PageHeader } from '../components/ui'
 import { useDocumentTitle } from '../lib/hooks';
 import { displayPath, folderList, noteUrl, titleFromPath, toNotePath } from '../lib/paths';
 import { useApp } from '../state/app';
+import { useDeleteFolder } from '../state/folders';
 import { useToast } from '../state/toast';
 
 type Sort = 'updated' | 'title';
@@ -64,6 +65,13 @@ export function NotesListPage() {
     );
     return out;
   }, [notes, folder, filter, sort]);
+
+  const deleteFolder = useDeleteFolder();
+  // The chosen folder holds no notes, not even in folders inside it: it can be deleted.
+  const folderIsEmpty =
+    !!folder &&
+    !notes.some((n) => n.path.startsWith(`${folder}/`)) &&
+    ![...pendingPaths].some((p) => p.startsWith(`${folder}/`));
 
   // Queued new notes that the server does not know yet.
   const unsynced = useMemo(
@@ -137,6 +145,32 @@ export function NotesListPage() {
       </div>
       {!notesLoaded ? (
         <Loading />
+      ) : folderIsEmpty ? (
+        <EmptyState icon="folder" title={`「${folder.split('/').join(' › ')}」は空です`}>
+          <div className="row wrap">
+            <button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>
+              <Icon name="plus" size={18} />
+              ノートを追加
+            </button>
+            <button
+              type="button"
+              className="btn btn-danger-text"
+              onClick={() =>
+                void deleteFolder(folder, {
+                  hasSubfolders: folders.some((f) => f.startsWith(`${folder}/`)),
+                }).then((deleted) => {
+                  if (!deleted) return;
+                  const next = new URLSearchParams(params);
+                  next.delete('folder');
+                  setParams(next, { replace: true });
+                })
+              }
+            >
+              <Icon name="trash" size={18} />
+              フォルダーを削除
+            </button>
+          </div>
+        </EmptyState>
       ) : list.length === 0 && unsynced.length === 0 ? (
         <EmptyState title={notes.length ? '該当するノートがありません' : 'まだノートがありません'}>
           {!notes.length && (

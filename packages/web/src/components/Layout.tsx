@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
-import { api, describeError } from '../api/client';
 import { useOnline } from '../lib/hooks';
 import { displayPath } from '../lib/paths';
 import { syncQueue } from '../lib/sync';
 import { useApp } from '../state/app';
-import { useToast } from '../state/toast';
+import { useDeleteFolder } from '../state/folders';
 import { Icon } from './Icon';
 import { NoteTree } from './NoteTree';
 
@@ -89,18 +88,11 @@ function SyncStatus() {
 }
 
 export function Layout() {
-  const { openProposals, notes, notesLoaded, folders, refreshNotes, auth } = useApp();
+  const { openProposals, notes, notesLoaded, folders, auth } = useApp();
   const loc = useLocation();
-  const toast = useToast();
   const [typing, setTyping] = useState(false);
 
-  const deleteFolder = (path: string) => {
-    if (!confirm(`フォルダー「${path}」を削除しますか?`)) return;
-    api
-      .deleteFolder(path)
-      .then(refreshNotes)
-      .catch((e: unknown) => toast.show(describeError(e), { kind: 'error' }));
-  };
+  const deleteFolder = useDeleteFolder();
 
   // Hide the phone tab bar while the keyboard is likely open (an input is focused).
   useEffect(() => {
@@ -176,7 +168,11 @@ export function Layout() {
           {notesLoaded && notes.length === 0 && folders.length === 0 ? (
             <p className="hint pad">まだノートがありません</p>
           ) : (
-            <NoteTree notes={notes} folders={folders} onDeleteFolder={deleteFolder} />
+            <NoteTree
+              notes={notes}
+              folders={folders}
+              onDeleteFolder={(path, opts) => void deleteFolder(path, opts)}
+            />
           )}
         </div>
         <div className="side-foot">{auth?.user?.username}</div>
