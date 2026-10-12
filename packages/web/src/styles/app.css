@@ -1800,6 +1800,104 @@ select.input {
     display: none;
   }
 }
+.props-panel {
+  border-bottom: 1px solid var(--border);
+  font-size: 0.875rem;
+}
+.props-panel > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--muted);
+  min-height: 40px;
+}
+.props-panel > summary::-webkit-details-marker {
+  display: none;
+}
+.props-panel-title {
+  font-weight: 700;
+  color: var(--fg);
+  flex: 0 0 auto;
+}
+.props-panel > summary .ellipsis {
+  flex: 1;
+  min-width: 0;
+}
+.props-broken {
+  padding: 8px 16px;
+  color: var(--muted);
+}
+.props-form {
+  display: grid;
+  gap: 10px;
+  padding: 4px 16px 14px;
+}
+.props-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+.props-row > label:first-child {
+  flex: 0 0 96px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.props-row > .input,
+.props-row > .tag-input {
+  flex: 1 1 200px;
+  min-width: 0;
+  max-width: 360px;
+}
+.props-inline,
+.props-check label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg);
+}
+.props-hint {
+  flex-basis: 100%;
+  padding-left: 106px;
+  font-size: 0.75rem;
+}
+@media (max-width: 559px) {
+  .props-row > label:first-child {
+    flex-basis: 100%;
+  }
+  .props-hint {
+    padding-left: 0;
+  }
+}
+.props-add .input {
+  flex: 0 1 220px;
+}
+.tag-input {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.tag-input .tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.tag-input .tag button {
+  display: inline-flex;
+  border: 0;
+  background: none;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+.tag-input .input {
+  flex: 1 1 120px;
+  min-width: 100px;
+}
 .editor-panes {
   flex: 1;
   min-height: 0;

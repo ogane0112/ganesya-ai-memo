@@ -1,4 +1,4 @@
-import { parseNoteLenient, serializeNote } from '@gmemo/core';
+import { type Frontmatter, parseNoteLenient, serializeNote, updateFrontmatter } from '@gmemo/core';
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
@@ -14,6 +14,8 @@ import { Editor, type EditorHandle } from './Editor';
 import { EditorToolbar } from './EditorToolbar';
 import { Icon } from './Icon';
 import { Markdown } from './MarkdownView';
+import { PropertiesPanel } from './PropertiesPanel';
+import { readProps } from '../lib/properties';
 import { FindingList } from './SensitiveConfirm';
 
 interface Props {
@@ -203,6 +205,19 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
     };
   }, [save]);
 
+  // The properties panel rewrites only the frontmatter block of the editor's text.
+  const patchProps = (patch: Frontmatter) => {
+    const cur = editor.current?.getValue() ?? textRef.current;
+    const read = readProps(cur);
+    if (!read.ok) return;
+    const body = cur.slice(read.head.length);
+    const next = updateFrontmatter(cur, patch);
+    const head = next.slice(0, next.length - body.length);
+    if (head === read.head) return;
+    if (editor.current) editor.current.replaceStart(read.head.length, head);
+    else setText(head + body);
+  };
+
   const markSecret = async () => {
     const cur = editor.current?.getValue() ?? text;
     const parsed = parseNoteLenient(cur);
@@ -339,6 +354,7 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
           完了
         </button>
       </div>
+      <PropertiesPanel text={text} onPatch={patchProps} />
       <div className={`editor-panes mode-${mode}`}>
         {/* The editor stays mounted in preview mode, so undo history and the cursor survive. */}
         <div className="write-editor" hidden={mode === 'preview'}>
