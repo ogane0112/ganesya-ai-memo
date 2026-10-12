@@ -4,6 +4,7 @@ import { useKeyboardInset, useOnline } from '../lib/hooks';
 import { useToast } from '../state/toast';
 import type { EditorHandle } from './Editor';
 import { Icon } from './Icon';
+import { InsertViewDialog } from './InsertViewDialog';
 import { NoteLinkPicker } from './NoteLinkPicker';
 import { Spinner } from './ui';
 
@@ -14,17 +15,21 @@ export function EditorToolbar({
   saving,
   saveLabel = '保存',
   dirty,
+  notePath,
 }: {
   editor: RefObject<EditorHandle | null>;
   onSave: () => void;
   saving?: boolean;
   saveLabel?: string;
   dirty?: boolean;
+  /** The note being edited; offers "一覧を挿入" (its lists live under this note). */
+  notePath?: string;
 }) {
   const inset = useKeyboardInset();
   const file = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [linking, setLinking] = useState<string | null>(null);
+  const [addingView, setAddingView] = useState(false);
   const online = useOnline();
   const toast = useToast();
 
@@ -91,6 +96,18 @@ export function EditorToolbar({
         >
           <Icon name="link" size={22} />
         </button>
+        {notePath && (
+          <button
+            type="button"
+            className="tool"
+            onMouseDown={keep}
+            onClick={() => setAddingView(true)}
+            aria-label="一覧を挿入"
+            title="一覧(表・カンバン・カレンダー)を挿入"
+          >
+            <Icon name="table" size={22} />
+          </button>
+        )}
         <button
           type="button"
           className="tool"
@@ -144,6 +161,17 @@ export function EditorToolbar({
         {saveLabel}
         {dirty && <span className="dirty-dot" aria-label="未保存の変更あり" />}
       </button>
+      {notePath && (
+        <InsertViewDialog
+          open={addingView}
+          notePath={notePath}
+          onClose={() => setAddingView(false)}
+          onInsert={(md) => {
+            setAddingView(false);
+            editor.current?.insert(md);
+          }}
+        />
+      )}
       <NoteLinkPicker
         open={linking !== null}
         selection={linking ?? ''}

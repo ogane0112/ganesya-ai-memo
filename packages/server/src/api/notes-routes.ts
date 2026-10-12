@@ -553,6 +553,29 @@ export function notesRoutes(platform: Platform) {
     );
   });
 
+  /**
+   * Rows for an inline view (a view placed inside a note). The settings travel
+   * in the query string, so this stays a read: it is GET, cached by nobody
+   * (account data), and not counted against the write limit.
+   */
+  app.get('/views/inline/rows', async (c) => {
+    const $ = await open(c);
+    const { principal } = requireReader(c);
+    const source = str(c.req.query('source'), 'source');
+    if (source.length > 4000) throw new HTTPException(400, { message: 'view settings too long' });
+    const view = parseView('inline', source);
+    const rows = await $.visibleTo(
+      principal,
+      applyView(view, await $.indexer.viewNotes()),
+      (r) => r.path,
+    );
+    return c.json({
+      view,
+      rows,
+      ...(view.type === 'kanban' ? { groups: groupRows(view, rows) } : {}),
+    });
+  });
+
   app.get('/views/:id/rows', async (c) => {
     const $ = await open(c);
     const { principal } = requireReader(c);

@@ -1,9 +1,10 @@
-import { parseNoteLenient } from '@gmemo/core';
+import { parseNoteLenient, replaceInlineView } from '@gmemo/core';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, ApiError, describeError } from '../api/client';
 import type { BlockAttribution, HistoryEntry } from '../api/types';
 import { Icon } from '../components/Icon';
+import { InlineView } from '../components/InlineView';
 import { BlameView } from '../components/MarkdownView';
 import { NoteEditor } from '../components/NoteEditor';
 import { Badge, EmptyState, ErrorBox, Loading, Modal } from '../components/ui';
@@ -160,6 +161,32 @@ export function NotePage() {
   const aiBlocks = (blame.data ?? []).filter((b) => b.author.kind === 'ai');
   const agents = [...new Set(aiBlocks.map((b) => b.author.name))];
 
+  // An inline view's tabs and settings rewrite its block in this note, saved like an edit.
+  const changeView = async (index: number, next: string) => {
+    try {
+      const queued = pendingFor(syncQueue.snapshot, path);
+      if (queued?.op.kind === 'save') {
+        await syncQueue.enqueue({
+          ...queued.op,
+          content: replaceInlineView(queued.op.content, index, next),
+        });
+        return;
+      }
+      const fresh = await api.note(path);
+      const content = replaceInlineView(fresh.content, index, next);
+      if (content !== fresh.content)
+        await syncQueue.enqueue({
+          kind: 'save',
+          path,
+          content,
+          baseSha: fresh.sha,
+          baseCommit: fresh.commit,
+        });
+    } catch (e) {
+      toast.show(`一覧の設定を保存できませんでした: ${describeError(e)}`, { kind: 'error' });
+    }
+  };
+
   const remove = async () => {
     if (!confirm(`「${title}」を削除しますか?(履歴からは復元できます)`)) return;
     try {
@@ -293,6 +320,12 @@ export function NotePage() {
             blame={pendingContent !== null ? [] : (blame.data ?? [])}
             paths={paths}
             hideTitle={heading === title ? title : undefined}
+            renderView={(src, i) => (
+              <InlineView
+                source={src}
+                {...(commit ? {} : { onChange: (next: string) => void changeView(i, next) })}
+              />
+            )}
           />
 
           <section className="links-section" aria-labelledby="backlinks-h">

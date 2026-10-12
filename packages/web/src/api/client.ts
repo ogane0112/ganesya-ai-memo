@@ -246,6 +246,8 @@ export const api = {
   // ---- views ---------------------------------------------------------------
   views: () => get<ViewEntry[]>('/api/views'),
   viewRows: (id: string) => get<ViewRows>(`/api/views/${encodeURIComponent(id)}/rows`),
+  /** Rows for a view placed inside a note (its YAML settings). */
+  inlineViewRows: (source: string) => get<ViewRows>(`/api/views/inline/rows${qs({ source })}`),
   saveView: (id: string, source: string) =>
     put<Ok>(`/api/views/${encodeURIComponent(id)}`, { source }),
   deleteView: (id: string) => del<Ok>(`/api/views/${encodeURIComponent(id)}`),

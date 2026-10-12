@@ -1898,6 +1898,63 @@ select.input {
   flex: 1 1 120px;
   min-width: 100px;
 }
+.inline-view {
+  margin: 16px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  line-height: 1.5;
+  font-size: 0.9375rem;
+}
+.inline-view-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+.md .inline-view-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.inline-view-tabs {
+  margin-bottom: 0;
+}
+.inline-view-actions {
+  margin-left: auto;
+}
+.inline-view-panel {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+}
+.inline-view-broken {
+  color: var(--muted);
+}
+.inline-view-broken .hint {
+  display: block;
+}
+.inline-view-empty {
+  margin: 8px 0;
+}
+.inline-view .kanban,
+.inline-view .table-wrap,
+.inline-view .calendar {
+  margin-bottom: 0;
+}
+.inline-view .card-list {
+  margin: 0;
+}
+/* Inside a note the list sits in running text: keep its links plain. */
+.md .inline-view a {
+  text-decoration: none;
+}
 .link-picker {
   list-style: none;
   margin: 0;

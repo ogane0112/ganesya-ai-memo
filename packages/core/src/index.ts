@@ -10,3 +10,4 @@ export * from './views.js';
 export * from './paths.js';
 export * from './ical.js';
 export * from './plain.js';
+export * from './inline-views.js';

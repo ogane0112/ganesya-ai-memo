@@ -1,4 +1,10 @@
-import { type Frontmatter, parseNoteLenient, serializeNote, updateFrontmatter } from '@gmemo/core';
+import {
+  findInlineViews,
+  type Frontmatter,
+  parseNoteLenient,
+  serializeNote,
+  updateFrontmatter,
+} from '@gmemo/core';
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
@@ -13,6 +19,7 @@ import { useToast } from '../state/toast';
 import { Editor, type EditorHandle } from './Editor';
 import { EditorToolbar } from './EditorToolbar';
 import { Icon } from './Icon';
+import { InlineView } from './InlineView';
 import { Markdown } from './MarkdownView';
 import { PropertiesPanel } from './PropertiesPanel';
 import { readProps } from '../lib/properties';
@@ -48,7 +55,13 @@ function loadMode(): EditorMode {
 }
 
 /** The preview: the body as the note page shows it (frontmatter is not rendered). */
-function Preview({ text }: { text: string }) {
+function Preview({
+  text,
+  onViewChange,
+}: {
+  text: string;
+  onViewChange: (index: number, source: string) => void;
+}) {
   const { paths } = useApp();
   // Rendering long notes on every keystroke would make typing lag in split view.
   const deferred = useDeferredValue(text);
@@ -56,7 +69,13 @@ function Preview({ text }: { text: string }) {
   return (
     <div className="editor-preview" aria-label="プレビュー">
       {body.trim() ? (
-        <Markdown text={body} paths={paths} />
+        <Markdown
+          text={body}
+          paths={paths}
+          renderView={(src, i) => (
+            <InlineView source={src} onChange={(next) => onViewChange(i, next)} />
+          )}
+        />
       ) : (
         <p className="hint">(本文はまだありません)</p>
       )}
@@ -218,6 +237,15 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
     else setText(head + body);
   };
 
+  // An inline view's tabs and settings rewrite its block in the editor's text.
+  const changeView = (index: number, source: string) => {
+    const cur = editor.current?.getValue() ?? textRef.current;
+    const v = findInlineViews(cur)[index];
+    if (!v) return;
+    if (editor.current) editor.current.replaceRange(v.from, v.to, source);
+    else setText(cur.slice(0, v.from) + source + cur.slice(v.to));
+  };
+
   const markSecret = async () => {
     const cur = editor.current?.getValue() ?? text;
     const parsed = parseNoteLenient(cur);
@@ -367,10 +395,16 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
             placeholder="本文を書きましょう"
           />
         </div>
-        {mode !== 'write' && <Preview text={text} />}
+        {mode !== 'write' && <Preview text={text} onViewChange={changeView} />}
       </div>
       {mode !== 'preview' && (
-        <EditorToolbar editor={editor} onSave={() => void save()} saving={saving} dirty={dirty} />
+        <EditorToolbar
+          editor={editor}
+          onSave={() => void save()}
+          saving={saving}
+          dirty={dirty}
+          notePath={path}
+        />
       )}
     </div>
   );
