@@ -1,5 +1,5 @@
 import { parseNoteLenient, serializeNote } from '@gmemo/core';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import type { PublicFinding } from '../api/types';
@@ -8,10 +8,12 @@ import { displayPath } from '../lib/paths';
 import { loadDraft, saveDraft } from '../lib/queueStore';
 import { pendingFor } from '../lib/queue';
 import { syncQueue } from '../lib/sync';
+import { useApp } from '../state/app';
 import { useToast } from '../state/toast';
 import { Editor, type EditorHandle } from './Editor';
 import { EditorToolbar } from './EditorToolbar';
 import { Icon } from './Icon';
+import { Markdown } from './MarkdownView';
 import { FindingList } from './SensitiveConfirm';
 
 interface Props {
@@ -24,6 +26,41 @@ interface Props {
 }
 
 const AUTOSAVE_IDLE_MS = 20_000;
+
+/** Write the Markdown, look at the result, or both side by side (wide screens). */
+type EditorMode = 'write' | 'preview' | 'split';
+const MODE_KEY = 'gmemo.editorMode';
+const MODES: { id: EditorMode; label: string }[] = [
+  { id: 'write', label: '書く' },
+  { id: 'preview', label: 'プレビュー' },
+  { id: 'split', label: '並べて表示' },
+];
+
+function loadMode(): EditorMode {
+  try {
+    const m = localStorage.getItem(MODE_KEY);
+    return m === 'preview' || m === 'split' ? m : 'write';
+  } catch {
+    return 'write';
+  }
+}
+
+/** The preview: the body as the note page shows it (frontmatter is not rendered). */
+function Preview({ text }: { text: string }) {
+  const { paths } = useApp();
+  // Rendering long notes on every keystroke would make typing lag in split view.
+  const deferred = useDeferredValue(text);
+  const body = parseNoteLenient(deferred).body;
+  return (
+    <div className="editor-preview" aria-label="プレビュー">
+      {body.trim() ? (
+        <Markdown text={body} paths={paths} />
+      ) : (
+        <p className="hint">(本文はまだありません)</p>
+      )}
+    </div>
+  );
+}
 
 /**
  * Edits one note. Saves go through the offline queue with the blob sha the
@@ -47,6 +84,17 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
   const [scan, setScan] = useState<PublicFinding[] | null>(null);
   const scanDismissed = useRef(false);
   const leaving = useRef(false);
+  const [mode, setModeState] = useState<EditorMode>(loadMode);
+  const setMode = (m: EditorMode) => {
+    setModeState(m);
+    try {
+      localStorage.setItem(MODE_KEY, m);
+    } catch {
+      /* the choice just is not remembered */
+    }
+    // Back to writing: put the cursor where it was.
+    if (m !== 'preview') requestAnimationFrame(() => editor.current?.focus());
+  };
   const textRef = useRef(text);
   textRef.current = text;
   const dirty = text !== savedRef.current;
@@ -255,7 +303,23 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
       )}
       <div className="note-editor-head">
         <span className="hint ellipsis">{displayPath(path)}</span>
-        <span className="hint">
+        <div className="segmented editor-modes" role="tablist" aria-label="表示">
+          {MODES.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              role="tab"
+              aria-selected={mode === m.id}
+              className={[mode === m.id ? 'active' : '', m.id === 'split' ? 'wide-only' : '']
+                .filter(Boolean)
+                .join(' ')}
+              onClick={() => setMode(m.id)}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+        <span className="hint editor-status">
           {saving ? '保存中…' : dirty ? '未保存' : pending ? '同期待ち' : '保存済み'}
         </span>
         <button
@@ -275,17 +339,23 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
           完了
         </button>
       </div>
-      <div className="write-editor">
-        <Editor
-          ref={editor}
-          initialValue={initial}
-          onChange={setText}
-          onSave={() => void save()}
-          autoFocus={content === null}
-          placeholder="本文を書きましょう"
-        />
+      <div className={`editor-panes mode-${mode}`}>
+        {/* The editor stays mounted in preview mode, so undo history and the cursor survive. */}
+        <div className="write-editor" hidden={mode === 'preview'}>
+          <Editor
+            ref={editor}
+            initialValue={initial}
+            onChange={setText}
+            onSave={() => void save()}
+            autoFocus={content === null && mode !== 'preview'}
+            placeholder="本文を書きましょう"
+          />
+        </div>
+        {mode !== 'write' && <Preview text={text} />}
       </div>
-      <EditorToolbar editor={editor} onSave={() => void save()} saving={saving} dirty={dirty} />
+      {mode !== 'preview' && (
+        <EditorToolbar editor={editor} onSave={() => void save()} saving={saving} dirty={dirty} />
+      )}
     </div>
   );
 }
