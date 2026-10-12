@@ -29,6 +29,9 @@ interface AppContextValue {
   notes: NoteSummary[];
   notesLoaded: boolean;
   refreshNotes: () => void;
+  /** Where the notes are kept (null until known). GitHub saves take seconds. */
+  storage: 'builtin' | 'github' | null;
+  refreshStorage: () => void;
   paths: string[];
   /** Folders created on their own; folders that hold notes come from `notes`. */
   folders: string[];
@@ -70,6 +73,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [notes, setNotes] = useState<NoteSummary[]>([]);
   const [notesLoaded, setNotesLoaded] = useState(false);
   const [folders, setFolders] = useState<string[]>([]);
+  const [storage, setStorage] = useState<'builtin' | 'github' | null>(null);
+  const refreshStorage = useCallback(() => {
+    api
+      .storage()
+      .then((s) => setStorage(s.storage))
+      .catch(() => undefined);
+  }, []);
   const [changeTick, setChangeTick] = useState(0);
   const [lastChange, setLastChange] = useState<{ commit: string; paths: string[] } | null>(null);
   const [openProposals, setOpenProposals] = useState(0);
@@ -169,12 +179,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (cancelled) return;
       refreshNotes();
       refreshProposals();
+      refreshStorage();
       syncQueue.resume();
     });
     return () => {
       cancelled = true;
     };
-  }, [signedIn, auth?.session?.via, userId, username, refreshNotes, refreshProposals]);
+  }, [
+    signedIn,
+    auth?.session?.via,
+    userId,
+    username,
+    refreshNotes,
+    refreshProposals,
+    refreshStorage,
+  ]);
 
   // Changes from other devices and agents: a cheap poll while the app is visible
   // (serverless hosting cannot keep event streams open).
@@ -242,6 +261,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       notes,
       notesLoaded,
       refreshNotes,
+      storage,
+      refreshStorage,
       paths,
       folders,
       changeTick,
@@ -258,6 +279,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       notes,
       notesLoaded,
       refreshNotes,
+      storage,
+      refreshStorage,
       paths,
       folders,
       changeTick,

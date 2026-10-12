@@ -166,6 +166,40 @@ class SyncQueue {
     });
   }
 
+  /**
+   * How the save of `path` ends, for screens that must not move on before the
+   * server has it (a GitHub repository can take several seconds):
+   * - 'saved': on the server (committed, or kept as a proposal)
+   * - 'failed': refused (the queue already reports why)
+   * - 'later': offline, retrying, or not done within `timeoutMs`; it stays queued
+   */
+  outcome(path: string, timeoutMs = 90_000): Promise<'saved' | 'failed' | 'later'> {
+    const open = (st: QueueState) =>
+      st.items.filter((i) => i.op.kind === 'save' && i.op.path === path && i.state !== 'failed');
+    if (open(this.state).length === 0) return Promise.resolve('saved');
+    if (typeof navigator !== 'undefined' && navigator.onLine === false)
+      return Promise.resolve('later');
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (r: 'saved' | 'failed' | 'later') => {
+        if (done) return;
+        done = true;
+        offResult();
+        clearTimeout(t);
+        resolve(r);
+      };
+      const offResult = this.onResult((item, outcome) => {
+        if (item.op.kind !== 'save' || item.op.path !== path) return;
+        if (outcome.type === 'failed') finish('failed');
+        else if (outcome.type === 'retry') finish('later');
+        // Newer edits of the same note may still be waiting behind this one.
+        else if (open(this.state).length === 0) finish('saved');
+      });
+      const t = setTimeout(() => finish('later'), timeoutMs);
+      void this.flush();
+    });
+  }
+
   /** Call after signing in again so paused writes resume. */
   resume() {
     this.active = true;

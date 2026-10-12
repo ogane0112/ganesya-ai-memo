@@ -100,6 +100,13 @@ export class StoreError extends Error {
   }
 }
 
+/** A path that does not fit the repository's latest tree (case-only difference, file vs folder). */
+export class PathClashError extends StoreError {
+  constructor(message: string) {
+    super(message, 409);
+  }
+}
+
 export const WELCOME_NOTE =
   '---\ntitle: Welcome\ncreated_by: human\n---\n# Welcome\n\nこれはあなたのノートです。[[リンク]]でノート同士をつなげられます。\n';
 

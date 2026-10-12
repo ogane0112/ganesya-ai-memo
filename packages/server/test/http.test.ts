@@ -643,6 +643,35 @@ describe('HTTP API', () => {
       ((await (await req('/api/notes')).json()) as { path: string }[]).map((n) => n.path),
     ).toContain('gh.md');
   });
+
+  it('keeps the structure of a GitHub repository as the truth', async () => {
+    await req('/api/admin/storage', {
+      method: 'PUT',
+      json: { storage: 'github', github: { owner: gh.owner, repo: gh.repo, token: gh.token } },
+    });
+    const put = (path: string) =>
+      req('/api/note', { method: 'PUT', json: { path, content: '# x\n' } });
+    expect((await put('Projects/Plan.md')).status).toBe(200);
+
+    // A name that differs only in case from the repository is refused, with why.
+    const twin = await put('projects/Other.md');
+    expect(twin.status).toBe(409);
+    expect(((await twin.json()) as { error: string }).error).toContain('「Projects」');
+    expect((await put('Projects/Other.md')).status).toBe(200);
+
+    // Folders made in the app follow the same rule…
+    const folder = (path: string) => req('/api/folders', { method: 'POST', json: { path } });
+    expect((await folder('PROJECTS')).status).toBe(409);
+    expect((await folder('Projects/Plan.md')).status).toBe(409);
+    expect((await folder('Ideas')).status).toBe(200);
+    expect((await folder('ideas')).status).toBe(409);
+
+    // …and one that stops fitting the repository (a file of that name was pushed
+    // there, outside the app) is dropped: the latest commit wins.
+    await gh.pushExternal({ Ideas: 'a file now' });
+    await req('/api/sync', { method: 'POST' });
+    expect(await (await req('/api/folders')).json()).toEqual([]);
+  });
 });
 
 describe('sign-up', () => {

@@ -22,6 +22,7 @@ import { Icon } from './Icon';
 import { InlineView } from './InlineView';
 import { Markdown } from './MarkdownView';
 import { PropertiesPanel } from './PropertiesPanel';
+import { Spinner } from './ui';
 import { readProps } from '../lib/properties';
 import { FindingList } from './SensitiveConfirm';
 
@@ -105,6 +106,18 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
   const [scan, setScan] = useState<PublicFinding[] | null>(null);
   const scanDismissed = useRef(false);
   const leaving = useRef(false);
+  const { storage } = useApp();
+  // A GitHub repository takes seconds per commit: explicit saves wait for it,
+  // with the editor locked, so nothing moves on before the repository has it.
+  const slow = storage === 'github';
+  const [blocking, setBlocking] = useState(false);
+  const panes = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = panes.current;
+    if (!el) return;
+    if (blocking) el.setAttribute('inert', '');
+    else el.removeAttribute('inert');
+  }, [blocking]);
   const [mode, setModeState] = useState<EditorMode>(loadMode);
   const setMode = (m: EditorMode) => {
     setModeState(m);
@@ -206,6 +219,30 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
     },
     [path, commit, toast],
   );
+
+  /** After an explicit save: wait until GitHub has it, with the editor locked. */
+  const waitForRepo = useCallback(async (): Promise<'saved' | 'failed' | 'later'> => {
+    if (!slow) return 'saved';
+    setBlocking(true);
+    try {
+      const r = await syncQueue.outcome(path);
+      if (r === 'later')
+        toast.show('GitHub への保存がまだ終わっていません。端末には保存済みで、自動で再送します', {
+          kind: 'info',
+        });
+      // 'failed': the queue already shows why.
+      return r;
+    } finally {
+      setBlocking(false);
+    }
+  }, [slow, path, toast]);
+
+  /** The save button and Ctrl+S. */
+  const saveNow = useCallback(async () => {
+    await save({ quiet: slow });
+    if (slow && (await waitForRepo()) === 'saved')
+      toast.show('GitHub に保存しました', { kind: 'success', duration: 2000 });
+  }, [save, slow, waitForRepo, toast]);
 
   // Autosave after a pause, when the page is hidden, and when leaving.
   useEffect(() => {
@@ -373,7 +410,11 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
             if (leaving.current) return;
             leaving.current = true;
             void save({ quiet: true })
-              .then(onDone)
+              .then(waitForRepo)
+              // Refused: stay, so the text is not lost from view. Not yet sent: it stays queued.
+              .then((r) => {
+                if (r !== 'failed') onDone();
+              })
               .finally(() => {
                 leaving.current = false;
               });
@@ -383,14 +424,14 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
         </button>
       </div>
       <PropertiesPanel text={text} onPatch={patchProps} />
-      <div className={`editor-panes mode-${mode}`}>
+      <div ref={panes} className={`editor-panes mode-${mode}`}>
         {/* The editor stays mounted in preview mode, so undo history and the cursor survive. */}
         <div className="write-editor" hidden={mode === 'preview'}>
           <Editor
             ref={editor}
             initialValue={initial}
             onChange={setText}
-            onSave={() => void save()}
+            onSave={() => void saveNow()}
             autoFocus={content === null && mode !== 'preview'}
             placeholder="本文を書きましょう"
           />
@@ -400,11 +441,22 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
       {mode !== 'preview' && (
         <EditorToolbar
           editor={editor}
-          onSave={() => void save()}
-          saving={saving}
+          onSave={() => void saveNow()}
+          saving={saving || blocking}
           dirty={dirty}
           notePath={path}
         />
+      )}
+      {blocking && (
+        <div className="save-blocker" role="alertdialog" aria-busy="true" aria-live="polite">
+          <div className="save-blocker-box">
+            <Spinner />
+            <strong>GitHub に保存しています…</strong>
+            <span className="hint">
+              GitHub の仕組み上、数秒〜十数秒かかります。終わるまでそのままお待ちください。
+            </span>
+          </div>
+        </div>
       )}
     </div>
   );
