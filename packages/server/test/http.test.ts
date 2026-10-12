@@ -171,6 +171,73 @@ describe('HTTP API', () => {
     expect((await req('/api/note?path=../etc/passwd')).status).toBe(400);
   });
 
+  it('finds links written as Markdown links and frontmatter related', async () => {
+    const save = (path: string, content: string) =>
+      req('/api/note', { method: 'PUT', json: { path, content } });
+    for (const p of [
+      'concept-map.md',
+      'manuals/ai-rules-detail.md',
+      'skills/updating-repo.md',
+      'learning/proficiency-ranks.md',
+      'profile/context-for-ai.md',
+    ])
+      expect((await save(p, `# ${p}\n`)).status).toBe(200);
+    await save(
+      'README.md',
+      '# README\n\n[concept-map.md](concept-map.md)\n![図](assets/overview.png)\n[地図](concept-map.html)\n',
+    );
+    await save(
+      'manuals/ai-prompt.md',
+      [
+        '---',
+        'related:',
+        '  - "manuals/ai-rules-detail.md"',
+        '  - README.md',
+        '  - learning/proficiency-ranks.md',
+        '  - profile/context-for-ai.md',
+        '---',
+        '# AI prompt',
+        '',
+        '[詳細](./ai-rules-detail.md) と [手順](../skills/updating-repo.md)、',
+        '[ルール](../README.md#更新ルール) を読む。',
+        '[外部](https://example.com/a.md) と [消えたノート](../gone.md)。',
+        '',
+      ].join('\n'),
+    );
+
+    const backlinks = async (path: string) =>
+      (
+        (await (await req(`/api/note/backlinks?path=${encodeURIComponent(path)}`)).json()) as {
+          backlinks: { path: string; kinds: string[] }[];
+        }
+      ).backlinks;
+    // Linked both in the text and in `related`, ai-prompt.md is still one backlink.
+    for (const target of [
+      'manuals/ai-rules-detail.md',
+      'skills/updating-repo.md',
+      'README.md',
+      'learning/proficiency-ranks.md',
+      'profile/context-for-ai.md',
+    ])
+      expect(
+        (await backlinks(target)).filter((b) => b.path === 'manuals/ai-prompt.md'),
+        target,
+      ).toHaveLength(1);
+    expect((await backlinks('README.md'))[0]?.kinds).toEqual(['markdown', 'related']);
+    expect((await backlinks('concept-map.md')).map((b) => b.path)).toEqual(['README.md']);
+
+    // The image and the .html file are not notes, so only the missing note is reported.
+    const broken = (
+      (await (await req('/api/links/broken')).json()) as {
+        broken: { src: string; target: string; kind: string }[];
+      }
+    ).broken;
+    expect(broken.filter((b) => b.src === 'manuals/ai-prompt.md')).toEqual([
+      { src: 'manuals/ai-prompt.md', target: 'gone.md', kind: 'markdown' },
+    ]);
+    expect(broken.some((b) => /\.(png|html)$/.test(b.target))).toBe(false);
+  });
+
   it('views', async () => {
     await req('/api/note', {
       method: 'PUT',

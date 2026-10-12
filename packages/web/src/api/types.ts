@@ -8,6 +8,7 @@ import type {
   AiAccess,
   BlockAttribution,
   DiffOp,
+  LinkKind,
   NoteMergeResult,
   Choice,
   ViewDefinition,
@@ -19,6 +20,7 @@ export type {
   AiAccess,
   BlockAttribution,
   Choice,
+  LinkKind,
   NoteMergeResult,
   ViewDefinition,
   ViewNote,
@@ -76,8 +78,14 @@ export type SaveResult =
   | { status: 'proposed'; proposalId: string; reason: string; merged?: boolean; commit?: string };
 
 export interface Backlinks {
-  backlinks: { path: string; title: string; context: string }[];
-  outgoing: { target: string; path: string | null }[];
+  backlinks: { path: string; title: string; context: string; kinds: LinkKind[] }[];
+  outgoing: { target: string; path: string | null; kind: LinkKind }[];
+}
+
+export interface BrokenLink {
+  src: string;
+  target: string;
+  kind: LinkKind;
 }
 
 export interface HistoryEntry {

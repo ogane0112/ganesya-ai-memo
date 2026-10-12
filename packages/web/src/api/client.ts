@@ -8,6 +8,7 @@ import type {
   AuthState,
   Backlinks,
   BlockAttribution,
+  BrokenLink,
   CalendarFeed,
   CalendarSubscription,
   FileResolution,
@@ -210,6 +211,7 @@ export const api = {
   editing: (path: string, active: boolean) =>
     request<Ok>('POST', '/api/note/editing', { path, active }, active ? {} : { keepalive: true }),
   backlinks: (path: string) => get<Backlinks>(`/api/note/backlinks${qs({ path })}`),
+  brokenLinks: () => get<{ broken: BrokenLink[] }>('/api/links/broken'),
   noteHistory: (path: string, limit = 50) =>
     get<HistoryEntry[]>(`/api/note/history${qs({ path, limit })}`),
   blame: (path: string) => get<BlockAttribution[]>(`/api/note/blame${qs({ path })}`),

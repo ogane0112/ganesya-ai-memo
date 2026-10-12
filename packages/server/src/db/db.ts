@@ -326,6 +326,12 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
       PRIMARY KEY (user_id, path)
     )`,
   ],
+  [
+    // How a link was written: [[wiki]], a Markdown link, or frontmatter `related`.
+    `ALTER TABLE links ADD COLUMN kind TEXT NOT NULL DEFAULT 'wikilink'`,
+    // Markdown links and `related` were not indexed before, so re-index everything.
+    `DELETE FROM index_state`,
+  ],
 ];
 
 /** Full-text index; created separately because some SQLite builds lack trigram. */

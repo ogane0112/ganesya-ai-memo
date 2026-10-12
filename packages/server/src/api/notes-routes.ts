@@ -212,6 +212,13 @@ export function notesRoutes(platform: Platform) {
     });
   });
 
+  app.get('/links/broken', async (c) => {
+    const $ = await open(c);
+    const { principal } = requireReader(c);
+    const broken = await $.indexer.brokenLinks();
+    return c.json({ broken: await $.visibleTo(principal, broken, (l) => l.src) });
+  });
+
   app.get('/note/history', async (c) => {
     const $ = await open(c);
     const { principal } = requireReader(c);

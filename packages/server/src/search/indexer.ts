@@ -1,12 +1,13 @@
 import {
   type AiAccess,
   effectiveAccess,
-  extractLinks,
+  extractNoteLinks,
   extractTags,
+  type LinkKind,
   markdownToPlain,
   noteTitle,
   parseNoteLenient,
-  resolveLink,
+  resolveNoteLink,
   splitBlocks,
   type ViewNote,
   type WorkspacePolicy,
@@ -22,6 +23,20 @@ export interface NoteSummary {
   aiAgent: string | null;
   updatedAt: string | null;
   tags: string[];
+}
+
+export interface Backlink {
+  path: string;
+  title: string;
+  context: string;
+  /** How the note links here; several when it links more than one way. */
+  kinds: LinkKind[];
+}
+
+export interface BrokenLink {
+  src: string;
+  target: string;
+  kind: LinkKind;
 }
 
 export interface SearchHit {
@@ -106,6 +121,18 @@ function jsonRows(
 }
 
 const colSql = (i: number) => `json_extract(value, '$[${i}]')`;
+
+const KIND_ORDER: LinkKind[] = ['wikilink', 'markdown', 'related'];
+
+/** A glimpse of the text around a link, shown next to a backlink. */
+function linkContext(body: string, target: string, kind: LinkKind): string {
+  // `related` sits in the frontmatter, where there is no sentence to show.
+  if (kind === 'related') return '';
+  // A Markdown link holds the path as written (`../README.md`), so look for its file name.
+  const needle = kind === 'wikilink' ? `[[${target}` : target.slice(target.lastIndexOf('/') + 1);
+  const i = body.indexOf(needle);
+  return i < 0 ? '' : markdownToPlain(body.slice(Math.max(0, i - 60), i + needle.length + 80));
+}
 
 function hex(bytes: Uint8Array): string {
   let s = '';
@@ -270,7 +297,7 @@ export class Indexer {
     const changedJson = JSON.stringify(changed);
     const notes: unknown[][] = [];
     const tags: unknown[][] = [];
-    const newLinks: { src: string; target: string }[] = [];
+    const newLinks: { src: string; target: string; kind: LinkKind }[] = [];
     const chunkRows: unknown[][] = [];
     const policy = this.policy();
 
@@ -289,7 +316,8 @@ export class Indexer {
         dates?.get(path) ?? null,
       ]);
       for (const tag of extractTags(parsed.body, fm['tags'])) tags.push([path, tag]);
-      for (const l of extractLinks(parsed.body)) newLinks.push({ src: path, target: l.target });
+      for (const l of extractNoteLinks(path, parsed.body, fm))
+        newLinks.push({ src: path, target: l.target, kind: l.kind });
 
       const access = effectiveAccess(policy, path, fm);
       if (access === 'none' && this.embedder.location !== 'builtin') continue;
@@ -318,19 +346,21 @@ export class Indexer {
             src: string;
             target: string;
             target_path: string | null;
-          }>('SELECT rowid, src, target, target_path FROM links WHERE user_id = ?', u),
+            kind: LinkKind;
+          }>('SELECT rowid, src, target, target_path, kind FROM links WHERE user_id = ?', u),
     ]);
     const remaining = known.map((r) => r.path).filter((p) => !contents.has(p));
-    const allPaths = [...remaining, ...notes.map((n) => n[0] as string)];
+    const allPaths = new Set([...remaining, ...notes.map((n) => n[0] as string)]);
     const cache = new Map<string, string | null>();
-    const resolve = (target: string) => {
-      if (!cache.has(target)) cache.set(target, resolveLink(target, allPaths) ?? null);
-      return cache.get(target)!;
+    const resolve = (link: { target: string; kind: LinkKind }) => {
+      const key = `${link.kind} ${link.target}`;
+      if (!cache.has(key)) cache.set(key, resolveNoteLink(link, allPaths) ?? null);
+      return cache.get(key)!;
     };
     const relinks: unknown[][] = [];
     for (const l of kept) {
       if (contents.has(l.src)) continue;
-      const next = resolve(l.target);
+      const next = resolve(l);
       if (next !== l.target_path) relinks.push([l.rowid, next]);
     }
 
@@ -367,8 +397,9 @@ export class Indexer {
       ),
       ...jsonRows(
         (srcSql) =>
-          `INSERT INTO links(user_id, src, target, target_path) SELECT ?, ${colSql(0)}, ${colSql(1)}, ${colSql(2)} FROM ${srcSql}`,
-        newLinks.map((l) => [l.src, l.target, resolve(l.target)]),
+          `INSERT INTO links(user_id, src, target, target_path, kind)
+           SELECT ?, ${colSql(0)}, ${colSql(1)}, ${colSql(2)}, ${colSql(3)} FROM ${srcSql}`,
+        newLinks.map((l) => [l.src, l.target, resolve(l), l.kind]),
         [u],
       ),
       ...jsonRows(
@@ -514,31 +545,62 @@ export class Indexer {
     ).map((r) => r.path);
   }
 
-  async backlinks(path: string): Promise<{ path: string; title: string; context: string }[]> {
-    const rows = await this.db.all<{ path: string; title: string; body: string; target: string }>(
-      `SELECT DISTINCT l.src AS path, n.title AS title, n.body AS body, l.target AS target
+  /**
+   * The notes linking to `path`, one entry per note: a note that links twice
+   * (say in its text and in `related`) is listed once, with both kinds.
+   */
+  async backlinks(path: string): Promise<Backlink[]> {
+    const rows = await this.db.all<{
+      path: string;
+      title: string;
+      body: string;
+      target: string;
+      kind: LinkKind;
+    }>(
+      `SELECT DISTINCT l.src AS path, n.title AS title, n.body AS body, l.target AS target, l.kind AS kind
        FROM links l JOIN notes n ON n.user_id = l.user_id AND n.path = l.src
        WHERE l.user_id = ? AND l.target_path = ? AND l.src != ?`,
       this.userId,
       path,
       path,
     );
-    return rows.map((r) => {
-      const i = r.body.indexOf(`[[${r.target}`);
-      const context =
-        i >= 0 ? markdownToPlain(r.body.slice(Math.max(0, i - 60), i + r.target.length + 80)) : '';
-      return { path: r.path, title: r.title, context };
-    });
+    const byNote = new Map<string, Backlink>();
+    for (const r of rows) {
+      const entry = byNote.get(r.path) ?? { path: r.path, title: r.title, context: '', kinds: [] };
+      if (!entry.kinds.includes(r.kind)) entry.kinds.push(r.kind);
+      if (!entry.context) entry.context = linkContext(r.body, r.target, r.kind);
+      byNote.set(r.path, entry);
+    }
+    for (const e of byNote.values())
+      e.kinds.sort((a, b) => KIND_ORDER.indexOf(a) - KIND_ORDER.indexOf(b));
+    return [...byNote.values()];
   }
 
-  async outgoingLinks(path: string): Promise<{ target: string; path: string | null }[]> {
+  async outgoingLinks(
+    path: string,
+  ): Promise<{ target: string; path: string | null; kind: LinkKind }[]> {
     return (
-      await this.db.all<{ target: string; target_path: string | null }>(
-        'SELECT target, target_path FROM links WHERE user_id = ? AND src = ?',
+      await this.db.all<{ target: string; target_path: string | null; kind: LinkKind }>(
+        'SELECT target, target_path, kind FROM links WHERE user_id = ? AND src = ?',
         this.userId,
         path,
       )
-    ).map((r) => ({ target: r.target, path: r.target_path }));
+    ).map((r) => ({ target: r.target, path: r.target_path, kind: r.kind }));
+  }
+
+  /** Links that resolve to no note, so they can be reported and fixed. */
+  async brokenLinks(limit = 500): Promise<BrokenLink[]> {
+    const rows = await this.db.all<BrokenLink>(
+      `SELECT DISTINCT src, target, kind FROM links
+       WHERE user_id = ? AND target_path IS NULL ORDER BY src, target LIMIT ?`,
+      this.userId,
+      limit,
+    );
+    // `![[photo.png]]` and the like are attachments, not notes that went missing.
+    return rows.filter(
+      (r) =>
+        r.kind !== 'wikilink' || !/\.[a-z0-9]{1,8}$/i.test(r.target) || /\.md$/i.test(r.target),
+    );
   }
 
   async graph(): Promise<{

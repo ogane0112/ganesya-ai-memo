@@ -20,7 +20,7 @@ function fail(e: unknown): ToolResult {
   return { content: [{ type: 'text', text: `Error: ${(e as Error).message}` }], isError: true };
 }
 
-const INSTRUCTIONS = `This server holds the user's personal Markdown notes (YAML frontmatter, [[wiki links]]).
+const INSTRUCTIONS = `This server holds the user's personal Markdown notes (YAML frontmatter, links written as [[wiki links]], Markdown links or a frontmatter \`related\` list).
 - You are a co-editor. Your writes are usually PROPOSALS the user reviews, like pull requests; they are attributed to you.
 - Read a note before changing it and pass its sha as base_sha so concurrent edits merge safely.
 - Write whole-file Markdown. Keep existing frontmatter keys; edit paragraph by paragraph so merges stay clean.
@@ -96,11 +96,24 @@ export function buildMcpServer(ws: Workspace, principal: Principal, audit?: Audi
       'get_backlinks',
       {
         title: 'Backlinks',
-        description: 'Notes that link to the given note with [[...]].',
+        description:
+          'Notes that link to the given note, through [[wiki links]], Markdown links or frontmatter `related`. Each note is listed once, with the kinds of link it uses.',
         inputSchema: { path: z.string() },
         annotations: { readOnlyHint: true },
       },
       wrap(async ({ path }: { path: string }) => ops.backlinks(agent, path)),
+    );
+
+    server.registerTool(
+      'list_broken_links',
+      {
+        title: 'Broken links',
+        description:
+          'Links that point at a note which does not exist, as src + target + kind. Useful for proposing fixes.',
+        inputSchema: { limit: z.number().int().min(1).max(500).optional() },
+        annotations: { readOnlyHint: true },
+      },
+      wrap(async ({ limit }: { limit?: number }) => ops.brokenLinks(agent, limit ?? 200)),
     );
 
     server.registerTool(

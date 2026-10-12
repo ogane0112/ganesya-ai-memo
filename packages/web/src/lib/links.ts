@@ -1,4 +1,15 @@
-import { resolveLink } from '@gmemo/core';
+import { type LinkKind, resolveLink } from '@gmemo/core';
+
+const KIND_LABELS: Record<LinkKind, string> = {
+  wikilink: '[[リンク]]',
+  markdown: '本文のリンク',
+  related: 'related',
+};
+
+/** How a link was written, for the backlink and broken-link lists. */
+export function linkKindLabel(kind: LinkKind): string {
+  return KIND_LABELS[kind] ?? kind;
+}
 
 const baseName = (p: string) =>
   p
