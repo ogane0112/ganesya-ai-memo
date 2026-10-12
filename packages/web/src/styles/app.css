@@ -550,12 +550,29 @@ pre,
 .side-tree-head .icon-btn:focus-visible {
   opacity: 1;
 }
+/* Without a pointer to hover with (tablets), the buttons would never show. */
+@media (hover: none) {
+  .side-tree-head .icon-btn {
+    opacity: 1;
+  }
+}
 
 .side-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   border-top: 1px solid var(--border);
   padding: 10px 16px;
   font-size: 0.75rem;
   color: var(--faint);
+}
+.side-foot a {
+  color: var(--faint);
+  text-decoration: none;
+}
+.side-foot a:hover {
+  color: var(--fg);
 }
 
 .tree {
@@ -591,6 +608,22 @@ pre,
 .tree-note.active {
   background: var(--accent-soft);
   color: var(--accent-text);
+}
+@media (pointer: coarse) {
+  .tree-folder,
+  .tree-note {
+    min-height: 44px;
+  }
+  .tree-empty {
+    gap: 8px 16px;
+    padding: 8px;
+  }
+  .tree-empty a,
+  .tree-empty button {
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+  }
 }
 .tree-label {
   overflow: hidden;
@@ -1796,8 +1829,12 @@ select.input {
   }
 }
 @media (max-width: 559px) {
+  .note-editor-head {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
   .note-editor-head .ellipsis {
-    display: none;
+    flex: 1 0 100%;
   }
 }
 .props-panel {

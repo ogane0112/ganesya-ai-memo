@@ -3,14 +3,26 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, describeError } from '../api/client';
 import { Icon } from '../components/Icon';
 import { NoteCard } from '../components/NoteCard';
-import { Badge, EmptyState, Loading, Modal, PageHeader } from '../components/ui';
-import { useDocumentTitle } from '../lib/hooks';
+import { NoteTree } from '../components/NoteTree';
+import { Badge, EmptyState, Loading, Modal, PageHeader, Segmented } from '../components/ui';
+import { useDocumentTitle, useIsPhone } from '../lib/hooks';
 import { displayPath, folderList, noteUrl, titleFromPath, toNotePath } from '../lib/paths';
 import { useApp } from '../state/app';
 import { useDeleteFolder } from '../state/folders';
 import { useToast } from '../state/toast';
 
 type Sort = 'updated' | 'title';
+/** Phones have no sidebar, so the notes page can show the folder tree instead of the list. */
+type PhoneView = 'list' | 'tree';
+const PHONE_VIEW_KEY = 'gmemo.notesView';
+
+function storedPhoneView(): PhoneView {
+  try {
+    return localStorage.getItem(PHONE_VIEW_KEY) === 'tree' ? 'tree' : 'list';
+  } catch {
+    return 'list';
+  }
+}
 
 export function NotesListPage() {
   useDocumentTitle('ノート');
@@ -21,6 +33,17 @@ export function NotesListPage() {
   const [sort, setSort] = useState<Sort>('updated');
   const [creating, setCreating] = useState(params.get('new') === '1');
   const [creatingFolder, setCreatingFolder] = useState(params.get('newFolder') === '1');
+  const phone = useIsPhone();
+  const [phoneView, setPhoneView] = useState<PhoneView>(storedPhoneView);
+  const showTree = phone && phoneView === 'tree';
+  const changePhoneView = (v: PhoneView) => {
+    setPhoneView(v);
+    try {
+      localStorage.setItem(PHONE_VIEW_KEY, v);
+    } catch {
+      /* the choice just is not remembered */
+    }
+  };
 
   useEffect(() => {
     if (params.get('new') === '1') setCreating(true);
@@ -97,54 +120,77 @@ export function NotesListPage() {
           </>
         }
       />
-      <div className="toolbar-row">
-        <label className="visually-hidden" htmlFor="notes-filter">
-          絞り込み
-        </label>
-        <input
-          id="notes-filter"
-          className="input"
-          type="search"
-          placeholder="タイトル・タグで絞り込み"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
+      {phone && (
+        <Segmented<PhoneView>
+          label="表示のしかた"
+          value={phoneView}
+          onChange={changePhoneView}
+          options={[
+            { value: 'list', label: '一覧' },
+            { value: 'tree', label: 'フォルダー' },
+          ]}
         />
-        <label className="visually-hidden" htmlFor="notes-folder">
-          フォルダ
-        </label>
-        <select
-          id="notes-folder"
-          className="input select"
-          value={folder}
-          onChange={(e) => {
-            const next = new URLSearchParams(params);
-            if (e.target.value) next.set('folder', e.target.value);
-            else next.delete('folder');
-            setParams(next, { replace: true });
-          }}
-        >
-          <option value="">すべてのフォルダ</option>
-          {folders.map((f) => (
-            <option key={f} value={f}>
-              {f}
-            </option>
-          ))}
-        </select>
-        <label className="visually-hidden" htmlFor="notes-sort">
-          並び順
-        </label>
-        <select
-          id="notes-sort"
-          className="input select"
-          value={sort}
-          onChange={(e) => setSort(e.target.value as Sort)}
-        >
-          <option value="updated">更新順</option>
-          <option value="title">名前順</option>
-        </select>
-      </div>
+      )}
+      {!showTree && (
+        <div className="toolbar-row">
+          <label className="visually-hidden" htmlFor="notes-filter">
+            絞り込み
+          </label>
+          <input
+            id="notes-filter"
+            className="input"
+            type="search"
+            placeholder="タイトル・タグで絞り込み"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+          <label className="visually-hidden" htmlFor="notes-folder">
+            フォルダ
+          </label>
+          <select
+            id="notes-folder"
+            className="input select"
+            value={folder}
+            onChange={(e) => {
+              const next = new URLSearchParams(params);
+              if (e.target.value) next.set('folder', e.target.value);
+              else next.delete('folder');
+              setParams(next, { replace: true });
+            }}
+          >
+            <option value="">すべてのフォルダ</option>
+            {folders.map((f) => (
+              <option key={f} value={f}>
+                {f}
+              </option>
+            ))}
+          </select>
+          <label className="visually-hidden" htmlFor="notes-sort">
+            並び順
+          </label>
+          <select
+            id="notes-sort"
+            className="input select"
+            value={sort}
+            onChange={(e) => setSort(e.target.value as Sort)}
+          >
+            <option value="updated">更新順</option>
+            <option value="title">名前順</option>
+          </select>
+        </div>
+      )}
       {!notesLoaded ? (
         <Loading />
+      ) : showTree ? (
+        notes.length === 0 && folders.length === 0 ? (
+          <EmptyState title="まだノートがありません" />
+        ) : (
+          <NoteTree
+            notes={notes}
+            folders={created}
+            onDeleteFolder={(path, opts) => void deleteFolder(path, opts)}
+          />
+        )
       ) : folderIsEmpty ? (
         <EmptyState icon="folder" title={`「${folder.split('/').join(' › ')}」は空です`}>
           <div className="row wrap">

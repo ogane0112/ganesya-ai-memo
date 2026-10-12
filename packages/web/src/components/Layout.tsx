@@ -175,7 +175,10 @@ export function Layout() {
             />
           )}
         </div>
-        <div className="side-foot">{auth?.user?.username}</div>
+        <div className="side-foot">
+          <span>{auth?.user?.username}</span>
+          <Link to="/privacy">データの扱い</Link>
+        </div>
       </aside>
       <div className="main-col">
         <SyncStatus />
