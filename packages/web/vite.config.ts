@@ -13,6 +13,9 @@ export default defineConfig({
     VitePWA({
       registerType: 'prompt',
       injectRegister: false,
+      // Behind Cloudflare Access the manifest request has to carry the login cookie,
+      // or it is redirected to the login page and the app cannot be installed.
+      useCredentials: true,
       includeAssets: ['favicon.svg', 'icons/apple-touch-icon.png'],
       manifest: {
         id: '/',
@@ -47,6 +50,7 @@ export default defineConfig({
         share_target: {
           action: '/capture',
           method: 'GET',
+          enctype: 'application/x-www-form-urlencoded',
           params: { title: 'title', text: 'text', url: 'url' },
         },
       },
