@@ -69,13 +69,15 @@ export function buildMcpServer(ws: Workspace, principal: Principal, audit?: Audi
       'list_notes',
       {
         title: 'List notes',
-        description: 'List notes (path, title, tags, last update), optionally inside a folder.',
+        description:
+          'List notes (path, title, tags, last update), optionally inside a folder. Notes the owner has not shared with this agent are left out; when some are, the result says how many and why.',
         inputSchema: { folder: z.string().optional() },
         annotations: { readOnlyHint: true },
       },
-      wrap(async ({ folder }: { folder?: string }) =>
-        (await ops.list(agent, folder)).slice(0, 500),
-      ),
+      wrap(async ({ folder }: { folder?: string }) => {
+        const r = await ops.listExplained(agent, folder);
+        return { ...r, notes: r.notes.slice(0, 500) };
+      }),
     );
 
     server.registerTool(

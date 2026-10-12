@@ -6,6 +6,7 @@ import { AgentForm, defaultAgent, SCOPE_LABEL } from '../../components/AgentForm
 import { Icon } from '../../components/Icon';
 import { Badge, EmptyState, ErrorBox, Loading, SecretReveal, Spinner } from '../../components/ui';
 import { formatDate, relativeTime } from '../../lib/format';
+import { ExternalShareWarning } from '../../components/ExternalShareWarning';
 import { useAsync } from '../../lib/hooks';
 import { useToast } from '../../state/toast';
 import { revertMessage } from '../History';
@@ -61,6 +62,7 @@ export function AgentsSettings() {
           ノートを読み書きする AI ごとに権限を設定します。MCP の OAuth で接続した AI
           もここに表示されます。
         </p>
+        <ExternalShareWarning show={active.some((a) => a.location === 'external')} />
         {creating ? (
           <form onSubmit={(e) => void create(e)}>
             <AgentForm value={draft} onChange={setDraft} />
