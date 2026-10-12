@@ -8,6 +8,9 @@ import { testConfig } from './helpers.js';
 
 const ORIGIN = 'http://localhost:8787';
 
+/** Deep equality on megabytes of numbers is very slow in the test runner; compare as buffers. */
+const sameBytes = (a: Uint8Array, b: Uint8Array) => Buffer.from(a).equals(Buffer.from(b));
+
 describe('uploaded files', () => {
   let db: SqliteDb;
   let files: MemoryFileStore | null;
@@ -69,7 +72,7 @@ describe('uploaded files', () => {
     const res = await fetchFile(me, up.json.path);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-length')).toBe(String(bytes.length));
-    expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes);
+    expect(sameBytes(new Uint8Array(await res.arrayBuffer()), bytes)).toBe(true);
   });
 
   it('stores only ciphertext', async () => {
@@ -151,7 +154,7 @@ describe('uploaded files', () => {
       const up = await upload(me, `s${size}.bin`, bytes);
       const res = await fetchFile(me, up.json.path);
       expect(res.headers.get('content-length')).toBe(String(size));
-      expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes);
+      expect(sameBytes(new Uint8Array(await res.arrayBuffer()), bytes)).toBe(true);
     }
   });
 
