@@ -62,6 +62,15 @@ describe('inline views', () => {
     expect(replaceInlineView(note, 5, 'x: 1')).toBe(note);
   });
 
+  it('stays fast on settings full of line breaks', () => {
+    const hostile = 'type: table' + '\n'.repeat(200_000) + 'x';
+    const start = Date.now();
+    const next = replaceInlineView(note, 0, hostile);
+    expect(Date.now() - start).toBeLessThan(500);
+    expect(next).toContain(hostile);
+    expect(replaceInlineView(note, 0, 'type: table\n\n\n')).toContain('type: table\n```');
+  });
+
   it('patches settings, keeping unknown keys', () => {
     const src = 'name: タスク\ntype: kanban\ncustom: keep me';
     const next = patchInlineViewSource(src, { type: 'calendar', name: undefined });

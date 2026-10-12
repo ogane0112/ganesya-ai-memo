@@ -82,7 +82,14 @@ export function findInlineViews(text: string): InlineViewBlock[] {
 export function replaceInlineView(text: string, index: number, source: string): string {
   const v = findInlineViews(text)[index];
   if (!v) return text;
-  return text.slice(0, v.from) + source.replace(/\n+$/, '') + text.slice(v.to);
+  return text.slice(0, v.from) + trimTrailingNewlines(source) + text.slice(v.to);
+}
+
+/** `s` without line breaks at its end. A loop, not /\n+$/: that regex is quadratic on many "\n"s. */
+function trimTrailingNewlines(s: string): string {
+  let end = s.length;
+  while (end > 0 && s.charCodeAt(end - 1) === 10) end--;
+  return s.slice(0, end);
 }
 
 /**
