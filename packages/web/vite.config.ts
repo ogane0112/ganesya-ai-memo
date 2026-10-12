@@ -1,15 +1,35 @@
+import { readFileSync } from 'node:fs';
 import { fileURLToPath, URL } from 'node:url';
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 const core = fileURLToPath(new URL('../core/src/index.ts', import.meta.url));
+const TOUCH_ICON = '/icons/apple-touch-icon.png';
+
+/**
+ * iOS fetches the home screen icon without cookies, so behind Cloudflare Access
+ * it gets the login page and falls back to a generic icon. Inline the icon.
+ */
+function inlineTouchIcon(): Plugin {
+  const png = readFileSync(fileURLToPath(new URL(`./public${TOUCH_ICON}`, import.meta.url)));
+  return {
+    name: 'inline-touch-icon',
+    transformIndexHtml(html) {
+      const link = `href="${TOUCH_ICON}"`;
+      if (!html.includes(link)) throw new Error(`index.html has no ${link}`);
+      return html.replace(link, `href="data:image/png;base64,${png.toString('base64')}"`);
+    },
+  };
+}
+
 const backend = process.env['GMEMO_DEV_BACKEND'] ?? 'http://localhost:8787';
 
 export default defineConfig({
   resolve: { alias: { '@gmemo/core': core } },
   plugins: [
     react(),
+    inlineTouchIcon(),
     VitePWA({
       registerType: 'prompt',
       injectRegister: false,
