@@ -17,6 +17,20 @@ import { type Db, nowIso, stmt } from '../db/db.js';
  * `[SECRET_3fa9c2d1e07b4a55]`. When the agent writes text containing a placeholder, the
  * original value is restored locally, so secrets round-trip without leaving.
  */
+export type HiddenReason = 'folder' | 'ai-none' | 'local-only';
+
+/** What to tell an agent (and the owner, through the agent) about a hidden note. */
+export function hiddenMessage(path: string, reason: HiddenReason, agent: Agent): string {
+  switch (reason) {
+    case 'folder':
+      return `${path} is outside the folders this agent may read (${agent.folders.join(', ')}). The owner can change the agent's folders in Settings → Agents.`;
+    case 'ai-none':
+      return `${path} is not shared with any AI: AI sharing is off for this note or its folder. The owner can change it in Settings → AI policy, or in the note's properties.`;
+    case 'local-only':
+      return `${path} is shared with local AI only, and this agent is an external AI. The owner can allow external AI for its folder in Settings → AI policy ("外部AI可"), or for this note in its properties ("外部AIにも送ってよい").`;
+  }
+}
+
 export class AgentLens {
   constructor(
     private readonly db: Db,
@@ -29,10 +43,26 @@ export class AgentLens {
     frontmatter: Record<string, unknown> | null,
     policy: WorkspacePolicy,
   ): boolean {
-    if (!inFolders(path, agent.folders)) return false;
+    return this.whyHidden(agent, path, frontmatter, policy) === null;
+  }
+
+  /**
+   * Why `agent` may not see `path`, or null when it may:
+   * - 'folder': outside the folders this agent was limited to
+   * - 'ai-none': AI sharing is off for the note or its folder
+   * - 'local-only': only local AI may see it, and this agent is an external AI
+   */
+  whyHidden(
+    agent: Agent,
+    path: string,
+    frontmatter: Record<string, unknown> | null,
+    policy: WorkspacePolicy,
+  ): HiddenReason | null {
+    if (!inFolders(path, agent.folders)) return 'folder';
     const access = effectiveAccess(policy, path, frontmatter ?? {});
-    if (access === 'none') return false;
-    return agent.location === 'local' || access === 'external';
+    if (access === 'none') return 'ai-none';
+    if (agent.location === 'external' && access !== 'external') return 'local-only';
+    return null;
   }
 
   private scan(text: string, policy: WorkspacePolicy): Finding[] {

@@ -1,5 +1,5 @@
 import type { WorkspacePolicy } from '@gmemo/core';
-import type { LensMemo } from '../ai/agent-lens.js';
+import { type HiddenReason, hiddenMessage, type LensMemo } from '../ai/agent-lens.js';
 import type { AuditEvent } from '../audit/audit.js';
 import type { Agent } from '../auth/agents.js';
 import { capabilities, type Principal } from '../auth/tokens.js';
@@ -47,20 +47,51 @@ export class AgentOps {
     return this.filter(agent, await this.ws.indexer.listNotes(folder), (n) => n.path);
   }
 
+  /**
+   * Notes this agent may see, and when some were left out, how many and why,
+   * so an empty list is not mistaken for an empty notebook.
+   */
+  async listExplained(agent: Agent, folder?: string) {
+    const all = await this.ws.indexer.listNotes(folder);
+    const policy = await this.policy();
+    const meta = await this.ws.indexer.allMeta();
+    const reasons: Partial<Record<HiddenReason, number>> = {};
+    const notes = all.filter((n) => {
+      const why = this.ws.lens.whyHidden(agent, n.path, meta.get(n.path) ?? null, policy);
+      if (why) reasons[why] = (reasons[why] ?? 0) + 1;
+      return !why;
+    });
+    const hidden = all.length - notes.length;
+    if (hidden === 0) return { notes };
+    const top = (Object.entries(reasons) as [HiddenReason, number][]).sort(
+      (a, b) => b[1] - a[1],
+    )[0]![0];
+    return {
+      notes,
+      hidden,
+      hiddenReasons: reasons,
+      hint: hiddenMessage(`${hidden} note(s)`, top, agent).replace(
+        /^(\d+ note\(s\)) is /,
+        '$1 are ',
+      ),
+    };
+  }
+
   async read(agent: Agent, rawPath: string) {
     if (!agent.canRead) throw new ForbiddenError('agent cannot read');
     const path = normalizeNotePath(rawPath);
     const policy = await this.policy();
     const doc = await this.ws.notes.read(path);
     const meta = await this.ws.indexer.getMeta(path);
-    if (!this.ws.lens.canSee(agent, path, meta?.frontmatter ?? null, policy)) {
+    const why = this.ws.lens.whyHidden(agent, path, meta?.frontmatter ?? null, policy);
+    if (why) {
       await this.record(agent, {
         action: 'agent.read',
         outcome: 'denied',
         target: path,
-        detail: { reason: 'folder-or-policy' },
+        detail: { reason: why },
       });
-      throw new ForbiddenError(`${path} is not available to this agent (folder or AI policy)`);
+      throw new ForbiddenError(hiddenMessage(path, why, agent));
     }
     const out = await this.ws.lens.outgoing(agent, doc.content, policy, this.memo);
     if (out.blocked) {

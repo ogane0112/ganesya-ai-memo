@@ -305,13 +305,38 @@ describe('HTTP API', () => {
     expect(names).toContain('read_note');
 
     const list = await mcp('tools/call', { name: 'list_notes', arguments: {} });
-    const listed = JSON.parse(list.result!.content![0]!.text) as { path: string }[];
-    expect(listed.map((n) => n.path)).toEqual(['work/Todo.md']);
+    const listed = JSON.parse(list.result!.content![0]!.text) as {
+      notes: { path: string }[];
+      hidden: number;
+      hiddenReasons: Record<string, number>;
+      hint: string;
+    };
+    expect(listed.notes.map((n) => n.path)).toEqual(['work/Todo.md']);
+    // The agent is limited to "work": the rest is left out, and the list says so.
+    expect(listed.hidden).toBeGreaterThan(0);
+    expect(Object.keys(listed.hiddenReasons)).toEqual(['folder']);
+    expect(listed.hint).toContain('outside the folders this agent may read (work)');
     const hidden = await mcp('tools/call', {
       name: 'read_note',
       arguments: { path: 'private/Diary.md' },
     });
     expect(hidden.result!.isError).toBe(true);
+    expect(hidden.result!.content![0]!.text).toContain('outside the folders');
+
+    // Back to the default policy (local AI only): the reason names the policy, not folders.
+    await req('/api/admin/policy', { method: 'PUT', json: { ai: { default: 'local' } } });
+    const localOnly = await mcp('tools/call', {
+      name: 'read_note',
+      arguments: { path: 'work/Todo.md' },
+    });
+    expect(localOnly.result!.isError).toBe(true);
+    expect(localOnly.result!.content![0]!.text).toContain('shared with local AI only');
+    const empty = JSON.parse(
+      (await mcp('tools/call', { name: 'list_notes', arguments: {} })).result!.content![0]!.text,
+    ) as { notes: unknown[]; hiddenReasons: Record<string, number> };
+    expect(empty.notes).toEqual([]);
+    expect(empty.hiddenReasons['local-only']).toBe(1);
+    await req('/api/admin/policy', { method: 'PUT', json: { ai: { default: 'external' } } });
 
     const read = await mcp('tools/call', {
       name: 'read_note',

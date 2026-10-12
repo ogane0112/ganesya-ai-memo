@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { api, describeError } from '../api/client';
 import type { AgentPermissions, Scope } from '../api/types';
 import { AgentForm, defaultAgent, SCOPE_LABEL } from '../components/AgentForm';
+import { ExternalShareWarning } from '../components/ExternalShareWarning';
 import { Icon } from '../components/Icon';
 import { ErrorBox, Loading, Spinner } from '../components/ui';
 import { useAsync, useDocumentTitle } from '../lib/hooks';
@@ -136,6 +137,13 @@ export function OAuthConsentPage() {
           </label>
         </fieldset>
         {choice === 'new' && <AgentForm value={perms} onChange={setPerms} />}
+        <ExternalShareWarning
+          show={
+            choice === 'new'
+              ? perms.location === 'external'
+              : agents.find((a) => a.id === choice)?.location === 'external'
+          }
+        />
 
         {error && (
           <p className="notice notice-error" role="alert">
