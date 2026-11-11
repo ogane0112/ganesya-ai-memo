@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, describeError } from '../api/client';
+import { FolderPicker } from '../components/FolderPicker';
 import { Icon } from '../components/Icon';
 import { NoteCard } from '../components/NoteCard';
 import { Badge, EmptyState, Loading, Modal, PageHeader } from '../components/ui';
@@ -265,19 +266,14 @@ export function NewNoteDialog({
           />
         </div>
         <div className="field">
-          <label htmlFor="new-folder">フォルダ(空欄 = ルート)</label>
-          <input
-            id="new-folder"
-            className="input"
-            list="new-folders"
+          <span className="label">フォルダー</span>
+          <FolderPicker
+            label="ノートを作るフォルダー"
             value={folder}
-            onChange={(e) => setFolder(e.target.value)}
+            onChange={setFolder}
+            folders={folders}
+            emptyLabel="ルート"
           />
-          <datalist id="new-folders">
-            {folders.map((f) => (
-              <option key={f} value={f} />
-            ))}
-          </datalist>
         </div>
         {path && (
           <p className="hint">
@@ -360,19 +356,14 @@ export function NewFolderDialog({
           />
         </div>
         <div className="field">
-          <label htmlFor="folder-parent">作成する場所(空欄 = いちばん上)</label>
-          <input
-            id="folder-parent"
-            className="input"
-            list="folder-parents"
+          <span className="label">作成する場所</span>
+          <FolderPicker
+            label="フォルダーを作る場所"
             value={parent}
-            onChange={(e) => setParent(e.target.value)}
+            onChange={setParent}
+            folders={folders}
+            emptyLabel="いちばん上"
           />
-          <datalist id="folder-parents">
-            {folders.map((f) => (
-              <option key={f} value={f} />
-            ))}
-          </datalist>
         </div>
         {name.trim() && (
           <p className="hint">{exists ? `「${shown}」はすでにあります` : `作成先: ${shown}`}</p>
