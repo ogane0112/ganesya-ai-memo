@@ -156,11 +156,19 @@ describe.each([
     await s.deleteBranch('proposals/p1');
     expect(await s.head('proposals/p1')).toBeNull();
 
-    // A commit computed against a stale parent must not overwrite main.
+    // A commit computed against a stale parent must never drop what main has.
+    // A file that changed on main since is refused…
     await expect(
-      s.commit(MAIN, [{ path: 'x.md', content: 'x' }], who, 'stale', { parent: base }),
+      s.commit(MAIN, [{ path: 'ai.md', content: 'stale\n' }], who, 'stale', { parent: base }),
     ).rejects.toBeInstanceOf(ConcurrentUpdateError);
     expect(await s.head(MAIN)).toBe(merge);
+    // …and anything else is refused too, or (GitHub: one file that main did not
+    // touch) put on top of main, keeping it.
+    const other = await s
+      .commit(MAIN, [{ path: 'x.md', content: 'x' }], who, 'stale', { parent: base })
+      .catch((e: unknown) => e);
+    if (other instanceof ConcurrentUpdateError) expect(await s.head(MAIN)).toBe(merge);
+    else expect((await s.log(MAIN, { limit: 1 }))[0]!.parents).toEqual([merge]);
   });
 });
 

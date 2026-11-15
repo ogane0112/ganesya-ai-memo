@@ -32,6 +32,8 @@ export interface GitHubConfig {
 }
 
 const HEX40 = /^[0-9a-f]{40}$/;
+/** How long a head this store wrote is trusted as the starting point of the next save. */
+const WRITTEN_FRESH_MS = 60_000;
 
 function b64encode(bytes: Uint8Array): string {
   let s = '';
@@ -61,6 +63,8 @@ export class GitHubStore implements NoteStore {
   private trees = new Map<string, Map<string, string>>();
   private blobs = new Map<string, Uint8Array>();
   private commitTrees = new Map<string, string>();
+  /** Heads this store moved branches to, and when. */
+  private written = new Map<string, { sha: string; at: number }>();
 
   constructor(private readonly cfg: GitHubConfig) {
     this.api = `${(cfg.apiBase ?? 'https://api.github.com').replace(/\/+$/, '')}/repos/${encodeURIComponent(cfg.owner)}/${encodeURIComponent(cfg.repo)}`;
@@ -72,6 +76,11 @@ export class GitHubStore implements NoteStore {
     if (!/^[\w.-]+(\/[\w.-]+)*$/.test(name) || name.split('/').some((p) => p === '..' || p === '.'))
       throw new StoreError(`invalid ref: ${name.slice(0, 60)}`, 400);
     return name === MAIN ? this.cfg.branch : `gmemo/${name}`;
+  }
+
+  lastWritten(branch: string): string | null {
+    const w = this.written.get(branch);
+    return w && Date.now() - w.at < WRITTEN_FRESH_MS ? w.sha : null;
   }
 
   private sha(commit: string): string {
@@ -351,6 +360,35 @@ export class GitHubStore implements NoteStore {
       if (clash) throw new PathClashError(clash);
     }
 
+    // One text file: the contents API writes it and commits in a single call,
+    // instead of tree + commit + ref update. It refuses (409) when the file
+    // changed on the branch meanwhile, which is the check that matters here;
+    // other files may have moved on, and the commit goes on top of them.
+    const only = changes.length === 1 ? changes[0]! : null;
+    if (
+      only &&
+      parent &&
+      !opts.extraParents?.length &&
+      only.content !== null &&
+      isText(only.content)
+    ) {
+      const sha = await blobId(only.content);
+      const old = existing.get(only.path);
+      if (old === sha && !opts.allowEmpty) return parent;
+      if (old !== sha)
+        return this.commitFile(
+          branch,
+          parent,
+          existing,
+          only.path,
+          only.content,
+          sha,
+          old,
+          author,
+          message,
+        );
+    }
+
     const entries: Record<string, unknown>[] = [];
     // The new commit's files, known without asking GitHub: a blob's id is the
     // hash of its bytes, so it is the same here as there.
@@ -414,8 +452,55 @@ export class GitHubStore implements NoteStore {
         { sha, force: false },
         [422],
       );
-      if (r.status === 422) throw new ConcurrentUpdateError(`${branch} moved during commit`);
+      if (r.status === 422) {
+        this.written.delete(branch);
+        throw new ConcurrentUpdateError(`${branch} moved during commit`);
+      }
     }
+    this.written.set(branch, { sha, at: Date.now() });
     return sha;
+  }
+
+  /** One file written and committed by the contents API (one round trip). */
+  private async commitFile(
+    branch: string,
+    parent: string,
+    existing: Map<string, string>,
+    path: string,
+    content: string,
+    sha: string,
+    old: string | undefined,
+    author: GitIdentity,
+    message: string,
+  ): Promise<string> {
+    const date = new Date().toISOString();
+    const r = await this.req<{
+      commit: { sha: string; tree: { sha: string }; parents: { sha: string }[] };
+    }>(
+      'PUT',
+      `/contents/${path.split('/').map(encodeURIComponent).join('/')}`,
+      {
+        message,
+        content: b64encode(asBytes(content)),
+        branch: this.ghBranch(branch),
+        // Without it GitHub creates the file, and refuses if it exists (422).
+        ...(old ? { sha: old } : {}),
+        author: { name: author.name, email: author.email, date },
+        committer: { name: 'gmemo', email: 'system@gmemo.local', date },
+      },
+      [409, 422],
+    );
+    if (r.status === 409 || r.status === 422) {
+      this.written.delete(branch);
+      throw new ConcurrentUpdateError(`${path} changed during commit`);
+    }
+    const c = r.data!.commit;
+    this.commitTrees.set(c.sha, c.tree.sha);
+    this.blobs.set(sha, asBytes(content));
+    // On top of the expected parent: its files are known here, plus this one.
+    if (c.parents[0]?.sha === parent && !this.trees.has(c.tree.sha))
+      this.trees.set(c.tree.sha, new Map(existing).set(path, sha));
+    this.written.set(branch, { sha: c.sha, at: Date.now() });
+    return c.sha;
   }
 }

@@ -171,20 +171,38 @@ export function fakeGitHub(
         : json(404, { message: 'Not Found' });
     }
     if (method === 'PUT' && (m = /^\/contents\/(.+)$/.exec(path))) {
+      // Like GitHub: updating a file needs its current blob sha (409 when it
+      // differs, 422 when missing); the commit goes on top of the branch tip.
+      const file = m[1]!.split('/').map(decodeURIComponent).join('/');
       const branch = String(body['branch'] ?? 'main');
       const parent = refs.get(branch);
       const base = parent ? trees.get(commits.get(parent)!.tree)! : new Map<string, string>();
+      const had = base.get(file);
+      if (had && body['sha'] === undefined)
+        return json(422, { message: 'Invalid request: sha was not supplied.' });
+      if (body['sha'] !== undefined && body['sha'] !== had)
+        return json(409, { message: `${file} does not match ${String(body['sha'])}` });
       const next = new Map(base);
-      next.set(m[1]!, await putBlob(unb64(String(body['content']))));
+      next.set(file, await putBlob(unb64(String(body['content']))));
       const tree = await putTree(next);
+      const author = body['author'] as FakeCommit['author'] | undefined;
       const sha = await makeCommit({
         tree,
         parents: parent ? [parent] : [],
         message: String(body['message']),
-        author: { name: 'token owner', email: 'owner@example.com', date: new Date().toISOString() },
+        author: author
+          ? {
+              name: author.name,
+              email: author.email,
+              date: author.date ?? new Date().toISOString(),
+            }
+          : { name: 'token owner', email: 'owner@example.com', date: new Date().toISOString() },
       });
       refs.set(branch, sha);
-      return json(201, { commit: { sha } });
+      return json(parent && had ? 200 : 201, {
+        content: { path: file, sha: next.get(file) },
+        commit: commitJson(commits.get(sha)!),
+      });
     }
     if (refs.size === 0) return json(409, { message: 'Git Repository is empty.' });
 
