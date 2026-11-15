@@ -2,16 +2,16 @@ import {
   findInlineViews,
   type Frontmatter,
   parseNoteLenient,
-  serializeNote,
   updateFrontmatter,
 } from '@gmemo/core';
-import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import type { PublicFinding } from '../api/types';
 import { useOnline } from '../lib/hooks';
 import { newNotePlan } from '../lib/newNote';
-import { displayPath } from '../lib/paths';
+import { displayPath, folderList } from '../lib/paths';
+import { readProps } from '../lib/properties';
 import { loadDraft, saveDraft } from '../lib/queueStore';
 import { pendingFor } from '../lib/queue';
 import { syncQueue } from '../lib/sync';
@@ -23,28 +23,35 @@ import { Icon } from './Icon';
 import { InlineView } from './InlineView';
 import { Markdown } from './MarkdownView';
 import { PropertiesPanel } from './PropertiesPanel';
-import { Spinner } from './ui';
-import { readProps } from '../lib/properties';
+import { lastSaveTarget, rememberSaveTarget, SaveSheet, type SaveTarget } from './SaveSheet';
 import { FindingList } from './SensitiveConfirm';
+import { Spinner } from './ui';
 
 interface Props {
   /**
-   * The note being edited. null for a memo started with "new note": its path
-   * is decided from the first line when it is first saved (nothing is
-   * created while it is empty).
+   * The note being edited. null for a new memo: it is kept as a draft on this
+   * device while written, and saved where the user chooses on "完了" (named
+   * after its first line). Nothing is created while it is empty.
    */
   path: string | null;
-  /** Where a new memo (path null) goes. */
-  folder?: string;
   /** Server content; null for a new note. */
   content: string | null;
   sha: string | null;
   commit?: string;
-  /** Leaving the editor, with the note's path (null: a new memo left empty). */
+  /** Where a new memo's save sheet starts (default: the place used last time). */
+  folder?: string;
+  /** No "back": the editor is the home screen. */
+  home?: boolean;
+  /**
+   * Leaving the editor: the note's path, or null (a new memo that was left
+   * empty, kept as a draft, or appended to today's memo).
+   */
   onDone: (path: string | null) => void;
 }
 
 const AUTOSAVE_IDLE_MS = 20_000;
+/** The draft of the new memo being written (one per device, like a notepad). */
+export const NEW_MEMO_DRAFT = '__new__';
 
 /** Write the Markdown, look at the result, or both side by side (wide screens). */
 type EditorMode = 'write' | 'preview' | 'split';
@@ -62,6 +69,16 @@ function loadMode(): EditorMode {
   } catch {
     return 'write';
   }
+}
+
+/**
+ * A note's frontmatter (the `---` block) and body. The editor shows the body
+ * only; properties are edited in their own panel. Frontmatter that does not
+ * parse stays in the text, so it can be fixed there.
+ */
+function split(text: string): { head: string; body: string } {
+  const r = readProps(text);
+  return r.ok ? { head: r.head, body: text.slice(r.head.length) } : { head: '', body: text };
 }
 
 /** The preview: the body as the note page shows it (frontmatter is not rendered). */
@@ -94,36 +111,37 @@ function Preview({
 }
 
 /**
- * Edits one note. Saves go through the offline queue with the blob sha the
- * edit started from, so the server can merge with changes made elsewhere.
+ * The one editor for writing: a new memo (also the home screen) and an
+ * existing note look and work the same. Saves of existing notes go through the
+ * offline queue with the blob sha the edit started from, so the server can
+ * merge with changes made elsewhere.
  */
-export function NoteEditor({ path: givenPath, folder = '', content, sha, commit, onDone }: Props) {
+export function NoteEditor({ path, content, sha, commit, folder, home, onDone }: Props) {
+  const isNew = path === null;
   const editor = useRef<EditorHandle>(null);
   const toast = useToast();
   const online = useOnline();
-  const [path, setPath] = useState(givenPath);
-  const pathRef = useRef(path);
+  const { storage, notes, queue, folders: created } = useApp();
   const pending = path ? pendingFor(syncQueue.snapshot, path) : undefined;
   const pendingContent = pending?.op.kind === 'save' ? pending.op.content : null;
   const initial = pendingContent ?? content ?? '';
+  const parts = useMemo(() => split(initial), [initial]);
+  /** The frontmatter block, kept out of the editor. */
+  const headRef = useRef(parts.head);
   const baseRef = useRef<string | null | undefined>(
     pending?.op.kind === 'save' ? pending.op.baseSha : sha,
   );
   const savedRef = useRef(initial);
+  /** The whole note (frontmatter + body). */
   const [text, setText] = useState(initial);
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
   const [proposalId, setProposalId] = useState<string | null>(null);
   const [scan, setScan] = useState<PublicFinding[] | null>(null);
+  const [showProps, setShowProps] = useState(false);
+  const [asking, setAsking] = useState(false);
   const scanDismissed = useRef(false);
   const leaving = useRef(false);
-  const { storage, notes, queue } = useApp();
-  // Names a new memo may not take (existing notes and ones still being sent).
-  const takenRef = useRef<Set<string>>(new Set());
-  takenRef.current = new Set([
-    ...notes.map((n) => n.path.toLowerCase()),
-    ...queue.items.flatMap((i) => (i.op.kind === 'save' ? [i.op.path.toLowerCase()] : [])),
-  ]);
   // A GitHub repository takes seconds per commit: explicit saves wait for it,
   // with the editor locked, so nothing moves on before the repository has it.
   const slow = storage === 'github';
@@ -149,29 +167,42 @@ export function NoteEditor({ path: givenPath, folder = '', content, sha, commit,
   const textRef = useRef(text);
   textRef.current = text;
   const dirty = text !== savedRef.current;
+  const draftKey = path ?? NEW_MEMO_DRAFT;
 
-  // Offer to restore an unsaved local draft.
+  /** The whole note as it is now. */
+  const current = () =>
+    editor.current ? headRef.current + editor.current.getValue() : textRef.current;
+
+  /** Replace the whole note (a restored draft, a changed frontmatter). */
+  const replaceAll = (next: string) => {
+    const p = split(next);
+    headRef.current = p.head;
+    if (editor.current && editor.current.getValue() !== p.body) editor.current.setValue(p.body);
+    setText(next);
+  };
+
+  // Drafts kept on this device: a new memo comes back as it was left; an
+  // existing note offers to restore unsaved changes.
   useEffect(() => {
-    if (!path || givenPath === null) return;
-    void loadDraft(path).then((d) => {
-      if (d && d.content !== initial && d.content.trim()) setDraft(d.content);
+    void loadDraft(draftKey).then((d) => {
+      if (!d?.content.trim() || d.content === initial) return;
+      if (isNew) replaceAll(d.content);
+      else setDraft(d.content);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path]);
+  }, [draftKey]);
 
-  // Keep a local draft of every keystroke (debounced).
   useEffect(() => {
-    if (!path) return;
     const t = setTimeout(() => {
       void saveDraft(
-        path,
-        dirty
-          ? { path, content: text, baseSha: baseRef.current, updatedAt: Date.now() }
+        draftKey,
+        dirty && text.trim()
+          ? { path: draftKey, content: text, baseSha: baseRef.current, updatedAt: Date.now() }
           : undefined,
       );
     }, 500);
     return () => clearTimeout(t);
-  }, [text, dirty, path]);
+  }, [text, dirty, draftKey]);
 
   // Tell the server we are editing: concurrent AI writes become proposals instead of direct commits.
   useEffect(() => {
@@ -198,8 +229,9 @@ export function NoteEditor({ path: givenPath, folder = '', content, sha, commit,
 
   // Results from the queue for this path.
   useEffect(() => {
+    if (!path) return;
     return syncQueue.onResult((item, outcome) => {
-      if (item.op.kind !== 'save' || item.op.path !== pathRef.current) return;
+      if (item.op.kind !== 'save' || item.op.path !== path) return;
       if (outcome.type === 'committed') {
         baseRef.current = outcome.sha;
         void runScan(item.op.content);
@@ -211,38 +243,24 @@ export function NoteEditor({ path: givenPath, folder = '', content, sha, commit,
     });
   }, [path, runScan, toast]);
 
+  /** Save an existing note. A new memo is only saved from the save sheet. */
   const save = useCallback(
     async (opts: { quiet?: boolean } = {}) => {
-      let current = editor.current?.getValue() ?? textRef.current;
-      if (current === savedRef.current) return;
-      let target = pathRef.current;
-      if (!target) {
-        // A new memo: the first line names it and becomes its heading.
-        const plan = newNotePlan(current, folder, takenRef.current);
-        if (!plan) return; // nothing written yet: nothing is created
-        if (plan.heading !== null) {
-          if (editor.current) {
-            editor.current.replaceRange(plan.heading, plan.heading, '# ');
-            current = editor.current.getValue();
-          } else current = `${current.slice(0, plan.heading)}# ${current.slice(plan.heading)}`;
-        }
-        target = plan.path;
-        pathRef.current = target;
-        baseRef.current = null;
-        setPath(target);
-      }
+      if (!path) return;
+      const now = editor.current ? headRef.current + editor.current.getValue() : textRef.current;
+      if (now === savedRef.current) return;
       setSaving(true);
       try {
         await syncQueue.enqueue({
           kind: 'save',
-          path: target,
-          content: current,
+          path,
+          content: now,
           baseSha: baseRef.current,
           ...(commit ? { baseCommit: commit } : {}),
         });
-        savedRef.current = current;
-        setText(current);
-        void saveDraft(target, undefined);
+        savedRef.current = now;
+        setText(now);
+        void saveDraft(path, undefined);
         if (!opts.quiet)
           toast.show(navigator.onLine ? '保存しました' : '端末に保存しました(オンラインで同期)', {
             kind: 'success',
@@ -252,41 +270,49 @@ export function NoteEditor({ path: givenPath, folder = '', content, sha, commit,
         setSaving(false);
       }
     },
-    [folder, commit, toast],
+    [path, commit, toast],
   );
 
   /** After an explicit save: wait until GitHub has it, with the editor locked. */
-  const waitForRepo = useCallback(async (): Promise<'saved' | 'failed' | 'later'> => {
-    const target = pathRef.current;
-    if (!slow || !target) return 'saved';
-    setBlocking(true);
-    try {
-      const r = await syncQueue.outcome(target);
-      if (r === 'later')
-        toast.show('GitHub への保存がまだ終わっていません。端末には保存済みで、自動で再送します', {
-          kind: 'info',
-        });
-      // 'failed': the queue already shows why.
-      return r;
-    } finally {
-      setBlocking(false);
-    }
-  }, [slow, toast]);
+  const waitForRepo = useCallback(
+    async (target: string | null = path): Promise<'saved' | 'failed' | 'later'> => {
+      if (!slow || !target) return 'saved';
+      setBlocking(true);
+      try {
+        const r = await syncQueue.outcome(target);
+        if (r === 'later')
+          toast.show(
+            'GitHub への保存がまだ終わっていません。端末には保存済みで、自動で再送します',
+            { kind: 'info' },
+          );
+        // 'failed': the queue already shows why.
+        return r;
+      } finally {
+        setBlocking(false);
+      }
+    },
+    [slow, path, toast],
+  );
 
   /** The save button and Ctrl+S. */
   const saveNow = useCallback(async () => {
+    if (isNew) {
+      if (editor.current?.getValue().trim()) setAsking(true);
+      return;
+    }
     await save({ quiet: slow });
     if (slow && (await waitForRepo()) === 'saved')
       toast.show('GitHub に保存しました', { kind: 'success', duration: 2000 });
-  }, [save, slow, waitForRepo, toast]);
+  }, [isNew, save, slow, waitForRepo, toast]);
 
-  // Autosave after a pause, when the page is hidden, and when leaving.
+  // Existing notes: autosave after a pause, when the page is hidden, and when leaving.
   useEffect(() => {
-    if (!dirty) return;
+    if (!dirty || !path) return;
     const t = setTimeout(() => void save({ quiet: true }), AUTOSAVE_IDLE_MS);
     return () => clearTimeout(t);
-  }, [text, dirty, save]);
+  }, [text, dirty, path, save]);
   useEffect(() => {
+    if (!path) return;
     const onHide = () => {
       if (document.visibilityState === 'hidden') void save({ quiet: true });
     };
@@ -295,35 +321,93 @@ export function NoteEditor({ path: givenPath, folder = '', content, sha, commit,
       document.removeEventListener('visibilitychange', onHide);
       void save({ quiet: true });
     };
-  }, [save]);
+  }, [path, save]);
 
-  // The properties panel rewrites only the frontmatter block of the editor's text.
-  const patchProps = (patch: Frontmatter) => {
-    const cur = editor.current?.getValue() ?? textRef.current;
-    const read = readProps(cur);
-    if (!read.ok) return;
-    const body = cur.slice(read.head.length);
-    const next = updateFrontmatter(cur, patch);
-    const head = next.slice(0, next.length - body.length);
-    if (head === read.head) return;
-    if (editor.current) editor.current.replaceStart(read.head.length, head);
-    else setText(head + body);
+  /** "完了" (and "back"): existing notes save and leave; a new memo asks where to save. */
+  const finish = () => {
+    if (leaving.current) return;
+    if (isNew) {
+      if (editor.current?.getValue().trim() ?? text.trim()) setAsking(true);
+      else {
+        void saveDraft(NEW_MEMO_DRAFT, undefined);
+        onDone(null);
+      }
+      return;
+    }
+    leaving.current = true;
+    // The note page shows the saved text right away; the server catches up behind it.
+    void save({ quiet: true })
+      .then(() => waitForRepo())
+      // Refused: stay, so the text is not lost from view. Not yet sent: it stays queued.
+      .then((r) => {
+        if (r !== 'failed') onDone(path);
+      })
+      .finally(() => {
+        leaving.current = false;
+      });
   };
 
-  // An inline view's tabs and settings rewrite its block in the editor's text.
+  /** Save the new memo where the sheet says. */
+  const saveNew = async (target: SaveTarget) => {
+    const body = editor.current?.getValue() ?? text;
+    if (!body.trim()) return;
+    rememberSaveTarget(target);
+    setSaving(true);
+    try {
+      if (target.kind === 'append') {
+        await syncQueue.enqueue({ kind: 'capture', text: body.trim(), folder: 'Inbox' });
+        void saveDraft(NEW_MEMO_DRAFT, undefined);
+        savedRef.current = textRef.current;
+        setAsking(false);
+        toast.show(
+          online ? '今日のメモに追記しました' : '端末に保存しました。接続が戻ると追記されます',
+          { kind: 'success' },
+        );
+        onDone(null);
+        return;
+      }
+      const taken = new Set([
+        ...notes.map((n) => n.path.toLowerCase()),
+        ...queue.items.flatMap((i) => (i.op.kind === 'save' ? [i.op.path.toLowerCase()] : [])),
+      ]);
+      const plan = newNotePlan(body, target.folder, taken);
+      if (!plan) return;
+      // The first line becomes the heading, as the title is shown.
+      const content =
+        headRef.current +
+        (plan.heading === null
+          ? body
+          : `${body.slice(0, plan.heading)}# ${body.slice(plan.heading)}`);
+      await syncQueue.enqueue({ kind: 'save', path: plan.path, content, baseSha: null });
+      void saveDraft(NEW_MEMO_DRAFT, undefined);
+      savedRef.current = textRef.current;
+      setAsking(false);
+      if ((await waitForRepo(plan.path)) === 'failed') return;
+      onDone(plan.path);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // The properties panel rewrites only the frontmatter block.
+  const patchProps = (patch: Frontmatter) => {
+    const cur = current();
+    if (!readProps(cur).ok) return;
+    const next = updateFrontmatter(cur, patch);
+    if (next !== cur) replaceAll(next);
+  };
+
+  // An inline view's tabs and settings rewrite its block in the body.
   const changeView = (index: number, source: string) => {
-    const cur = editor.current?.getValue() ?? textRef.current;
-    const v = findInlineViews(cur)[index];
+    const body = editor.current?.getValue() ?? text.slice(headRef.current.length);
+    const v = findInlineViews(body)[index];
     if (!v) return;
     if (editor.current) editor.current.replaceRange(v.from, v.to, source);
-    else setText(cur.slice(0, v.from) + source + cur.slice(v.to));
+    else setText(headRef.current + body.slice(0, v.from) + source + body.slice(v.to));
   };
 
   const markSecret = async () => {
-    const cur = editor.current?.getValue() ?? text;
-    const parsed = parseNoteLenient(cur);
-    const next = serializeNote({ ...parsed.frontmatter, sensitivity: 'secret' }, parsed.body);
-    editor.current?.setValue(next);
+    replaceAll(updateFrontmatter(current(), { sensitivity: 'secret' }));
     setScan(null);
     scanDismissed.current = true;
     await save();
@@ -343,6 +427,22 @@ export function NoteEditor({ path: givenPath, folder = '', content, sha, commit,
     }
   };
 
+  const folders = useMemo(
+    () =>
+      folderList(
+        notes.map((n) => n.path),
+        ['Inbox', ...created],
+      ),
+    [notes, created],
+  );
+  const sheetStart = useMemo<SaveTarget>(
+    () => (folder ? { kind: 'folder', folder } : lastSaveTarget()),
+    // Read once per opening of the sheet.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [folder, asking],
+  );
+  const status = saving ? '保存中…' : isNew ? '' : dirty ? '未保存' : pending ? '同期待ち' : '';
+
   return (
     <div className="note-editor">
       {draft !== null && (
@@ -353,7 +453,7 @@ export function NoteEditor({ path: givenPath, folder = '', content, sha, commit,
               type="button"
               className="btn btn-small btn-primary"
               onClick={() => {
-                editor.current?.setValue(draft);
+                replaceAll(draft);
                 setDraft(null);
               }}
             >
@@ -418,60 +518,66 @@ export function NoteEditor({ path: givenPath, folder = '', content, sha, commit,
         </div>
       )}
       <div className="note-editor-head">
-        <span className="hint ellipsis">
-          {path ? displayPath(path) : `新しいメモ${folder ? `(${folder})` : ''}`}
+        {!home ? (
+          <button type="button" className="editor-back" onClick={finish}>
+            <Icon name="back" size={20} />
+            戻る
+          </button>
+        ) : (
+          <span />
+        )}
+        <span className="hint editor-status" aria-live="polite">
+          {status}
         </span>
-        <div className="segmented editor-modes" role="tablist" aria-label="表示">
-          {MODES.map((m) => (
+        <details className="menu">
+          <summary className="icon-btn" aria-label="その他の操作">
+            <Icon name="more" size={20} />
+          </summary>
+          <div className="menu-list">
+            {path && <span className="menu-note">{displayPath(path)}</span>}
             <button
-              key={m.id}
               type="button"
-              role="tab"
-              aria-selected={mode === m.id}
-              className={[mode === m.id ? 'active' : '', m.id === 'split' ? 'wide-only' : '']
-                .filter(Boolean)
-                .join(' ')}
-              onClick={() => setMode(m.id)}
+              aria-pressed={showProps}
+              onClick={(e) => {
+                setShowProps(!showProps);
+                (e.currentTarget.closest('details') as HTMLDetailsElement).open = false;
+              }}
             >
-              {m.label}
+              {showProps ? '詳細を閉じる' : '詳細(タグ・日付など)'}
             </button>
-          ))}
-        </div>
-        <span className="hint editor-status">
-          {saving ? '保存中…' : dirty ? '未保存' : pending ? '同期待ち' : '保存済み'}
-        </span>
-        <button
-          type="button"
-          className="btn btn-small"
-          onClick={() => {
-            // The note page shows the saved text right away; the server catches up behind it.
-            if (leaving.current) return;
-            leaving.current = true;
-            void save({ quiet: true })
-              .then(waitForRepo)
-              // Refused: stay, so the text is not lost from view. Not yet sent: it stays queued.
-              .then((r) => {
-                if (r !== 'failed') onDone(pathRef.current);
-              })
-              .finally(() => {
-                leaving.current = false;
-              });
-          }}
-        >
+            {MODES.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                aria-pressed={mode === m.id}
+                className={m.id === 'split' ? 'wide-only' : undefined}
+                onClick={(e) => {
+                  setMode(m.id);
+                  (e.currentTarget.closest('details') as HTMLDetailsElement).open = false;
+                }}
+              >
+                {mode === m.id ? '✓ ' : ''}
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </details>
+        <button type="button" className="btn btn-small btn-primary" onClick={finish}>
           完了
         </button>
       </div>
-      <PropertiesPanel text={text} onPatch={patchProps} />
+      {showProps && <PropertiesPanel text={text} onPatch={patchProps} />}
       <div ref={panes} className={`editor-panes mode-${mode}`}>
         {/* The editor stays mounted in preview mode, so undo history and the cursor survive. */}
         <div className="write-editor" hidden={mode === 'preview'}>
           <Editor
             ref={editor}
-            initialValue={initial}
-            onChange={setText}
+            initialValue={parts.body}
+            onChange={(body) => setText(headRef.current + body)}
             onSave={() => void saveNow()}
-            autoFocus={content === null && mode !== 'preview'}
-            placeholder={path ? '本文を書きましょう' : '1行目がタイトルになります'}
+            // The home screen does not pop the keyboard up when the app opens.
+            autoFocus={content === null && !home && mode !== 'preview'}
+            placeholder={isNew ? '1行目がタイトルになります' : '本文を書きましょう'}
           />
         </div>
         {mode !== 'write' && <Preview text={text} onViewChange={changeView} />}
@@ -483,6 +589,20 @@ export function NoteEditor({ path: givenPath, folder = '', content, sha, commit,
           saving={saving || blocking}
           dirty={dirty}
           {...(path ? { notePath: path } : {})}
+        />
+      )}
+      {isNew && (
+        <SaveSheet
+          open={asking}
+          initial={sheetStart}
+          folders={folders}
+          busy={saving || blocking}
+          onSave={(t) => void saveNew(t)}
+          onKeepDraft={() => {
+            setAsking(false);
+            onDone(null);
+          }}
+          onClose={() => setAsking(false)}
         />
       )}
       {blocking && (
