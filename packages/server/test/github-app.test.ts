@@ -4,7 +4,12 @@ import { SqliteDb } from '../src/db/sqlite.js';
 import { createHttpApp } from '../src/http-app.js';
 import { Platform } from '../src/platform.js';
 import { HashingEmbedder } from '../src/search/embedder.js';
-import { appJwt, forgetInstallationTokens, parsePrivateKey } from '../src/store/github-app.js';
+import {
+  appJwt,
+  forgetInstallationTokens,
+  parsePrivateKey,
+  privateKeyProblem,
+} from '../src/store/github-app.js';
 import { fakeGitHub } from './fake-github.js';
 import { testConfig } from './helpers.js';
 
@@ -79,6 +84,14 @@ describe('GitHub storage through the GitHub App', () => {
     expect(parsePrivateKey(privateKey).pkcs1).toBe(true);
     const jwt = await appJwt({ ...APP, slug: 's', privateKey });
     expect(jwt.split('.')).toHaveLength(3);
+    // The whole PEM base64-encoded (what survives any command line) works too.
+    const b64 = Buffer.from(privateKey).toString('base64');
+    expect(parsePrivateKey(b64).der).toEqual(parsePrivateKey(privateKey).der);
+    // A key cut at its first line break is reported, not thrown at sign-in.
+    expect(
+      await privateKeyProblem({ ...APP, slug: 's', privateKey: '-----BEGIN RSA PRIVATE KEY-----' }),
+    ).toMatch(/形式/);
+    expect(await privateKeyProblem({ ...APP, slug: 's', privateKey: b64 })).toBeNull();
   });
 
   it('signs in with GitHub, lists the repositories, and connects without a token', async () => {

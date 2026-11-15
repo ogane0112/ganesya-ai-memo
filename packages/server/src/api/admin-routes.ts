@@ -7,7 +7,13 @@ import { parseScope, type Scope } from '../auth/tokens.js';
 import type { Platform } from '../platform.js';
 import { MAIN } from '../store/types.js';
 import { gzip, tar } from '../util/tar.js';
-import { authorizeUrl, exchangeCode, installUrl, linkableRepos } from '../store/github-app.js';
+import {
+  authorizeUrl,
+  exchangeCode,
+  installUrl,
+  linkableRepos,
+  privateKeyProblem,
+} from '../store/github-app.js';
 import { StoreError } from '../store/types.js';
 import {
   disconnectGitHub,
@@ -264,7 +270,11 @@ export function adminRoutes(platform: Platform) {
       githubAvailable: !!platform.cfg.secretKey,
       githubApp:
         ghApp && platform.cfg.secretKey
-          ? { installUrl: installUrl(ghApp, platform.cfg.githubWebBase) }
+          ? {
+              installUrl: installUrl(ghApp, platform.cfg.githubWebBase),
+              // A broken key only shows when connecting; say so up front.
+              problem: await privateKeyProblem(ghApp),
+            }
           : null,
     });
   });

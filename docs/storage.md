@@ -71,14 +71,16 @@ GitHub App が設定されていないサーバー(GitHub Enterprise Server な�
 3. 作成後の画面で **Client ID** を控え、**Generate a new client secret** と **Generate a private key**(`.pem` がダウンロードされます)を押す
 4. サーバーに設定する
 
-| 名前                             | 値                                        | 種類         |
-| -------------------------------- | ----------------------------------------- | ------------ |
-| `GMEMO_GITHUB_APP_SLUG`          | App の slug                               | 変数         |
-| `GMEMO_GITHUB_APP_CLIENT_ID`     | Client ID(`Iv23…`)                        | 変数         |
-| `GMEMO_GITHUB_APP_CLIENT_SECRET` | Client secret                             | シークレット |
-| `GMEMO_GITHUB_APP_PRIVATE_KEY`   | `.pem` の中身そのまま(改行は `\n` でも可) | シークレット |
+| 名前                             | 値                                                                       | 種類         |
+| -------------------------------- | ------------------------------------------------------------------------ | ------------ |
+| `GMEMO_GITHUB_APP_SLUG`          | App の slug                                                              | 変数         |
+| `GMEMO_GITHUB_APP_CLIENT_ID`     | Client ID(`Iv23…`)                                                       | 変数         |
+| `GMEMO_GITHUB_APP_CLIENT_SECRET` | Client secret                                                            | シークレット |
+| `GMEMO_GITHUB_APP_PRIVATE_KEY`   | `.pem` の中身を base64 にしたもの(おすすめ。`.pem` の中身そのままでも可) | シークレット |
 
 Cloudflare では、シークレットは `npx wrangler secret put GMEMO_GITHUB_APP_PRIVATE_KEY --name <Worker名>` のように入れ、変数はデプロイ時の環境変数で渡します([設定](configuration.md))。4 つそろっていないと「GitHub でログイン」は出ず、アクセストークンの入力欄だけになります。
+
+秘密鍵は改行を含むため、コマンドの引数で渡すと(特に Windows では)途中で切れることがあります。`base64 -w0 key.pem`(PowerShell では `[Convert]::ToBase64String([IO.File]::ReadAllBytes("key.pem"))`)で 1 行にしてから入れてください。読めない鍵が入っていると、設定の「保存先」に警告が出ます。
 
 ### GitHub 上での見え方
 

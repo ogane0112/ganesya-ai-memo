@@ -276,7 +276,7 @@ export interface StorageSettings {
   /** The server has a secret key, so GitHub tokens can be stored. */
   githubAvailable: boolean;
   /** "Sign in with GitHub" is set up on this server (null: only access tokens). */
-  githubApp: { installUrl: string } | null;
+  githubApp: { installUrl: string; problem: string | null } | null;
 }
 
 /** A repository the user can connect, as GitHub listed it after signing in. */

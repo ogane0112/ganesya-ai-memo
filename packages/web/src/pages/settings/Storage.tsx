@@ -220,6 +220,11 @@ export function StorageSettings() {
 
   const appForm = s.githubApp && (
     <>
+      {s.githubApp.problem && (
+        <p className="notice notice-warn">
+          サーバーの GitHub App の設定に問題があります(管理者向け): {s.githubApp.problem}
+        </p>
+      )}
       {loginError && <p className="notice notice-warn">{loginError}</p>}
       {linked === null ? (
         <>

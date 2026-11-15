@@ -61,13 +61,29 @@ function pkcs1ToPkcs8(pkcs1: Uint8Array): Uint8Array {
   return out;
 }
 
-/** Secrets often arrive with "\n" escaped (one-line env files); accept both. */
+const PEM_RE = /-----BEGIN (RSA )?PRIVATE KEY-----([\s\S]+?)-----END (RSA )?PRIVATE KEY-----/;
+
+/**
+ * The App's private key as it was put in the secret. Accepted forms: the PEM
+ * file as is, the PEM with "\n" escaped (one-line env files), or the whole PEM
+ * file base64-encoded: plain letters and digits, which survive any shell or
+ * command line (multi-line values do not, on Windows in particular).
+ */
 export function parsePrivateKey(pem: string): { der: Uint8Array; pkcs1: boolean } {
-  const text = pem.replace(/\\n/g, '\n').trim();
-  const m = /-----BEGIN (RSA )?PRIVATE KEY-----([\s\S]+?)-----END (RSA )?PRIVATE KEY-----/.exec(
-    text,
-  );
-  if (!m) throw new StoreError('GitHub App の秘密鍵(PEM)の形式が正しくありません', 500);
+  let text = pem.replace(/\\n/g, '\n').trim();
+  if (!text.includes('-----BEGIN') && /^[A-Za-z0-9+/=\s]+$/.test(text)) {
+    try {
+      text = atob(text.replace(/\s+/g, ''));
+    } catch {
+      // not base64 either: reported below
+    }
+  }
+  const m = PEM_RE.exec(text);
+  if (!m)
+    throw new StoreError(
+      'GitHub App の秘密鍵(PEM)の形式が正しくありません。.pem ファイルの中身を base64 にしたものを GMEMO_GITHUB_APP_PRIVATE_KEY に設定し直してください',
+      500,
+    );
   const bin = atob(m[2]!.replace(/\s+/g, ''));
   const der = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) der[i] = bin.charCodeAt(i);
@@ -91,6 +107,16 @@ function signingKey(pem: string): ReturnType<typeof crypto.subtle.importKey> {
     keys.set(pem, k);
   }
   return k;
+}
+
+/** Whether the configured private key can be read and used (no network). */
+export async function privateKeyProblem(app: GitHubAppConfig): Promise<string | null> {
+  try {
+    await signingKey(app.privateKey);
+    return null;
+  } catch (err) {
+    return err instanceof StoreError ? err.message : 'GitHub App の秘密鍵を読み込めません';
+  }
 }
 
 /** A short-lived JWT that authenticates as the App itself. */
