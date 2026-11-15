@@ -332,7 +332,11 @@ export class GitHubStore implements NoteStore {
     message: string,
     opts: CommitOptions = {},
   ): Promise<string> {
-    const current = await this.head(branch);
+    // A caller that passes the parent has just read the head: asking again
+    // costs a round trip for nothing. The ref update below is not forced, so a
+    // branch that moved in between is still caught (and the caller retries).
+    const current =
+      opts.parent === undefined || opts.parent === null ? await this.head(branch) : opts.parent;
     const parent = opts.parent === undefined ? current : opts.parent;
     const existing = parent ? await this.fileMap(parent) : new Map<string, string>();
     const parentTree = parent ? await this.commitTree(parent) : null;
@@ -348,18 +352,27 @@ export class GitHubStore implements NoteStore {
     }
 
     const entries: Record<string, unknown>[] = [];
+    // The new commit's files, known without asking GitHub: a blob's id is the
+    // hash of its bytes, so it is the same here as there.
+    const next = new Map(existing);
     for (const c of changes) {
       if (c.content === null) {
         if (existing.has(c.path))
           entries.push({ path: c.path, mode: '100644', type: 'blob', sha: null });
+        next.delete(c.path);
       } else if (isText(c.content)) {
         entries.push({ path: c.path, mode: '100644', type: 'blob', content: c.content });
+        const sha = await blobId(c.content);
+        next.set(c.path, sha);
+        this.blobs.set(sha, asBytes(c.content));
       } else {
         const b = await this.req<{ sha: string }>('POST', '/git/blobs', {
           content: b64encode(c.content),
           encoding: 'base64',
         });
         entries.push({ path: c.path, mode: '100644', type: 'blob', sha: b.data!.sha });
+        next.set(c.path, b.data!.sha);
+        this.blobs.set(b.data!.sha, c.content);
       }
     }
     let tree = parentTree;
@@ -369,6 +382,7 @@ export class GitHubStore implements NoteStore {
         tree: entries,
       });
       tree = t.data!.sha;
+      if (!this.trees.has(tree)) this.trees.set(tree, next);
     }
     if (parent && tree === parentTree && !opts.allowEmpty && !opts.extraParents?.length)
       return parent;

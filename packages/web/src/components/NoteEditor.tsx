@@ -692,7 +692,7 @@ export function NoteEditor({ path, content, sha, commit, folder, home, onDone }:
             <Spinner />
             <strong>GitHub に保存しています…</strong>
             <span className="hint">
-              GitHub の仕組み上、数秒〜十数秒かかります。終わるまでそのままお待ちください。
+              GitHub への書き込みには数秒かかることがあります。終わるまでそのままお待ちください。
             </span>
           </div>
         </div>
