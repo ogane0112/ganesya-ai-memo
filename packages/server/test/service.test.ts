@@ -209,6 +209,38 @@ describe('GitHub storage', () => {
     await ctx.cleanup();
   });
 
+  it('saves with as few GitHub calls as it takes, and still catches a push in between', async () => {
+    const ctx = await setup('github', { env: { GMEMO_GITHUB_CHECK_SECONDS: '30' } });
+    const doc = await ctx.service.read('Welcome.md');
+    ctx.gh.calls.length = 0;
+    const first = await ctx.service.saveAsHuman('Welcome.md', doc.content + 'one\n', {
+      baseSha: doc.sha,
+    });
+    // Read the head, write the tree and the commit, move the branch: nothing else.
+    expect(ctx.gh.calls.map((c) => c.split(' ')[0] + ' ' + c.split('/')[5])).toEqual([
+      'GET ref',
+      'POST trees',
+      'POST commits',
+      'PATCH refs',
+    ]);
+    expect(first.status).toBe('committed');
+
+    // Someone pushes after the app read the head but before it moves the branch:
+    // the update is refused, and the save is redone on top of the push.
+    ctx.gh.hooks.beforeRefUpdate = async () => {
+      await ctx.gh.pushExternal({ 'Other.md': 'from the laptop\n' });
+    };
+    const again = await ctx.service.read('Welcome.md');
+    const second = await ctx.service.saveAsHuman('Welcome.md', again.content + 'two\n', {
+      baseSha: again.sha,
+    });
+    expect(second.status).toBe('committed');
+    expect(ctx.gh.refs.get('main')).toBe(await ctx.service.head());
+    expect((await ctx.service.read('Welcome.md')).content).toContain('two');
+    expect((await ctx.service.read('Other.md')).content).toBe('from the laptop\n');
+    await ctx.cleanup();
+  });
+
   it('keeps users apart', async () => {
     const ctx = await setup('builtin');
     const { addUser } = await import('./helpers.js');

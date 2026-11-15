@@ -37,6 +37,8 @@ export function fakeGitHub(
   /** OAuth codes the "user" got by signing in. */
   const codes = new Set<string>(['good-code']);
   const userToken = 'ghu_user';
+  /** Test hooks: run something (an outside push) at a precise moment. */
+  const hooks: { beforeRefUpdate?: () => Promise<void> } = {};
   /** Which repositories the App is installed on (tests may change it). */
   const installedRepos = [repo];
   const blobs = new Map<string, Uint8Array>();
@@ -246,6 +248,9 @@ export function fakeGitHub(
       return json(201, { ref: body['ref'] });
     }
     if (method === 'PATCH' && (m = /^\/git\/refs\/heads\/(.+)$/.exec(path))) {
+      const run = hooks.beforeRefUpdate;
+      hooks.beforeRefUpdate = undefined;
+      await run?.();
       const cur = refs.get(m[1]!);
       if (!cur) return json(422, { message: 'Reference does not exist' });
       const sha = String(body['sha']);
@@ -345,5 +350,6 @@ export function fakeGitHub(
     installedRepos,
     installationTokens,
     codes,
+    hooks,
   };
 }
