@@ -22,7 +22,12 @@ export default tseslint.config(
   {
     files: ['packages/web/**/*.{ts,tsx}'],
     plugins: { 'react-hooks': reactHooks },
-    rules: reactHooks.configs.recommended.rules,
+    // The two classic rules, as before v7. v7's React Compiler rules
+    // (set-state-in-effect, refs, …) flag existing screens and are adopted separately.
+    rules: {
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
+    },
   },
   {
     files: ['packages/server/src/**/*.ts'],

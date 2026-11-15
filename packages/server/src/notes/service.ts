@@ -176,7 +176,7 @@ export class NoteService {
     const h = head ?? (await this.currentHead());
     if (this.policyCache?.commit === h) return this.policyCache.policy;
     const text = h ? await this.store.readFile(h, POLICY_PATH) : null;
-    let raw: unknown = {};
+    let raw: unknown;
     try {
       raw = text ? parseYaml(text) : {};
     } catch {
