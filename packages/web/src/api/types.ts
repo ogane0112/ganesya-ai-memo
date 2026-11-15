@@ -264,10 +264,28 @@ export type SignupMode = 'open' | 'invite' | 'closed';
 
 export interface StorageSettings {
   storage: 'builtin' | 'github';
-  github: { owner: string; repo: string; branch: string; hasToken: boolean } | null;
+  github: {
+    owner: string;
+    repo: string;
+    branch: string;
+    hasToken: boolean;
+    /** Connected by signing in with GitHub (the GitHub App) or with an access token. */
+    via: 'app' | 'token';
+  } | null;
   updatedAt: string;
   /** The server has a secret key, so GitHub tokens can be stored. */
   githubAvailable: boolean;
+  /** "Sign in with GitHub" is set up on this server (null: only access tokens). */
+  githubApp: { installUrl: string } | null;
+}
+
+/** A repository the user can connect, as GitHub listed it after signing in. */
+export interface LinkableRepo {
+  installationId: number;
+  owner: string;
+  repo: string;
+  private: boolean;
+  defaultBranch: string;
 }
 
 export interface UserInfo {

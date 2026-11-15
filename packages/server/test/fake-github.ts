@@ -4,6 +4,7 @@
  * non-forced ref updates must fast-forward, empty repos only accept the
  * contents API, deleting a missing path in a tree fails, etc.
  */
+import { createVerify } from 'node:crypto';
 import { objectId } from '../src/store/gitobj.js';
 import { gzip, tar } from '../src/util/tar.js';
 
@@ -19,10 +20,25 @@ const enc = new TextEncoder();
 const b64 = (b: Uint8Array) => Buffer.from(b).toString('base64');
 const unb64 = (s: string) => new Uint8Array(Buffer.from(s, 'base64'));
 
-export function fakeGitHub(opts: { owner?: string; repo?: string; token?: string } = {}) {
+export function fakeGitHub(
+  opts: {
+    owner?: string;
+    repo?: string;
+    token?: string;
+    /** GitHub App: its public key (PEM) checks the App JWT; clientId/secret the OAuth exchange. */
+    app?: { publicKey: string; clientId: string; clientSecret: string; installationId: number };
+  } = {},
+) {
   const owner = opts.owner ?? 'me';
   const repo = opts.repo ?? 'notes';
   const token = opts.token ?? 'ghp_test';
+  /** Installation tokens handed out, with the repositories each may touch. */
+  const installationTokens = new Map<string, string[]>();
+  /** OAuth codes the "user" got by signing in. */
+  const codes = new Set<string>(['good-code']);
+  const userToken = 'ghu_user';
+  /** Which repositories the App is installed on (tests may change it). */
+  const installedRepos = [repo];
   const blobs = new Map<string, Uint8Array>();
   const trees = new Map<string, Map<string, string>>();
   const commits = new Map<string, FakeCommit>();
@@ -70,6 +86,7 @@ export function fakeGitHub(opts: { owner?: string; repo?: string; token?: string
     author: c.author,
   });
 
+  let m0: RegExpExecArray | null;
   const handler = async (
     input: string | URL | Request,
     init: RequestInit = {},
@@ -80,8 +97,65 @@ export function fakeGitHub(opts: { owner?: string; repo?: string; token?: string
     const method = (init.method ?? 'GET').toUpperCase();
     const headers = new Headers(init.headers);
     calls.push(`${method} ${url.pathname}${url.search}`);
-    if (headers.get('authorization') !== `Bearer ${token}`)
-      return json(401, { message: 'Bad credentials' });
+    const auth = headers.get('authorization') ?? '';
+    const app = opts.app;
+
+    // ---- GitHub App and OAuth --------------------------------------------------
+    if (app && method === 'POST' && url.pathname === '/login/oauth/access_token') {
+      const b = JSON.parse(String(init.body)) as Record<string, string>;
+      if (b['client_id'] !== app.clientId || b['client_secret'] !== app.clientSecret)
+        return json(200, { error: 'incorrect_client_credentials' });
+      if (!codes.delete(b['code']!)) return json(200, { error: 'bad_verification_code' });
+      return json(200, { access_token: userToken, token_type: 'bearer' });
+    }
+    if (app && url.pathname.startsWith('/user/installations')) {
+      if (auth !== `Bearer ${userToken}`) return json(401, { message: 'Bad credentials' });
+      if (url.pathname === '/user/installations')
+        return json(200, { total_count: 1, installations: [{ id: app.installationId }] });
+      if (url.pathname === `/user/installations/${app.installationId}/repositories`)
+        return json(200, {
+          total_count: installedRepos.length,
+          repositories: installedRepos.map((name) => ({
+            name,
+            owner: { login: owner },
+            private: true,
+            default_branch: 'main',
+          })),
+        });
+      return json(404, { message: 'Not Found' });
+    }
+    if (
+      app &&
+      method === 'POST' &&
+      (m0 = /^\/app\/installations\/(\d+)\/access_tokens$/.exec(url.pathname))
+    ) {
+      const jwt = auth.replace(/^Bearer /, '').split('.');
+      if (jwt.length !== 3) return json(401, { message: 'A JSON web token could not be decoded' });
+      const ok = createVerify('RSA-SHA256')
+        .update(`${jwt[0]}.${jwt[1]}`)
+        .verify(app.publicKey, Buffer.from(jwt[2]!, 'base64url'));
+      const claims = JSON.parse(Buffer.from(jwt[1]!, 'base64url').toString()) as {
+        iss: string;
+        exp: number;
+      };
+      if (!ok || claims.iss !== app.clientId || claims.exp * 1000 < Date.now())
+        return json(401, { message: 'Integration not found' });
+      if (Number(m0[1]) !== app.installationId) return json(404, { message: 'Not Found' });
+      const b = JSON.parse(String(init.body)) as { repositories: string[] };
+      if (b.repositories.some((r) => !installedRepos.includes(r)))
+        return json(422, { message: 'There is at least one repository that does not exist' });
+      const t = `ghs_${installationTokens.size + 1}`;
+      installationTokens.set(t, b.repositories);
+      return json(201, { token: t, expires_at: new Date(Date.now() + 3600_000).toISOString() });
+    }
+
+    const bearer = auth.replace(/^Bearer /, '');
+    const scoped = installationTokens.get(bearer);
+    if (bearer !== token && !scoped) return json(401, { message: 'Bad credentials' });
+    if (scoped && !url.pathname.startsWith(`/repos/${owner}/`))
+      return json(404, { message: 'Not Found' });
+    if (scoped && !scoped.includes(url.pathname.split('/')[3]!))
+      return json(404, { message: 'Not Found' });
     const prefix = `/repos/${owner}/${repo}`;
     if (!url.pathname.startsWith(prefix)) return json(404, { message: 'Not Found' });
     const path = decodeURIComponent(url.pathname.slice(prefix.length));
@@ -260,5 +334,16 @@ export function fakeGitHub(opts: { owner?: string; repo?: string; token?: string
     return sha;
   }
 
-  return { fetch: handler as typeof fetch, owner, repo, token, refs, calls, pushExternal };
+  return {
+    fetch: handler as typeof fetch,
+    owner,
+    repo,
+    token,
+    refs,
+    calls,
+    pushExternal,
+    installedRepos,
+    installationTokens,
+    codes,
+  };
 }

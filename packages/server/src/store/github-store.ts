@@ -25,7 +25,8 @@ export interface GitHubConfig {
   repo: string;
   /** Branch that plays the role of `main`. */
   branch: string;
-  token: string;
+  /** A fixed token, or a function for short-lived ones (GitHub App installation tokens). */
+  token: string | (() => Promise<string>);
   apiBase?: string;
   fetch?: typeof fetch;
 }
@@ -78,6 +79,11 @@ export class GitHubStore implements NoteStore {
     return commit;
   }
 
+  private token(): Promise<string> {
+    const t = this.cfg.token;
+    return typeof t === 'string' ? Promise.resolve(t) : t();
+  }
+
   private async req<T>(
     method: string,
     path: string,
@@ -88,7 +94,7 @@ export class GitHubStore implements NoteStore {
       method,
       headers: {
         accept: 'application/vnd.github+json',
-        authorization: `Bearer ${this.cfg.token}`,
+        authorization: `Bearer ${await this.token()}`,
         'x-github-api-version': '2022-11-28',
         'user-agent': 'ganesya-ai-memo',
         ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
@@ -102,7 +108,12 @@ export class GitHubStore implements NoteStore {
     if (okStatuses.includes(res.status)) return { status: res.status, data: null };
     const msg = await res.text().catch(() => '');
     if (res.status === 401)
-      throw new StoreError('GitHubのトークンが無効です。設定で接続し直してください', 401);
+      throw new StoreError(
+        typeof this.cfg.token === 'string'
+          ? 'GitHubのトークンが無効です。設定で接続し直してください'
+          : 'GitHub に認証を断られました。設定の「保存先」から GitHub に接続し直してください',
+        401,
+      );
     if (res.status === 403)
       throw new StoreError(
         `GitHubへのアクセスが拒否されました(権限不足か回数制限): ${msg.slice(0, 200)}`,
@@ -215,7 +226,7 @@ export class GitHubStore implements NoteStore {
   async snapshot(commit: string): Promise<Map<string, Uint8Array>> {
     const res = await this.f(`${this.api}/tarball/${this.sha(commit)}`, {
       headers: {
-        authorization: `Bearer ${this.cfg.token}`,
+        authorization: `Bearer ${await this.token()}`,
         'x-github-api-version': '2022-11-28',
         'user-agent': 'ganesya-ai-memo',
       },

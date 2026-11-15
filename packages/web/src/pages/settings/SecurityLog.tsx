@@ -35,6 +35,7 @@ export const ACTION_LABEL: Record<string, string> = {
   'policy.allow_finding': '機密情報の検出を「問題なし」に',
   'storage.change': '保存先を変更',
   'storage.github_forget': 'GitHub接続を削除',
+  'storage.github_link': 'GitHub でログイン(保存先)',
   'data.export': 'ノートをエクスポート',
   'calendar.feed_create': 'カレンダーの公開URLを作成',
   'calendar.feed_revoke': 'カレンダーの公開URLを無効化',

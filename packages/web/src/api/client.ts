@@ -22,6 +22,7 @@ import type {
   SecurityEvent,
   SecurityLogCheck,
   SignupMode,
+  LinkableRepo,
   StorageSettings,
   UserInfo,
   ProposalDetail,
@@ -296,7 +297,13 @@ export const api = {
   storage: () => get<StorageSettings>('/api/admin/storage'),
   saveStorage: (b: {
     storage: 'builtin' | 'github';
-    github?: { owner: string; repo: string; branch?: string; token?: string };
+    github?: {
+      owner: string;
+      repo: string;
+      branch?: string;
+      token?: string;
+      installationId?: number;
+    };
     copy?: boolean;
   }) =>
     put<{ copied: number; closedProposals: number; settings: StorageSettings }>(
@@ -304,6 +311,8 @@ export const api = {
       b,
     ),
   forgetGitHub: () => del<Ok>('/api/admin/storage/github'),
+  githubLogin: () => post<{ url: string }>('/api/admin/storage/github/login'),
+  githubRepos: () => get<{ repos: LinkableRepo[] | null }>('/api/admin/storage/github/repos'),
   securityLog: (q: { scope?: 'all'; outcome?: string; action?: string; before?: number } = {}) =>
     get<SecurityEvent[]>(`/api/admin/security-log${qs({ ...q, limit: 100 })}`),
   verifySecurityLog: () => post<SecurityLogCheck>('/api/admin/security-log/verify'),
