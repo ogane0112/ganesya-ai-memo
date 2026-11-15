@@ -30,27 +30,3 @@ export function quickNoteContent(title: string, body: string): string {
   if (/^\s*#\s/.test(b)) return `${b}\n`;
   return `# ${title.trim()}\n\n${b}${b ? '\n' : ''}`;
 }
-
-/**
- * Where a memo started with "new note" gets saved, decided from what was
- * written (like iOS Notes: the first line is the title). null while there is
- * no first line yet, so leaving an empty memo creates nothing.
- *
- * `heading` is where to insert "# " so the first line reads as the title, or
- * null when it already is a heading or is a list item (left as written).
- */
-export function newNotePlan(
-  text: string,
-  folder: string,
-  taken: ReadonlySet<string>,
-): { path: string; heading: number | null } | null {
-  const title = firstLineTitle(text);
-  if (!title) return null;
-  const start = text.search(/\S/);
-  const line = text.slice(start).split('\n')[0]!;
-  const plain = !/^(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|```)/.test(line);
-  const lineStart = text.lastIndexOf('\n', start) + 1;
-  // A slash in a title is part of the name, not a folder.
-  const name = title.replace(/[\\/]+/g, '-');
-  return { path: uniquePath(name, folder, taken), heading: plain ? lineStart : null };
-}

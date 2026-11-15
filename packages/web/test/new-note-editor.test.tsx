@@ -29,8 +29,16 @@ vi.mock('../src/state/app', () => ({
 // One object, as the real toast context gives (a new one per render would re-save).
 const toast = { show: () => undefined };
 vi.mock('../src/state/toast', () => ({ useToast: () => toast }));
+const renamed: [string, string][] = [];
 vi.mock('../src/api/client', () => ({
-  api: { editing: async () => ({ ok: true }), scanSensitive: async () => ({ findings: [] }) },
+  api: {
+    editing: async () => ({ ok: true }),
+    scanSensitive: async () => ({ findings: [] }),
+    renameNote: async (from: string, to: string) => {
+      renamed.push([from, to]);
+      return { commit: 'c2' };
+    },
+  },
 }));
 vi.mock('../src/lib/queueStore', () => ({
   loadDraft: async () => undefined,
@@ -102,14 +110,18 @@ function open(props: { path?: string; content?: string } = {}) {
 }
 
 const textarea = () => host.querySelector('textarea')!;
+const titleInput = () => host.querySelector<HTMLInputElement>('input.editor-title')!;
 
-function type(text: string) {
-  const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
+function fill(el: HTMLInputElement | HTMLTextAreaElement, text: string) {
+  const proto = el instanceof HTMLInputElement ? HTMLInputElement : HTMLTextAreaElement;
+  const set = Object.getOwnPropertyDescriptor(proto.prototype, 'value')!.set!;
   act(() => {
-    set.call(textarea(), text);
-    textarea().dispatchEvent(new Event('input', { bubbles: true }));
+    set.call(el, text);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
   });
 }
+const type = (text: string) => fill(textarea(), text);
+const name = (text: string) => fill(titleInput(), text);
 
 async function click(label: string) {
   const btn = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === label);
@@ -133,6 +145,7 @@ const sheetOpen = () => !!document.querySelector('dialog[open]');
 
 beforeEach(() => {
   enqueued.length = 0;
+  renamed.length = 0;
   onDone.mockReset();
   localStorage.clear();
   host = document.createElement('div');
@@ -145,18 +158,20 @@ afterEach(() => {
 });
 
 describe('a new memo', () => {
-  it('says the first line is the title, and creates nothing when left empty', async () => {
+  it('has a title field and a body, and creates nothing when left empty', async () => {
     open();
-    expect(textarea().placeholder).toBe('1行目がタイトルになります');
+    expect(titleInput().placeholder).toBe('タイトル');
+    expect(textarea().placeholder).toBe('本文');
     await click('完了');
     expect(sheetOpen()).toBe(false);
     expect(enqueued).toEqual([]);
     expect(onDone).toHaveBeenCalledWith(null);
   });
 
-  it('asks where to save on 完了, with Inbox chosen, and is named after its first line', async () => {
+  it('asks where to save on 完了, with Inbox chosen, and is named after its title', async () => {
     open();
-    type(lines('買い物', '牛乳', '卵'));
+    name('買い物');
+    type(lines('牛乳', '卵'));
     expect(enqueued).toEqual([]); // nothing is sent while writing
     await click('完了');
     expect(sheetOpen()).toBe(true);
@@ -169,20 +184,20 @@ describe('a new memo', () => {
       {
         kind: 'save',
         path: 'Inbox/買い物 2.md',
-        content: lines('# 買い物', '牛乳', '卵'),
+        content: lines('# 買い物', '', '牛乳', '卵'),
         baseSha: null,
       },
     ]);
     expect(onDone).toHaveBeenCalledWith('Inbox/買い物 2.md');
   });
 
-  it('saves into the folder picked in the sheet, and remembers it for next time', async () => {
+  it('without a title, is named after the first line, and saved where picked', async () => {
     open();
     type('計画');
     await click('完了');
     await pick('Work');
     await click('保存');
-    expect(enqueued[0]).toMatchObject({ path: 'Work/計画.md' });
+    expect(enqueued[0]).toMatchObject({ path: 'Work/計画.md', content: '計画' });
     expect(JSON.parse(localStorage.getItem('gmemo.lastSaveTarget')!)).toEqual({
       kind: 'folder',
       folder: 'Work',
@@ -201,7 +216,7 @@ describe('a new memo', () => {
 
   it('can be kept as a draft without saving', async () => {
     open();
-    type('まだ途中');
+    name('まだ途中');
     await click('完了');
     await click('下書きに残す');
     expect(enqueued).toEqual([]);
@@ -212,10 +227,11 @@ describe('a new memo', () => {
 describe('editing a note', () => {
   const head = lines('---', 'tags: [仕事]', 'status: todo', '---', '');
 
-  it('shows the body only, and keeps the frontmatter when saving', async () => {
+  it('looks like a new memo: the name in the title field, the body without metadata', async () => {
     open({ path: 'Work/会議.md', content: head + lines('# 会議', '決めたこと', '') });
-    expect(textarea().value).toBe(lines('# 会議', '決めたこと', ''));
-    type(lines('# 会議', '決めたこと', '次回は来週', ''));
+    expect(titleInput().value).toBe('会議');
+    expect(textarea().value).toBe(lines('決めたこと', ''));
+    type(lines('決めたこと', '次回は来週', ''));
     await click('完了');
     expect(sheetOpen()).toBe(false);
     expect(enqueued).toEqual([
@@ -225,6 +241,29 @@ describe('editing a note', () => {
         baseSha: 'abc',
       }),
     ]);
+    expect(renamed).toEqual([]);
     expect(onDone).toHaveBeenCalledWith('Work/会議.md');
+  });
+
+  it('renames the note when its title changes', async () => {
+    open({ path: 'Work/会議.md', content: lines('# 会議', '', '決めたこと', '') });
+    name('定例会議');
+    await click('完了');
+    expect(enqueued).toEqual([
+      expect.objectContaining({
+        path: 'Work/会議.md',
+        content: lines('# 定例会議', '', '決めたこと', ''),
+      }),
+    ]);
+    expect(renamed).toEqual([['Work/会議.md', 'Work/定例会議.md']]);
+    expect(onDone).toHaveBeenCalledWith('Work/定例会議.md');
+  });
+
+  it('refuses a name another note has', async () => {
+    open({ path: 'Work/会議.md', content: lines('# 会議', '本文', '') });
+    name('PLAN');
+    await click('完了');
+    expect(renamed).toEqual([]);
+    expect(onDone).not.toHaveBeenCalled();
   });
 });
