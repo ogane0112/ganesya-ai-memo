@@ -146,7 +146,7 @@ export async function request<T>(
     throw new NetworkError();
   }
   if (!res.ok) {
-    let data: unknown = null;
+    let data: unknown;
     const text = await res.text().catch(() => '');
     try {
       data = text ? JSON.parse(text) : null;
