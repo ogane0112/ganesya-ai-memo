@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import type { NoteSummary } from '../api/types';
+import { primeKeyboard } from '../lib/keyboard';
+import { newNoteUrl } from '../lib/paths';
 import { Icon } from './Icon';
 import { NoteTree } from './NoteTree';
 
@@ -63,10 +65,13 @@ export function NavDrawer({
                 <Icon name="folder" size={20} />
               </Link>
               <Link
-                to="/notes?new=1"
+                to={newNoteUrl()}
                 className="icon-btn"
-                aria-label="新しいノート"
-                onClick={onClose}
+                aria-label="新しいメモ"
+                onClick={() => {
+                  primeKeyboard();
+                  onClose();
+                }}
               >
                 <Icon name="plus" size={20} />
               </Link>

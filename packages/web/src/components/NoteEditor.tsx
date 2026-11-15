@@ -10,6 +10,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import type { PublicFinding } from '../api/types';
 import { useOnline } from '../lib/hooks';
+import { newNotePlan } from '../lib/newNote';
 import { displayPath } from '../lib/paths';
 import { loadDraft, saveDraft } from '../lib/queueStore';
 import { pendingFor } from '../lib/queue';
@@ -27,12 +28,20 @@ import { readProps } from '../lib/properties';
 import { FindingList } from './SensitiveConfirm';
 
 interface Props {
-  path: string;
+  /**
+   * The note being edited. null for a memo started with "new note": its path
+   * is decided from the first line when it is first saved (nothing is
+   * created while it is empty).
+   */
+  path: string | null;
+  /** Where a new memo (path null) goes. */
+  folder?: string;
   /** Server content; null for a new note. */
   content: string | null;
   sha: string | null;
   commit?: string;
-  onDone: () => void;
+  /** Leaving the editor, with the note's path (null: a new memo left empty). */
+  onDone: (path: string | null) => void;
 }
 
 const AUTOSAVE_IDLE_MS = 20_000;
@@ -88,11 +97,13 @@ function Preview({
  * Edits one note. Saves go through the offline queue with the blob sha the
  * edit started from, so the server can merge with changes made elsewhere.
  */
-export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
+export function NoteEditor({ path: givenPath, folder = '', content, sha, commit, onDone }: Props) {
   const editor = useRef<EditorHandle>(null);
   const toast = useToast();
   const online = useOnline();
-  const pending = pendingFor(syncQueue.snapshot, path);
+  const [path, setPath] = useState(givenPath);
+  const pathRef = useRef(path);
+  const pending = path ? pendingFor(syncQueue.snapshot, path) : undefined;
   const pendingContent = pending?.op.kind === 'save' ? pending.op.content : null;
   const initial = pendingContent ?? content ?? '';
   const baseRef = useRef<string | null | undefined>(
@@ -106,7 +117,13 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
   const [scan, setScan] = useState<PublicFinding[] | null>(null);
   const scanDismissed = useRef(false);
   const leaving = useRef(false);
-  const { storage } = useApp();
+  const { storage, notes, queue } = useApp();
+  // Names a new memo may not take (existing notes and ones still being sent).
+  const takenRef = useRef<Set<string>>(new Set());
+  takenRef.current = new Set([
+    ...notes.map((n) => n.path.toLowerCase()),
+    ...queue.items.flatMap((i) => (i.op.kind === 'save' ? [i.op.path.toLowerCase()] : [])),
+  ]);
   // A GitHub repository takes seconds per commit: explicit saves wait for it,
   // with the editor locked, so nothing moves on before the repository has it.
   const slow = storage === 'github';
@@ -135,6 +152,7 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
 
   // Offer to restore an unsaved local draft.
   useEffect(() => {
+    if (!path || givenPath === null) return;
     void loadDraft(path).then((d) => {
       if (d && d.content !== initial && d.content.trim()) setDraft(d.content);
     });
@@ -143,6 +161,7 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
 
   // Keep a local draft of every keystroke (debounced).
   useEffect(() => {
+    if (!path) return;
     const t = setTimeout(() => {
       void saveDraft(
         path,
@@ -156,7 +175,7 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
 
   // Tell the server we are editing: concurrent AI writes become proposals instead of direct commits.
   useEffect(() => {
-    if (!online) return;
+    if (!online || !path) return;
     void api.editing(path, true).catch(() => undefined);
     const iv = setInterval(() => void api.editing(path, true).catch(() => undefined), 30_000);
     return () => {
@@ -180,7 +199,7 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
   // Results from the queue for this path.
   useEffect(() => {
     return syncQueue.onResult((item, outcome) => {
-      if (item.op.kind !== 'save' || item.op.path !== path) return;
+      if (item.op.kind !== 'save' || item.op.path !== pathRef.current) return;
       if (outcome.type === 'committed') {
         baseRef.current = outcome.sha;
         void runScan(item.op.content);
@@ -194,20 +213,36 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
 
   const save = useCallback(
     async (opts: { quiet?: boolean } = {}) => {
-      const current = editor.current?.getValue() ?? textRef.current;
+      let current = editor.current?.getValue() ?? textRef.current;
       if (current === savedRef.current) return;
+      let target = pathRef.current;
+      if (!target) {
+        // A new memo: the first line names it and becomes its heading.
+        const plan = newNotePlan(current, folder, takenRef.current);
+        if (!plan) return; // nothing written yet: nothing is created
+        if (plan.heading !== null) {
+          if (editor.current) {
+            editor.current.replaceRange(plan.heading, plan.heading, '# ');
+            current = editor.current.getValue();
+          } else current = `${current.slice(0, plan.heading)}# ${current.slice(plan.heading)}`;
+        }
+        target = plan.path;
+        pathRef.current = target;
+        baseRef.current = null;
+        setPath(target);
+      }
       setSaving(true);
       try {
         await syncQueue.enqueue({
           kind: 'save',
-          path,
+          path: target,
           content: current,
           baseSha: baseRef.current,
           ...(commit ? { baseCommit: commit } : {}),
         });
         savedRef.current = current;
         setText(current);
-        void saveDraft(path, undefined);
+        void saveDraft(target, undefined);
         if (!opts.quiet)
           toast.show(navigator.onLine ? '保存しました' : '端末に保存しました(オンラインで同期)', {
             kind: 'success',
@@ -217,15 +252,16 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
         setSaving(false);
       }
     },
-    [path, commit, toast],
+    [folder, commit, toast],
   );
 
   /** After an explicit save: wait until GitHub has it, with the editor locked. */
   const waitForRepo = useCallback(async (): Promise<'saved' | 'failed' | 'later'> => {
-    if (!slow) return 'saved';
+    const target = pathRef.current;
+    if (!slow || !target) return 'saved';
     setBlocking(true);
     try {
-      const r = await syncQueue.outcome(path);
+      const r = await syncQueue.outcome(target);
       if (r === 'later')
         toast.show('GitHub への保存がまだ終わっていません。端末には保存済みで、自動で再送します', {
           kind: 'info',
@@ -235,7 +271,7 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
     } finally {
       setBlocking(false);
     }
-  }, [slow, path, toast]);
+  }, [slow, toast]);
 
   /** The save button and Ctrl+S. */
   const saveNow = useCallback(async () => {
@@ -328,7 +364,7 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
               className="btn btn-small"
               onClick={() => {
                 setDraft(null);
-                void saveDraft(path, undefined);
+                if (path) void saveDraft(path, undefined);
               }}
             >
               破棄
@@ -382,7 +418,9 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
         </div>
       )}
       <div className="note-editor-head">
-        <span className="hint ellipsis">{displayPath(path)}</span>
+        <span className="hint ellipsis">
+          {path ? displayPath(path) : `新しいメモ${folder ? `(${folder})` : ''}`}
+        </span>
         <div className="segmented editor-modes" role="tablist" aria-label="表示">
           {MODES.map((m) => (
             <button
@@ -413,7 +451,7 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
               .then(waitForRepo)
               // Refused: stay, so the text is not lost from view. Not yet sent: it stays queued.
               .then((r) => {
-                if (r !== 'failed') onDone();
+                if (r !== 'failed') onDone(pathRef.current);
               })
               .finally(() => {
                 leaving.current = false;
@@ -433,7 +471,7 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
             onChange={setText}
             onSave={() => void saveNow()}
             autoFocus={content === null && mode !== 'preview'}
-            placeholder="本文を書きましょう"
+            placeholder={path ? '本文を書きましょう' : '1行目がタイトルになります'}
           />
         </div>
         {mode !== 'write' && <Preview text={text} onViewChange={changeView} />}
@@ -444,7 +482,7 @@ export function NoteEditor({ path, content, sha, commit, onDone }: Props) {
           onSave={() => void saveNow()}
           saving={saving || blocking}
           dirty={dirty}
-          notePath={path}
+          {...(path ? { notePath: path } : {})}
         />
       )}
       {blocking && (

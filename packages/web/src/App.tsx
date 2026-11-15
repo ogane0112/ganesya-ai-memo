@@ -7,6 +7,7 @@ import { EmptyState, Loading } from './components/ui';
 import { CapturePage } from './pages/Capture';
 import { LoginPage } from './pages/Login';
 import { MorePage } from './pages/More';
+import { NewNotePage } from './pages/NewNote';
 import { NotePage } from './pages/NotePage';
 import { NotesListPage } from './pages/NotesList';
 import { RegisterPasskeyPage } from './pages/RegisterPasskey';
@@ -135,6 +136,7 @@ export function App() {
                 <Route index element={<WritePage />} />
                 <Route path="notes" element={<NotesListPage />} />
                 <Route path="n/*" element={<NotePage />} />
+                <Route path="new" element={<NewNotePage />} />
                 <Route path="search" element={<SearchPage />} />
                 <Route path="review" element={<ReviewPage />} />
                 <Route path="review/:id" element={<ProposalDetailPage />} />
