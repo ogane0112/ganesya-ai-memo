@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import type { NoteSummary } from '../api/types';
-import { displayPath, noteUrl } from '../lib/paths';
+import { primeKeyboard } from '../lib/keyboard';
+import { displayPath, newNoteUrl, noteUrl } from '../lib/paths';
 import { buildTree, countNotes, type TreeFolder } from '../lib/tree';
 import { Icon } from './Icon';
 
@@ -91,8 +92,11 @@ export function NoteTree({
               // No notes in it or below it (empty folders inside are fine): it can go.
               <div className="tree-empty" style={{ paddingLeft: 8 + (depth + 1) * 14 + 18 }}>
                 <NavLink
-                  to={`/notes?new=1&folder=${encodeURIComponent(sub.path)}`}
-                  onClick={onNavigate}
+                  to={newNoteUrl(sub.path)}
+                  onClick={() => {
+                    primeKeyboard();
+                    onNavigate?.();
+                  }}
                 >
                   ノートを追加
                 </NavLink>

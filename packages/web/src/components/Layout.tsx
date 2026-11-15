@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
-import { useIsPhone, useOnline } from '../lib/hooks';
-import { displayPath } from '../lib/paths';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useIsPhone, useKeyboardInset, useOnline } from '../lib/hooks';
+import { primeKeyboard } from '../lib/keyboard';
+import { displayPath, newNoteUrl } from '../lib/paths';
 import { syncQueue } from '../lib/sync';
 import { useApp } from '../state/app';
 import { useDeleteFolder } from '../state/folders';
@@ -91,7 +92,8 @@ function SyncStatus() {
 export function Layout() {
   const { openProposals, notes, notesLoaded, folders, auth } = useApp();
   const loc = useLocation();
-  const [typing, setTyping] = useState(false);
+  const navigate = useNavigate();
+  const [focusTyping, setFocusTyping] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const phone = useIsPhone();
 
@@ -103,7 +105,17 @@ export function Layout() {
 
   const deleteFolder = useDeleteFolder();
 
-  // Hide the phone tab bar while the keyboard is likely open (an input is focused).
+  // The phone tab bar gives way to the keyboard and the editor's toolbar:
+  // - always on editing screens (focus comes and goes there with every tap on
+  //   the toolbar or in the text, and the bar flickered with it; #56);
+  // - elsewhere while the keyboard is actually open, or a field has focus
+  //   (where the browser does not report the keyboard). Losing focus waits a
+  //   moment, so moving between fields does not flash the bar.
+  const keyboard = useKeyboardInset() > 120;
+  const editingScreen =
+    loc.pathname === '/new' ||
+    (loc.pathname.startsWith('/n/') && new URLSearchParams(loc.search).get('edit') === '1');
+  const typing = editingScreen || keyboard || focusTyping;
   useEffect(() => {
     const isField = (el: EventTarget | null) =>
       el instanceof HTMLElement &&
@@ -113,8 +125,8 @@ export function Layout() {
           !['checkbox', 'radio', 'button', 'submit', 'file'].includes(
             (el as HTMLInputElement).type,
           )));
-    const onIn = (e: FocusEvent) => setTyping(isField(e.target));
-    const onOut = () => setTimeout(() => setTyping(isField(document.activeElement)), 50);
+    const onIn = (e: FocusEvent) => setFocusTyping(isField(e.target));
+    const onOut = () => setTimeout(() => setFocusTyping(isField(document.activeElement)), 250);
     document.addEventListener('focusin', onIn);
     document.addEventListener('focusout', onOut);
     return () => {
@@ -165,10 +177,10 @@ export function Layout() {
                 <Icon name="folder" size={18} />
               </Link>
               <Link
-                to="/notes?new=1"
+                to={newNoteUrl()}
                 className="icon-btn"
-                aria-label="新しいノート"
-                title="新しいノート"
+                aria-label="新しいメモ"
+                title="新しいメモ"
               >
                 <Icon name="plus" size={18} />
               </Link>
@@ -208,6 +220,24 @@ export function Layout() {
         <main id="main" className="main" tabIndex={-1}>
           <Outlet />
         </main>
+        {phone && !typing && (loc.pathname === '/notes' || loc.pathname.startsWith('/n/')) && (
+          <button
+            type="button"
+            className="fab"
+            aria-label="新しいメモ"
+            onClick={() => {
+              // In the tap itself, so iOS opens the keyboard for the new memo.
+              primeKeyboard();
+              const folder =
+                loc.pathname === '/notes'
+                  ? (new URLSearchParams(loc.search).get('folder') ?? '')
+                  : '';
+              navigate(newNoteUrl(folder));
+            }}
+          >
+            <Icon name="edit" size={26} />
+          </button>
+        )}
       </div>
       <NavDrawer
         open={menuOpen}

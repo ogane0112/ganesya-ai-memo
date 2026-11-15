@@ -6,7 +6,8 @@ import { Icon } from '../components/Icon';
 import { NoteCard } from '../components/NoteCard';
 import { Badge, EmptyState, Loading, Modal, PageHeader } from '../components/ui';
 import { useDocumentTitle } from '../lib/hooks';
-import { displayPath, folderList, noteUrl, titleFromPath, toNotePath } from '../lib/paths';
+import { primeKeyboard } from '../lib/keyboard';
+import { displayPath, folderList, newNoteUrl, noteUrl, titleFromPath } from '../lib/paths';
 import { useApp } from '../state/app';
 import { useDeleteFolder } from '../state/folders';
 import { useToast } from '../state/toast';
@@ -20,13 +21,19 @@ export function NotesListPage() {
   const folder = params.get('folder') ?? '';
   const [filter, setFilter] = useState('');
   const [sort, setSort] = useState<Sort>('updated');
-  const [creating, setCreating] = useState(params.get('new') === '1');
   const [creatingFolder, setCreatingFolder] = useState(params.get('newFolder') === '1');
+  const navigate = useNavigate();
+  /** A new memo opens right away, ready to type (in this folder, if one is chosen). */
+  const newNote = () => {
+    primeKeyboard();
+    navigate(newNoteUrl(folder));
+  };
 
   useEffect(() => {
-    if (params.get('new') === '1') setCreating(true);
+    // Old links (?new=1) open the new memo too.
+    if (params.get('new') === '1') navigate(newNoteUrl(folder), { replace: true });
     if (params.get('newFolder') === '1') setCreatingFolder(true);
-  }, [params]);
+  }, [params, folder, navigate]);
 
   const folders = useMemo(
     () =>
@@ -91,7 +98,7 @@ export function NotesListPage() {
               <Icon name="folder" size={18} />
               フォルダー
             </button>
-            <button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>
+            <button type="button" className="btn btn-primary" onClick={newNote}>
               <Icon name="plus" size={18} />
               新規
             </button>
@@ -149,7 +156,7 @@ export function NotesListPage() {
       ) : folderIsEmpty ? (
         <EmptyState icon="folder" title={`「${folder.split('/').join(' › ')}」は空です`}>
           <div className="row wrap">
-            <button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>
+            <button type="button" className="btn btn-primary" onClick={newNote}>
               <Icon name="plus" size={18} />
               ノートを追加
             </button>
@@ -175,9 +182,9 @@ export function NotesListPage() {
       ) : list.length === 0 && unsynced.length === 0 ? (
         <EmptyState title={notes.length ? '該当するノートがありません' : 'まだノートがありません'}>
           {!notes.length && (
-            <Link to="/" className="btn btn-primary">
+            <button type="button" className="btn btn-primary" onClick={newNote}>
               最初のメモを書く
-            </Link>
+            </button>
           )}
         </EmptyState>
       ) : (
@@ -200,15 +207,6 @@ export function NotesListPage() {
           ))}
         </ul>
       )}
-      <NewNoteDialog
-        open={creating}
-        folders={folders}
-        defaultFolder={folder}
-        onClose={() => {
-          setCreating(false);
-          dropParam('new');
-        }}
-      />
       <NewFolderDialog
         open={creatingFolder}
         folders={folders}
@@ -219,79 +217,6 @@ export function NotesListPage() {
         }}
       />
     </div>
-  );
-}
-
-export function NewNoteDialog({
-  open,
-  onClose,
-  folders,
-  defaultFolder,
-}: {
-  open: boolean;
-  onClose: () => void;
-  folders: string[];
-  defaultFolder: string;
-}) {
-  const [title, setTitle] = useState('');
-  const [folder, setFolder] = useState(defaultFolder);
-  const { notes } = useApp();
-  const navigate = useNavigate();
-  useEffect(() => {
-    if (open) {
-      setTitle('');
-      setFolder(defaultFolder);
-    }
-  }, [open, defaultFolder]);
-  const path = title.trim() ? toNotePath(title, folder.trim()) : '';
-  const exists = !!path && notes.some((n) => n.path.toLowerCase() === path.toLowerCase());
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!path) return;
-    onClose();
-    navigate(noteUrl(path, { edit: !exists }));
-  };
-  return (
-    <Modal open={open} onClose={onClose} title="新しいノート">
-      <form onSubmit={submit}>
-        <div className="field">
-          <label htmlFor="new-title">タイトル</label>
-          <input
-            id="new-title"
-            className="input"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            autoFocus
-            required
-          />
-        </div>
-        <div className="field">
-          <span className="label">フォルダー</span>
-          <FolderPicker
-            label="ノートを作るフォルダー"
-            value={folder}
-            onChange={setFolder}
-            folders={folders}
-            emptyLabel="ルート"
-          />
-        </div>
-        {path && (
-          <p className="hint">
-            {exists
-              ? `「${displayPath(path)}」はすでにあります(開きます)`
-              : `作成先: ${displayPath(path)}`}
-          </p>
-        )}
-        <div className="modal-foot">
-          <button type="button" className="btn" onClick={onClose}>
-            キャンセル
-          </button>
-          <button type="submit" className="btn btn-primary" disabled={!path}>
-            {exists ? '開く' : '作成'}
-          </button>
-        </div>
-      </form>
-    </Modal>
   );
 }
 

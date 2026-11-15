@@ -97,3 +97,8 @@ export function safeNext(next: string | null | undefined, fallback = '/'): strin
     return fallback;
   return next;
 }
+
+/** Where "new memo" starts: an empty memo, in a folder or at the top. */
+export function newNoteUrl(folder = ''): string {
+  return folder ? `/new?folder=${encodeURIComponent(folder)}` : '/new';
+}

@@ -512,6 +512,44 @@ pre,
   }
 }
 
+/* "New memo" on phones: a round button above the tab bar, where the thumb is. */
+.fab {
+  position: fixed;
+  right: 16px;
+  bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 16px);
+  z-index: 31;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 0;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: var(--accent-fg);
+  box-shadow: var(--shadow-pop);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.fab:active {
+  background: var(--accent-hover);
+  transform: scale(0.96);
+}
+.fab:focus-visible {
+  outline: 3px solid var(--accent-soft);
+  outline-offset: 3px;
+}
+@media (min-width: 760px) {
+  .fab {
+    display: none;
+  }
+}
+/* Room under the last note, so the button never covers it. */
+@media (max-width: 759px) {
+  .card-list {
+    padding-bottom: 72px;
+  }
+}
+
 /* While typing on a phone, give the keyboard and editor the room. */
 .app.typing .tabbar {
   display: none;
