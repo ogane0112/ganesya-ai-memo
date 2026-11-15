@@ -323,12 +323,15 @@ export function errorResponse(err: Error, c: Context): Response {
       428,
     );
   if (err instanceof CalendarError) return c.json({ error: err.message }, 400);
-  if (err instanceof StoreError)
+  if (err instanceof StoreError) {
+    // Server-side problems (configuration, GitHub unreachable) belong in the logs too.
+    if (err.status >= 500) console.error(`storage error ${err.status}: ${err.message}`);
     // A rejected GitHub token is not a rejected session: never answer 401 for it.
     return c.json(
       { error: err.message, code: 'storage' },
       (err.status === 401 || err.status === 403 ? 409 : err.status) as 400,
     );
+  }
   if (err instanceof ConcurrentUpdateError)
     return c.json({ error: '同時に更新されました。もう一度お試しください' }, 409);
   if (err instanceof AiUnavailableError)

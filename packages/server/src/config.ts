@@ -37,6 +37,10 @@ export interface Config {
   /** Seconds between checks for commits pushed to a GitHub repo from elsewhere. */
   githubCheckSeconds: number;
   githubApiBase: string;
+  /** github.com itself (OAuth sign-in and App installation pages). */
+  githubWebBase: string;
+  /** GitHub App for "sign in with GitHub" storage; without it only access tokens can be used. */
+  githubApp?: GitHubAppConfig;
   llm: {
     local?: LlmEndpointConfig;
     external?: LlmEndpointConfig;
@@ -59,6 +63,8 @@ export interface Config {
    */
   access?: { teamDomain: string; aud: string };
 }
+
+import type { GitHubAppConfig } from './store/github-app.js';
 
 export type EnvRecord = Record<string, string | undefined>;
 
@@ -108,6 +114,10 @@ export function configFromEnv(envRec: EnvRecord, overrides: Partial<Config> = {}
     ?.replace(/^https?:\/\//, '')
     .replace(/\/+$/, '');
   const aud = env('GMEMO_ACCESS_AUD');
+  const ghSlug = env('GMEMO_GITHUB_APP_SLUG');
+  const ghClientId = env('GMEMO_GITHUB_APP_CLIENT_ID');
+  const ghClientSecret = env('GMEMO_GITHUB_APP_CLIENT_SECRET');
+  const ghKey = env('GMEMO_GITHUB_APP_PRIVATE_KEY');
   return {
     env: appEnv === 'staging' || appEnv === 'development' ? appEnv : 'production',
     audit: {
@@ -128,6 +138,17 @@ export function configFromEnv(envRec: EnvRecord, overrides: Partial<Config> = {}
     accessTokenMinutes: Number(env('GMEMO_ACCESS_TOKEN_MINUTES') ?? 60),
     githubCheckSeconds: Number(env('GMEMO_GITHUB_CHECK_SECONDS') ?? 30),
     githubApiBase: (env('GMEMO_GITHUB_API') ?? 'https://api.github.com').replace(/\/+$/, ''),
+    githubWebBase: (env('GMEMO_GITHUB_WEB') ?? 'https://github.com').replace(/\/+$/, ''),
+    ...(ghSlug && ghClientId && ghClientSecret && ghKey
+      ? {
+          githubApp: {
+            slug: ghSlug,
+            clientId: ghClientId,
+            clientSecret: ghClientSecret,
+            privateKey: ghKey,
+          },
+        }
+      : {}),
     llm: {
       ...(local ? { local } : {}),
       ...(external ? { external } : {}),
@@ -159,6 +180,11 @@ export function configWarnings(cfg: Config): string[] {
   if (!cfg.secretKey) {
     warnings.push(
       'GMEMO_SECRET_KEY is not set: GitHub storage is disabled, audit log entries are not signed, and uploaded files are not kept in object storage.',
+    );
+  }
+  if (cfg.githubApp && !cfg.secretKey) {
+    warnings.push(
+      'GMEMO_GITHUB_APP_* is set but GMEMO_SECRET_KEY is not: GitHub storage stays disabled.',
     );
   }
   if (cfg.env === 'staging' && !cfg.access && !cfg.insecureDev) {

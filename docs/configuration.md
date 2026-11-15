@@ -6,21 +6,26 @@
 
 ## 共通
 
-| 変数                         | 既定値                    | 説明                                                                                                       |
-| ---------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `GMEMO_ORIGIN`               | `http://localhost:8787`   | 公開URL。パスキーとOAuthの検証に使う。**HTTPSのドメイン**にする                                            |
-| `GMEMO_RP_ID`                | `GMEMO_ORIGIN` のホスト名 | パスキーのRP ID。通常は変更不要                                                                            |
-| `GMEMO_RP_NAME`              | `Ganesya AI Memo`         | パスキー登録時に表示される名前                                                                             |
-| `GMEMO_SIGNUP`               | `invite`                  | 2人目以降の登録方法。`open`(誰でも)/ `invite`(管理者の招待リンクが必要)/ `closed`(新規登録停止)            |
-| `GMEMO_SETUP_TOKEN`          |                           | 最初の(管理者)アカウントを作るためのトークン。**シークレット**。Node.js では未設定なら起動時に生成して表示 |
-| `GMEMO_SECRET_KEY`           |                           | GitHubトークンを暗号化するキー。**シークレット**。未設定だとGitHub保存は使えない(Node.jsでは自動生成)      |
-| `GMEMO_SESSION_DAYS`         | `30`                      | ログインセッションの有効日数                                                                               |
-| `GMEMO_ACCESS_TOKEN_MINUTES` | `60`                      | OAuthアクセストークンの有効期間                                                                            |
-| `GMEMO_GITHUB_CHECK_SECONDS` | `30`                      | GitHub保存のユーザーについて、アプリ外のpushを確認する間隔                                                 |
-| `GMEMO_GITHUB_API`           | `https://api.github.com`  | GitHub API のURL(GitHub Enterprise Server を使う場合)                                                      |
-| `GMEMO_TIMEZONE`             | `Asia/Tokyo`              | オフセットのない日時(ノートの `2026-10-12 10:00` など)を解釈するタイムゾーン                               |
-| `GMEMO_SECRET_KEY_PREVIOUS`  |                           | 鍵の入れ替え中だけ設定する前の `GMEMO_SECRET_KEY`。**シークレット**([運用方針](operations.md))             |
-| `GMEMO_INSECURE_DEV`         |                           | `1` で開発用の緩い設定(HTTPでの公開URL、社内アドレスのカレンダーURLを許可)。本番では使わない               |
+| 変数                             | 既定値                    | 説明                                                                                                           |
+| -------------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `GMEMO_ORIGIN`                   | `http://localhost:8787`   | 公開URL。パスキーとOAuthの検証に使う。**HTTPSのドメイン**にする                                                |
+| `GMEMO_RP_ID`                    | `GMEMO_ORIGIN` のホスト名 | パスキーのRP ID。通常は変更不要                                                                                |
+| `GMEMO_RP_NAME`                  | `Ganesya AI Memo`         | パスキー登録時に表示される名前                                                                                 |
+| `GMEMO_SIGNUP`                   | `invite`                  | 2人目以降の登録方法。`open`(誰でも)/ `invite`(管理者の招待リンクが必要)/ `closed`(新規登録停止)                |
+| `GMEMO_SETUP_TOKEN`              |                           | 最初の(管理者)アカウントを作るためのトークン。**シークレット**。Node.js では未設定なら起動時に生成して表示     |
+| `GMEMO_SECRET_KEY`               |                           | GitHubトークンを暗号化するキー。**シークレット**。未設定だとGitHub保存は使えない(Node.jsでは自動生成)          |
+| `GMEMO_SESSION_DAYS`             | `30`                      | ログインセッションの有効日数                                                                                   |
+| `GMEMO_ACCESS_TOKEN_MINUTES`     | `60`                      | OAuthアクセストークンの有効期間                                                                                |
+| `GMEMO_GITHUB_CHECK_SECONDS`     | `30`                      | GitHub保存のユーザーについて、アプリ外のpushを確認する間隔                                                     |
+| `GMEMO_GITHUB_API`               | `https://api.github.com`  | GitHub API のURL(GitHub Enterprise Server を使う場合)                                                          |
+| `GMEMO_GITHUB_WEB`               | `https://github.com`      | GitHub の画面のURL(ログインとアプリのインストールに使う)                                                       |
+| `GMEMO_GITHUB_APP_SLUG`          |                           | 「GitHub でログイン」用の GitHub App の slug([ノートの保存先](storage.md#github-app-を用意するサーバー管理者)) |
+| `GMEMO_GITHUB_APP_CLIENT_ID`     |                           | 同じ App の Client ID                                                                                          |
+| `GMEMO_GITHUB_APP_CLIENT_SECRET` |                           | 同じ App の Client secret。**シークレット**                                                                    |
+| `GMEMO_GITHUB_APP_PRIVATE_KEY`   |                           | 同じ App の秘密鍵(PEM)。**シークレット**                                                                       |
+| `GMEMO_TIMEZONE`                 | `Asia/Tokyo`              | オフセットのない日時(ノートの `2026-10-12 10:00` など)を解釈するタイムゾーン                                   |
+| `GMEMO_SECRET_KEY_PREVIOUS`      |                           | 鍵の入れ替え中だけ設定する前の `GMEMO_SECRET_KEY`。**シークレット**([運用方針](operations.md))                 |
+| `GMEMO_INSECURE_DEV`             |                           | `1` で開発用の緩い設定(HTTPでの公開URL、社内アドレスのカレンダーURLを許可)。本番では使わない                   |
 
 ## 環境と監査
 

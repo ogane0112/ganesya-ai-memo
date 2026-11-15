@@ -332,6 +332,11 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     // Markdown links and `related` were not indexed before, so re-index everything.
     `DELETE FROM index_state`,
   ],
+  [
+    // GitHub storage through the GitHub App ("sign in with GitHub"): which
+    // installation reaches the repository. NULL = a personal access token.
+    `ALTER TABLE workspaces ADD COLUMN github_installation_id INTEGER`,
+  ],
 ];
 
 /** Full-text index; created separately because some SQLite builds lack trigram. */

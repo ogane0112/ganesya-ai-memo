@@ -9,7 +9,7 @@
 | 他のツールから   | エクスポート(.tar.gz)で取り出す               | `git clone` / GitHub の画面 / Obsidian Git などで直接読み書きできる |
 | アプリ外での編集 | —                                             | push された変更は数十秒以内に取り込まれる                           |
 | 1ファイルの上限  | 約1.9MB(R2 を有効にした場合、添付は50MB)      | 20MB(アップロード時)                                                |
-| 必要なもの       | なし                                          | Fine-grained personal access token                                  |
+| 必要なもの       | なし                                          | GitHub でログイン(またはアクセストークン)                           |
 | 向いている人     | すぐ使いたい、GitHubを使っていない            | ノートを自分の管理下に置きたい、既存のMarkdownリポジトリを使いたい  |
 
 ## このサービス内に保存する
@@ -24,7 +24,21 @@
 
 GitHub で新しいリポジトリを作ります。**非公開(Private)** にしてください。空のままで構いません(最初のコミットはアプリが作ります)。すでにMarkdownのノートが入っているリポジトリも使えます。
 
-### 2. トークンを作る
+### 2. GitHub でログインして接続する(おすすめ)
+
+サーバーに GitHub App が設定されていれば(→ [GitHub App を用意する](#github-app-を用意するサーバー管理者))、トークンを作る必要はありません。
+
+1. **設定 → 保存先 → 自分のGitHub** で **GitHub でログイン** を押す
+2. まだアプリを入れていなければ **リポジトリにインストール** を押し、GitHub の画面で 1 のリポジトリだけを選んでインストールする(終わると自動で戻り、もう一度ログインします)
+3. 一覧からリポジトリとブランチを選んで **接続して切り替える** を押す
+
+- サーバーが保存するのは「どのインストールか」の番号だけです。GitHub に書き込むたびに、そのリポジトリの Contents だけに使える 1 時間で切れる鍵を作って使います。期限切れで止まることはありません。
+- ログインに使った GitHub のユーザートークンは、リポジトリの一覧を取ったらすぐ捨てます。
+- やめるときは GitHub の **Settings → Applications → Installed GitHub Apps** からアンインストールするか、対象のリポジトリを外します。
+
+### 2'. アクセストークンで接続する
+
+GitHub App が設定されていないサーバー(GitHub Enterprise Server など)では、こちらを使います。GitHub App があるサーバーでも、画面の **アクセストークンで接続する** から選べます。
 
 [Fine-grained personal access token](https://github.com/settings/personal-access-tokens/new) を作ります。
 
@@ -33,13 +47,40 @@ GitHub で新しいリポジトリを作ります。**非公開(Private)** に�
 - それ以外の権限は不要です
 - 有効期限は自由です。期限が切れたら、同じ画面で新しいトークンを入れ直してください
 
-### 3. アプリで接続する
-
 **設定 → 保存先 → 自分のGitHub** で、オーナー(ユーザー名または組織名)、リポジトリ名、ブランチ(既定 `main`)、トークンを入れて **接続して切り替える** を押します。
 
 - 「今のノートをこのリポジトリにコピーする」にチェックすると、いまのノート(最新の状態)が1つのコミットとしてリポジトリに入ります。同じ名前のファイルは上書きされます。**これまでの履歴はコピーされません**(元の場所に残ります)。
 - 切り替えると、未処理の提案は閉じられます(提案のブランチは保存先をまたいで移せないため)。
 - トークンはサーバーで暗号化して保存され、画面やAPIで再表示されることはありません。
+
+### GitHub App を用意する(サーバー管理者)
+
+サーバーごとに 1 回だけ行います(本番とステージングでは別々の App を作ります)。
+
+1. GitHub の **Settings → Developer settings → GitHub Apps → New GitHub App** を開く
+2. 次のように入れる
+   - **GitHub App name**:好きな名前(例 `gmemo-notes`)。URL の `https://github.com/apps/<名前>` の部分が **slug** になります
+   - **Homepage URL**:`GMEMO_ORIGIN` の値
+   - **Callback URL**:`<GMEMO_ORIGIN>/api/admin/storage/github/callback`
+   - **Expire user authorization tokens**:オン(どちらでも動きます)
+   - **Request user authorization (OAuth) during installation**:**オフ**
+   - **Setup URL**:`<GMEMO_ORIGIN>/settings/storage?github=installed`、**Redirect on update** にチェック
+   - **Webhook**:**Active のチェックを外す**
+   - **Repository permissions → Contents**:**Read and write**(Metadata: Read-only は自動で付きます。ほかは不要)
+   - **Where can this GitHub App be installed?**:Only on this account(自分だけで使う場合)
+3. 作成後の画面で **Client ID** を控え、**Generate a new client secret** と **Generate a private key**(`.pem` がダウンロードされます)を押す
+4. サーバーに設定する
+
+| 名前                             | 値                                                                       | 種類         |
+| -------------------------------- | ------------------------------------------------------------------------ | ------------ |
+| `GMEMO_GITHUB_APP_SLUG`          | App の slug                                                              | 変数         |
+| `GMEMO_GITHUB_APP_CLIENT_ID`     | Client ID(`Iv23…`)                                                       | 変数         |
+| `GMEMO_GITHUB_APP_CLIENT_SECRET` | Client secret                                                            | シークレット |
+| `GMEMO_GITHUB_APP_PRIVATE_KEY`   | `.pem` の中身を base64 にしたもの(おすすめ。`.pem` の中身そのままでも可) | シークレット |
+
+Cloudflare では、シークレットは `npx wrangler secret put GMEMO_GITHUB_APP_PRIVATE_KEY --name <Worker名>` のように入れ、変数はデプロイ時の環境変数で渡します([設定](configuration.md))。4 つそろっていないと「GitHub でログイン」は出ず、アクセストークンの入力欄だけになります。
+
+秘密鍵は改行を含むため、コマンドの引数で渡すと(特に Windows では)途中で切れることがあります。`base64 -w0 key.pem`(PowerShell では `[Convert]::ToBase64String([IO.File]::ReadAllBytes("key.pem"))`)で 1 行にしてから入れてください。読めない鍵が入っていると、設定の「保存先」に警告が出ます。
 
 ### GitHub 上での見え方
 

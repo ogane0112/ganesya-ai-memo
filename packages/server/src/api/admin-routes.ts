@@ -7,7 +7,22 @@ import { parseScope, type Scope } from '../auth/tokens.js';
 import type { Platform } from '../platform.js';
 import { MAIN } from '../store/types.js';
 import { gzip, tar } from '../util/tar.js';
-import { disconnectGitHub, switchStorage } from '../workspace.js';
+import {
+  authorizeUrl,
+  exchangeCode,
+  installUrl,
+  linkableRepos,
+  privateKeyProblem,
+} from '../store/github-app.js';
+import { StoreError } from '../store/types.js';
+import {
+  disconnectGitHub,
+  linkedRepos,
+  newGitHubState,
+  saveLinkedRepos,
+  switchStorage,
+  takeGitHubState,
+} from '../workspace.js';
 import { audit, type Env, jsonBody, requireAdmin, requireHuman, str, workspaceOf } from './http.js';
 
 function agentInput(b: Record<string, unknown>): Partial<AgentInput> {
@@ -245,16 +260,88 @@ export function adminRoutes(platform: Platform) {
 
   // ---- storage (built-in or GitHub) -------------------------------------------
 
+  const ghApp = platform.cfg.githubApp;
+  const callbackUri = `${platform.cfg.origin}/api/admin/storage/github/callback`;
+
   app.get('/storage', async (c) => {
     const w = await ws(c);
-    return c.json({ ...w.settings, githubAvailable: !!platform.cfg.secretKey });
+    return c.json({
+      ...w.settings,
+      githubAvailable: !!platform.cfg.secretKey,
+      githubApp:
+        ghApp && platform.cfg.secretKey
+          ? {
+              installUrl: installUrl(ghApp, platform.cfg.githubWebBase),
+              // A broken key only shows when connecting; say so up front.
+              problem: await privateKeyProblem(ghApp),
+            }
+          : null,
+    });
+  });
+
+  /** Start "sign in with GitHub": where to send the browser. */
+  app.post('/storage/github/login', async (c) => {
+    const s = requireHuman(c);
+    if (!ghApp || !platform.cfg.secretKey)
+      throw new HTTPException(400, { message: 'このサーバーには GitHub App が設定されていません' });
+    const state = await newGitHubState(db, s.userId);
+    return c.json({ url: authorizeUrl(ghApp, platform.cfg.githubWebBase, callbackUri, state) });
+  });
+
+  /**
+   * GitHub sends the browser back here. The user token is used once, to list
+   * the repositories this user can reach through the App, and then dropped.
+   */
+  app.get('/storage/github/callback', async (c) => {
+    const s = requireHuman(c);
+    const back = (q: Record<string, string>) =>
+      c.redirect(`/settings/storage?${new URLSearchParams(q)}`, 302);
+    if (!ghApp) return back({ github: 'error', reason: 'GitHub App が設定されていません' });
+    const code = c.req.query('code');
+    const state = c.req.query('state');
+    if (c.req.query('error'))
+      return back({ github: 'error', reason: 'GitHub でのログインがキャンセルされました' });
+    if (!code || !state || !(await takeGitHubState(db, s.userId, state))) {
+      await log(c, { action: 'storage.github_link', outcome: 'denied', detail: { why: 'state' } });
+      return back({
+        github: 'error',
+        reason:
+          'ログインの確認に失敗しました(時間切れか、別の画面から開かれました)。もう一度お試しください',
+      });
+    }
+    try {
+      const f = platform.fetch;
+      const userToken = await exchangeCode(ghApp, platform.cfg.githubWebBase, code, callbackUri, f);
+      const repos = await linkableRepos(platform.cfg.githubApiBase, userToken, f);
+      await saveLinkedRepos(db, s.userId, repos);
+      await log(c, { action: 'storage.github_link', detail: { repos: repos.length } });
+      return back({ github: 'linked' });
+    } catch (err) {
+      await log(c, { action: 'storage.github_link', outcome: 'failure' });
+      return back({
+        github: 'error',
+        reason: err instanceof StoreError ? err.message : 'GitHub との通信に失敗しました',
+      });
+    }
+  });
+
+  /** Repositories unlocked by the last "sign in with GitHub" (null: sign in first). */
+  app.get('/storage/github/repos', async (c) => {
+    const s = requireHuman(c);
+    return c.json({ repos: await linkedRepos(db, s.userId) });
   });
 
   app.put('/storage', async (c) => {
     const w = await ws(c);
     const b = await jsonBody<{
       storage: 'builtin' | 'github';
-      github?: { owner?: string; repo?: string; branch?: string; token?: string };
+      github?: {
+        owner?: string;
+        repo?: string;
+        branch?: string;
+        token?: string;
+        installationId?: number;
+      };
       copy?: boolean;
     }>(c);
     const res = await switchStorage(
@@ -268,6 +355,9 @@ export function adminRoutes(platform: Platform) {
               repo: str(b.github?.repo, 'github.repo'),
               ...(b.github?.branch ? { branch: b.github.branch } : {}),
               ...(b.github?.token ? { token: b.github.token } : {}),
+              ...(typeof b.github?.installationId === 'number'
+                ? { installationId: b.github.installationId }
+                : {}),
             },
             copy: b.copy !== false,
           }
@@ -285,6 +375,7 @@ export function adminRoutes(platform: Platform) {
           : null,
         copied: res.copied,
         tokenChanged: !!b.github?.token,
+        via: next.settings.github?.via ?? null,
       },
     });
     await next.notes.currentHead();

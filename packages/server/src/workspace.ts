@@ -4,21 +4,29 @@ import type { LlmClient } from './ai/llm.js';
 import { AgentStore } from './auth/agents.js';
 import { CalendarService } from './calendar/calendar.js';
 import type { Config } from './config.js';
-import { type Db, nowIso } from './db/db.js';
+import { type Db, nowIso, stmt } from './db/db.js';
 import type { HumanActor } from './notes/actor.js';
 import { NoteService } from './notes/service.js';
 import type { Embedder } from './search/embedder.js';
 import { Indexer } from './search/indexer.js';
 import { DbGitStore } from './store/db-store.js';
+import { installationToken, type LinkableRepo } from './store/github-app.js';
 import { GitHubStore } from './store/github-store.js';
 import { MAIN, type NoteStore, StoreError } from './store/types.js';
-import { decryptSecret, encryptSecret } from './util/crypto.js';
+import { decryptSecret, encryptSecret, randomToken } from './util/crypto.js';
 
 export type StorageKind = 'builtin' | 'github';
 
 export interface StorageSettings {
   storage: StorageKind;
-  github: { owner: string; repo: string; branch: string; hasToken: boolean } | null;
+  github: {
+    owner: string;
+    repo: string;
+    branch: string;
+    hasToken: boolean;
+    /** How the server reaches the repository: the GitHub App, or a personal access token. */
+    via: 'app' | 'token';
+  } | null;
   updatedAt: string;
 }
 
@@ -29,6 +37,7 @@ interface WorkspaceRow {
   github_repo: string | null;
   github_branch: string | null;
   github_token_enc: string | null;
+  github_installation_id: number | null;
   updated_at: string;
 }
 
@@ -38,6 +47,11 @@ export interface GitHubInput {
   branch?: string;
   /** Omitted to keep the stored token (changing only the branch, say). */
   token?: string;
+  /**
+   * Connect through the GitHub App instead of a token. Must be one of the
+   * repositories the user was shown after signing in with GitHub.
+   */
+  installationId?: number;
 }
 
 const NAME_RE = /^[A-Za-z0-9_.-]{1,100}$/;
@@ -71,6 +85,7 @@ export async function loadWorkspaceRow(db: Db, userId: string): Promise<Workspac
     github_repo: null,
     github_branch: null,
     github_token_enc: null,
+    github_installation_id: null,
     updated_at: now,
   };
 }
@@ -84,7 +99,8 @@ export function storageSettings(row: WorkspaceRow): StorageSettings {
             owner: row.github_owner,
             repo: row.github_repo,
             branch: row.github_branch ?? 'main',
-            hasToken: !!row.github_token_enc,
+            hasToken: !!row.github_token_enc || row.github_installation_id != null,
+            via: row.github_installation_id != null ? 'app' : 'token',
           }
         : null,
     updatedAt: row.updated_at,
@@ -93,7 +109,7 @@ export function storageSettings(row: WorkspaceRow): StorageSettings {
 
 async function githubStore(
   deps: WorkspaceDeps,
-  g: { owner: string; repo: string; branch: string; token: string },
+  g: { owner: string; repo: string; branch: string; token: string | (() => Promise<string>) },
 ): Promise<GitHubStore> {
   return new GitHubStore({
     ...g,
@@ -103,6 +119,25 @@ async function githubStore(
 }
 
 async function storeFor(deps: WorkspaceDeps, row: WorkspaceRow): Promise<NoteStore> {
+  if (row.storage === 'github' && row.github_installation_id != null) {
+    const app = deps.cfg.githubApp;
+    if (!row.github_owner || !row.github_repo)
+      throw new StoreError('GitHubの接続設定が不完全です。設定画面で接続し直してください', 409);
+    if (!app)
+      throw new StoreError(
+        'サーバーに GitHub App(GMEMO_GITHUB_APP_*)が設定されていません。管理者に連絡してください',
+        500,
+      );
+    const f = deps.fetch ?? fetch.bind(globalThis);
+    const installation = row.github_installation_id;
+    const repo = row.github_repo;
+    return githubStore(deps, {
+      owner: row.github_owner,
+      repo,
+      branch: row.github_branch ?? 'main',
+      token: () => installationToken(app, deps.cfg.githubApiBase, installation, repo, f),
+    });
+  }
   if (row.storage === 'github') {
     if (!row.github_owner || !row.github_repo || !row.github_token_enc)
       throw new StoreError('GitHubの接続設定が不完全です。設定画面で接続し直してください', 409);
@@ -215,10 +250,31 @@ export async function switchStorage(
         'サーバーに GMEMO_SECRET_KEY が設定されていないため、GitHubは使えません',
         400,
       );
-    let tokenEnc = row.github_token_enc;
-    if (g.token?.trim()) tokenEnc = await encryptSecret(g.token.trim(), deps.cfg.secretKey);
-    else if (row.github_owner !== owner || row.github_repo !== repo) tokenEnc = null;
-    if (!tokenEnc) throw new StoreError('GitHubのトークンを入力してください', 400);
+    const sameRepo = row.github_owner === owner && row.github_repo === repo;
+    let tokenEnc = sameRepo ? row.github_token_enc : null;
+    let installation = sameRepo ? (row.github_installation_id ?? null) : null;
+    if (g.installationId !== undefined) {
+      if (!deps.cfg.githubApp)
+        throw new StoreError('サーバーに GitHub App が設定されていません', 400);
+      // Only a repository GitHub listed for this user after they signed in.
+      const linked = await linkedRepos(db, current.userId);
+      if (
+        !linked?.some(
+          (r) => r.installationId === g.installationId && r.owner === owner && r.repo === repo,
+        )
+      )
+        throw new StoreError(
+          'このリポジトリへのアクセスを確認できません。「GitHub でログイン」からやり直してください',
+          403,
+        );
+      installation = g.installationId;
+      tokenEnc = null;
+    } else if (g.token?.trim()) {
+      tokenEnc = await encryptSecret(g.token.trim(), deps.cfg.secretKey);
+      installation = null;
+    }
+    if (!tokenEnc && installation === null)
+      throw new StoreError('GitHub でログインするか、トークンを入力してください', 400);
     next = {
       ...row,
       storage: 'github',
@@ -226,6 +282,7 @@ export async function switchStorage(
       github_repo: repo,
       github_branch: branch,
       github_token_enc: tokenEnc,
+      github_installation_id: installation,
       updated_at: nowIso(),
     };
   } else {
@@ -265,12 +322,13 @@ export async function switchStorage(
 
   const closedProposals = sameStore ? 0 : await current.notes.abandonOpenProposals();
   await db.run(
-    `UPDATE workspaces SET storage = ?, github_owner = ?, github_repo = ?, github_branch = ?, github_token_enc = ?, updated_at = ? WHERE user_id = ?`,
+    `UPDATE workspaces SET storage = ?, github_owner = ?, github_repo = ?, github_branch = ?, github_token_enc = ?, github_installation_id = ?, updated_at = ? WHERE user_id = ?`,
     next.storage,
     next.github_owner,
     next.github_repo,
     next.github_branch,
     next.github_token_enc,
+    next.github_installation_id ?? null,
     next.updated_at,
     current.userId,
   );
@@ -282,8 +340,73 @@ export async function switchStorage(
 /** Forget the GitHub connection (switches back to the built-in store first if needed). */
 export async function disconnectGitHub(db: Db, userId: string): Promise<void> {
   await db.run(
-    `UPDATE workspaces SET github_owner = NULL, github_repo = NULL, github_branch = NULL, github_token_enc = NULL, updated_at = ? WHERE user_id = ? AND storage = 'builtin'`,
+    `UPDATE workspaces SET github_owner = NULL, github_repo = NULL, github_branch = NULL, github_token_enc = NULL, github_installation_id = NULL, updated_at = ? WHERE user_id = ? AND storage = 'builtin'`,
     nowIso(),
     userId,
   );
+}
+
+// ---- "sign in with GitHub": state and the repositories it unlocked -----------
+
+const STATE_MS = 10 * 60_000;
+const LINK_MS = 30 * 60_000;
+const linkId = (userId: string) => `ghlink:${userId}`;
+
+/** A one-time `state` for the OAuth round trip, bound to the signed-in user. */
+export async function newGitHubState(db: Db, userId: string): Promise<string> {
+  const state = randomToken(24);
+  await db.batch([
+    stmt('DELETE FROM challenges WHERE expires_at < ?', nowIso()),
+    stmt(
+      'INSERT INTO challenges(id, challenge, kind, data, expires_at) VALUES (?, ?, ?, ?, ?)',
+      `ghstate:${state}`,
+      '',
+      'github-state',
+      JSON.stringify({ userId }),
+      new Date(Date.now() + STATE_MS).toISOString(),
+    ),
+  ]);
+  return state;
+}
+
+/** Consume a `state`: true only once, for the user it was made for, before it expires. */
+export async function takeGitHubState(db: Db, userId: string, state: string): Promise<boolean> {
+  const id = `ghstate:${state}`;
+  const row = await db.first<{ kind: string; data: string; expires_at: string }>(
+    'SELECT kind, data, expires_at FROM challenges WHERE id = ?',
+    id,
+  );
+  if (!row) return false;
+  const claimed = (await db.run('DELETE FROM challenges WHERE id = ?', id)).changes;
+  return (
+    claimed === 1 &&
+    row.kind === 'github-state' &&
+    row.expires_at >= nowIso() &&
+    (JSON.parse(row.data) as { userId?: string }).userId === userId
+  );
+}
+
+/** Remember which repositories GitHub listed for this user (for the picker, and to check the choice). */
+export async function saveLinkedRepos(
+  db: Db,
+  userId: string,
+  repos: LinkableRepo[],
+): Promise<void> {
+  await db.run(
+    `INSERT INTO challenges(id, challenge, kind, data, expires_at) VALUES (?, '', 'github-link', ?, ?)
+     ON CONFLICT(id) DO UPDATE SET data = excluded.data, expires_at = excluded.expires_at`,
+    linkId(userId),
+    JSON.stringify(repos),
+    new Date(Date.now() + LINK_MS).toISOString(),
+  );
+}
+
+/** The repositories from the last sign-in, or null when there was none (or it expired). */
+export async function linkedRepos(db: Db, userId: string): Promise<LinkableRepo[] | null> {
+  const row = await db.first<{ data: string; expires_at: string }>(
+    `SELECT data, expires_at FROM challenges WHERE id = ? AND kind = 'github-link'`,
+    linkId(userId),
+  );
+  if (!row || row.expires_at < nowIso()) return null;
+  return JSON.parse(row.data) as LinkableRepo[];
 }

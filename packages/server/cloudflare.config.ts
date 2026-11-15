@@ -61,6 +61,15 @@ export default defineConfig(({ mode }) => {
         // Cloudflare Access (required in staging; the app refuses requests without it).
         GMEMO_ACCESS_TEAM_DOMAIN: bindings.text(accessTeam),
         GMEMO_ACCESS_AUD: bindings.text(accessAud),
+        // "Sign in with GitHub" for GitHub storage (docs/storage.md). The App's
+        // client secret and private key are optional secrets, set with
+        // `wrangler secret put` (not declared here, so a deploy without them works).
+        GMEMO_GITHUB_APP_SLUG: bindings.text(
+          staging ? env('GMEMO_STG_GITHUB_APP_SLUG') : env('GMEMO_GITHUB_APP_SLUG'),
+        ),
+        GMEMO_GITHUB_APP_CLIENT_ID: bindings.text(
+          staging ? env('GMEMO_STG_GITHUB_APP_CLIENT_ID') : env('GMEMO_GITHUB_APP_CLIENT_ID'),
+        ),
         GMEMO_SETUP_TOKEN: bindings.secret(),
         GMEMO_SECRET_KEY: bindings.secret(),
         DB: bindings.d1({
