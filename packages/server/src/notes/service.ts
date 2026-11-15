@@ -364,7 +364,10 @@ export class NoteService {
     const human = this.human();
     let first = true;
     return this.retry(async () => {
-      const head = (first ? this.recentHead() : null) ?? (await this.head());
+      // First try: the head this app just wrote (GitHub: no round trip to ask).
+      const head =
+        (first ? (this.recentHead() ?? this.store.lastWritten?.(MAIN) ?? null) : null) ??
+        (await this.head());
       first = false;
       const currentSha = await this.store.blobId(head, p);
       let text = content;

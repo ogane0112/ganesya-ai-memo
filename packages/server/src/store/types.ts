@@ -40,13 +40,21 @@ export interface CommitOptions {
   allowEmpty?: boolean;
   /**
    * The branch head as the caller last read it. Saves the store a read; the
-   * commit is still refused (ConcurrentUpdateError) if the branch moved since.
+   * commit is still refused (ConcurrentUpdateError) if the branch moved since
+   * in a way that matters: a store may put a one-file change on top of a
+   * branch that moved, when that file did not change there.
    */
   current?: string;
 }
 
 export interface NoteStore {
   readonly kind: 'builtin' | 'github';
+  /**
+   * The head this store itself moved the branch to moments ago, if any: a
+   * save can start from it instead of asking. Stale is safe (the commit is
+   * refused and redone), just slower.
+   */
+  lastWritten?(branch: string): string | null;
   /** Make sure the default branch exists (creates an initial commit if needed). */
   init(): Promise<void>;
   head(branch: string): Promise<string | null>;

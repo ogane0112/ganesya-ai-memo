@@ -211,33 +211,55 @@ describe('GitHub storage', () => {
 
   it('saves with as few GitHub calls as it takes, and still catches a push in between', async () => {
     const ctx = await setup('github', { env: { GMEMO_GITHUB_CHECK_SECONDS: '30' } });
-    const doc = await ctx.service.read('Welcome.md');
-    ctx.gh.calls.length = 0;
-    const first = await ctx.service.saveAsHuman('Welcome.md', doc.content + 'one\n', {
-      baseSha: doc.sha,
-    });
-    // Read the head, write the tree and the commit, move the branch: nothing else.
-    expect(ctx.gh.calls.map((c) => c.split(' ')[0] + ' ' + c.split('/')[5])).toEqual([
-      'GET ref',
-      'POST trees',
-      'POST commits',
-      'PATCH refs',
-    ]);
-    expect(first.status).toBe('committed');
-
-    // Someone pushes after the app read the head but before it moves the branch:
-    // the update is refused, and the save is redone on top of the push.
-    ctx.gh.hooks.beforeRefUpdate = async () => {
-      await ctx.gh.pushExternal({ 'Other.md': 'from the laptop\n' });
+    const calls = () => {
+      const out = ctx.gh.calls.map((c) => {
+        const [method, url] = c.split(' ');
+        return `${method} ${url!.split('/')[4]}`;
+      });
+      ctx.gh.calls.length = 0;
+      return out;
     };
-    const again = await ctx.service.read('Welcome.md');
-    const second = await ctx.service.saveAsHuman('Welcome.md', again.content + 'two\n', {
-      baseSha: again.sha,
-    });
-    expect(second.status).toBe('committed');
-    expect(ctx.gh.refs.get('main')).toBe(await ctx.service.head());
-    expect((await ctx.service.read('Welcome.md')).content).toContain('two');
+    const save = async (path: string, edit: (text: string) => string) => {
+      const doc = await ctx.service.read(path);
+      calls();
+      const r = await ctx.service.saveAsHuman(path, edit(doc.content), { baseSha: doc.sha });
+      expect(r.status).toBe('committed');
+    };
+    // A save: read the head, then write the file and commit it in one call.
+    await save('Welcome.md', (t) => t + 'one\n');
+    expect(calls()).toEqual(['GET git', 'PUT contents']);
+    // Right after its own save the app knows the head: one call.
+    await save('Welcome.md', (t) => t + 'two\n');
+    expect(calls()).toEqual(['PUT contents']);
+
+    // Pushed from elsewhere meanwhile, another file: the save goes on top, both kept.
+    await ctx.gh.pushExternal({ 'Other.md': 'from the laptop\n' });
+    await save('Welcome.md', (t) => t + 'three\n');
     expect((await ctx.service.read('Other.md')).content).toBe('from the laptop\n');
+    expect((await ctx.service.read('Welcome.md')).content).toContain('three');
+
+    await ctx.service.saveAsHuman('n.md', '# N\n\nfirst paragraph\n\nsecond paragraph\n');
+    // Pushed from elsewhere meanwhile, the same note: refused by GitHub, then
+    // merged with the push and saved again, keeping both edits.
+    const doc = await ctx.service.read('n.md');
+    await ctx.gh.pushExternal({
+      'n.md': doc.content.replace('first paragraph', 'first paragraph (laptop)'),
+    });
+    calls();
+    const r = await ctx.service.saveAsHuman(
+      'n.md',
+      doc.content.replace('second paragraph', 'second paragraph (phone)'),
+      { baseSha: doc.sha },
+    );
+    expect(r.status).toBe('committed');
+    // The first try is refused; the retry reads the push, merges, and saves.
+    const tries = calls();
+    expect(tries[0]).toBe('PUT contents');
+    expect(tries.filter((c) => c === 'PUT contents')).toHaveLength(2);
+    const merged = (await ctx.service.read('n.md')).content;
+    expect(merged).toContain('first paragraph (laptop)');
+    expect(merged).toContain('second paragraph (phone)');
+    expect(ctx.gh.refs.get('main')).toBe(await ctx.service.head());
     await ctx.cleanup();
   });
 
