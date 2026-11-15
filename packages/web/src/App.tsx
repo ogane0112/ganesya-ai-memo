@@ -15,7 +15,6 @@ import { ReviewPage } from './pages/Review';
 import { SearchPage } from './pages/Search';
 import { PrivacyPage } from './pages/Privacy';
 import { NeedsSetupPage, SetupPage, SignupPage } from './pages/Setup';
-import { WritePage } from './pages/Write';
 import { AppProvider, useApp } from './state/app';
 import { ToastProvider } from './state/toast';
 
@@ -133,7 +132,7 @@ export function App() {
                   </RequireAuth>
                 }
               >
-                <Route index element={<WritePage />} />
+                <Route index element={<NewNotePage home />} />
                 <Route path="notes" element={<NotesListPage />} />
                 <Route path="n/*" element={<NotePage />} />
                 <Route path="new" element={<NewNotePage />} />

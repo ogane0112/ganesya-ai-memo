@@ -94,6 +94,7 @@ export function Modal({
   children,
   footer,
   wide,
+  sheet,
 }: {
   open: boolean;
   onClose: () => void;
@@ -101,6 +102,8 @@ export function Modal({
   children: ReactNode;
   footer?: ReactNode;
   wide?: boolean;
+  /** On phones, rise from the bottom edge (where the thumb is) instead of floating. */
+  sheet?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   // Own id: a modal can open on top of another one (the folder picker in a form).
@@ -114,7 +117,7 @@ export function Modal({
   return (
     <dialog
       ref={ref}
-      className={wide ? 'modal modal-wide' : 'modal'}
+      className={['modal', wide && 'modal-wide', sheet && 'modal-sheet'].filter(Boolean).join(' ')}
       aria-labelledby={titleId}
       onCancel={(e) => {
         e.preventDefault();

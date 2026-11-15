@@ -6,11 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---- stand-ins: the save queue, the app state, and CodeMirror ---------------
 
-const enqueued: { path: string; content: string; baseSha: unknown }[] = [];
+const enqueued: Record<string, unknown>[] = [];
 vi.mock('../src/lib/sync', () => ({
   syncQueue: {
     snapshot: { items: [], conflicts: [] },
-    enqueue: vi.fn(async (op: { path: string; content: string; baseSha: unknown }) => {
+    enqueue: vi.fn(async (op: Record<string, unknown>) => {
       enqueued.push(op);
     }),
     onResult: () => () => undefined,
@@ -20,8 +20,9 @@ vi.mock('../src/lib/sync', () => ({
 vi.mock('../src/state/app', () => ({
   useApp: () => ({
     storage: 'builtin',
-    notes: [{ path: 'Inbox/買い物.md' }],
+    notes: [{ path: 'Inbox/買い物.md' }, { path: 'Work/plan.md' }],
     queue: { items: [], conflicts: [] },
+    folders: [],
     paths: [],
   }),
 }));
@@ -47,6 +48,10 @@ vi.mock('../src/components/Editor', () => ({
     useImperativeHandle(ref, () => ({
       focus: () => el.current?.focus(),
       getValue: () => el.current?.value ?? '',
+      setValue: (v: string) => {
+        el.current!.value = v;
+        props.onChange(v);
+      },
       replaceRange: (from: number, to: number, text: string) => {
         const v = el.current!.value;
         el.current!.value = v.slice(0, from) + text + v.slice(to);
@@ -67,40 +72,69 @@ vi.mock('../src/components/Editor', () => ({
 const { NoteEditor } = await import('../src/components/NoteEditor');
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+// jsdom has no modal dialogs; open/closed is all these tests need.
+HTMLDialogElement.prototype.showModal = function () {
+  this.setAttribute('open', '');
+};
+HTMLDialogElement.prototype.close = function () {
+  this.removeAttribute('open');
+};
 
 let host: HTMLElement;
 let root: Root;
 const onDone = vi.fn();
+const NL = '\n';
+const lines = (...l: string[]) => l.join(NL);
 
-function open() {
+function open(props: { path?: string; content?: string } = {}) {
   act(() => {
     root.render(
       <MemoryRouter>
-        <NoteEditor path={null} folder="Inbox" content={null} sha={null} onDone={onDone} />
+        <NoteEditor
+          path={props.path ?? null}
+          content={props.content ?? null}
+          sha={props.path ? 'abc' : null}
+          onDone={onDone}
+        />
       </MemoryRouter>,
     );
   });
 }
 
+const textarea = () => host.querySelector('textarea')!;
+
 function type(text: string) {
-  const ta = host.querySelector('textarea')!;
   const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
   act(() => {
-    set.call(ta, text);
-    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    set.call(textarea(), text);
+    textarea().dispatchEvent(new Event('input', { bubbles: true }));
   });
 }
 
-async function done() {
-  const btn = [...host.querySelectorAll('button')].find((b) => b.textContent === '完了')!;
+async function click(label: string) {
+  const btn = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === label);
+  if (!btn) throw new Error(`no button "${label}"`);
   await act(async () => {
     btn.click();
   });
 }
 
+async function pick(label: string) {
+  const opt = [...document.querySelectorAll<HTMLButtonElement>('[role=radio]')].find((b) =>
+    b.textContent?.includes(label),
+  );
+  if (!opt) throw new Error(`no option "${label}"`);
+  await act(async () => {
+    opt.click();
+  });
+}
+
+const sheetOpen = () => !!document.querySelector('dialog[open]');
+
 beforeEach(() => {
   enqueued.length = 0;
   onDone.mockReset();
+  localStorage.clear();
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
@@ -113,42 +147,84 @@ afterEach(() => {
 describe('a new memo', () => {
   it('says the first line is the title, and creates nothing when left empty', async () => {
     open();
-    expect(host.querySelector('textarea')!.placeholder).toBe('1行目がタイトルになります');
-    expect(host.textContent).toContain('新しいメモ(Inbox)');
-    await done();
+    expect(textarea().placeholder).toBe('1行目がタイトルになります');
+    await click('完了');
+    expect(sheetOpen()).toBe(false);
     expect(enqueued).toEqual([]);
     expect(onDone).toHaveBeenCalledWith(null);
   });
 
-  it('is named after its first line, which becomes the heading', async () => {
+  it('asks where to save on 完了, with Inbox chosen, and is named after its first line', async () => {
     open();
-    type('買い物\n牛乳\n卵');
-    await done();
+    type(lines('買い物', '牛乳', '卵'));
+    expect(enqueued).toEqual([]); // nothing is sent while writing
+    await click('完了');
+    expect(sheetOpen()).toBe(true);
+    expect(document.querySelector('[role=radio][aria-checked=true]')!.textContent).toContain(
+      'Inbox',
+    );
+    await click('保存');
     // "Inbox/買い物.md" exists already, so the new one does not overwrite it.
     expect(enqueued).toEqual([
-      expect.objectContaining({
+      {
+        kind: 'save',
         path: 'Inbox/買い物 2.md',
-        content: '# 買い物\n牛乳\n卵',
+        content: lines('# 買い物', '牛乳', '卵'),
         baseSha: null,
-      }),
+      },
     ]);
     expect(onDone).toHaveBeenCalledWith('Inbox/買い物 2.md');
-    expect(host.textContent).toContain('Inbox › 買い物 2');
   });
 
-  it('keeps the name it got, when the first line changes later', async () => {
+  it('saves into the folder picked in the sheet, and remembers it for next time', async () => {
     open();
-    type('旅行');
-    // The app goes to the background: the memo is saved, and named, there.
-    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
-    await act(async () => {
-      document.dispatchEvent(new Event('visibilitychange'));
+    type('計画');
+    await click('完了');
+    await pick('Work');
+    await click('保存');
+    expect(enqueued[0]).toMatchObject({ path: 'Work/計画.md' });
+    expect(JSON.parse(localStorage.getItem('gmemo.lastSaveTarget')!)).toEqual({
+      kind: 'folder',
+      folder: 'Work',
     });
-    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
-    expect(enqueued.map((e) => e.path)).toEqual(['Inbox/旅行.md']);
-    type('# 夏の旅行\n沖縄');
-    await done();
-    expect(enqueued.map((e) => e.path)).toEqual(['Inbox/旅行.md', 'Inbox/旅行.md']);
-    expect(enqueued[1]!.content).toBe('# 夏の旅行\n沖縄');
+  });
+
+  it("can be appended to today's memo instead", async () => {
+    open();
+    type('思いつき');
+    await click('完了');
+    await pick('今日のメモに追記');
+    await click('追記');
+    expect(enqueued).toEqual([{ kind: 'capture', text: '思いつき', folder: 'Inbox' }]);
+    expect(onDone).toHaveBeenCalledWith(null);
+  });
+
+  it('can be kept as a draft without saving', async () => {
+    open();
+    type('まだ途中');
+    await click('完了');
+    await click('下書きに残す');
+    expect(enqueued).toEqual([]);
+    expect(onDone).toHaveBeenCalledWith(null);
+  });
+});
+
+describe('editing a note', () => {
+  const head = lines('---', 'tags: [仕事]', 'status: todo', '---', '');
+
+  it('shows the body only, and keeps the frontmatter when saving', async () => {
+    open({ path: 'Work/会議.md', content: head + lines('# 会議', '決めたこと', '') });
+    expect(textarea().value).toBe(lines('# 会議', '決めたこと', ''));
+    type(lines('# 会議', '決めたこと', '次回は来週', ''));
+    await click('完了');
+    expect(sheetOpen()).toBe(false);
+    expect(enqueued).toEqual([
+      expect.objectContaining({
+        path: 'Work/会議.md',
+        content: head + lines('# 会議', '決めたこと', '次回は来週', ''),
+        baseSha: 'abc',
+      }),
+    ]);
+    expect(onDone).toHaveBeenCalledWith('Work/会議.md');
   });
 });
