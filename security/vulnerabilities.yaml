@@ -374,3 +374,301 @@ entries:
     closed: 2026-10-11
     resolution: 新規作成専用(flag wx)で一度に作り、すでにあれば読み込む
     notes: CodeQL(js/file-system-race)が PR #1 で検出。データディレクトリに書き込める攻撃者が前提なので影響は小さい
+
+  # ---- npm audit(2026-11-02) ------------------------------------------------
+  - id: GHSA-27r3-jxmh-p828
+    source: advisory
+    package: 'body-parser'
+    via: '@modelcontextprotocol/sdk → express'
+    title: 'body-parser vulnerable to Denial of Service via trailing bytes after a compressed request body'
+    severity: high
+    scope: production
+    status: fixed
+    found: 2026-11-02
+    due: 2026-11-09
+    closed: 2026-11-02
+    resolution: npm audit fix(ロックファイルの更新)、body-parser 2.3.0 → 2.4.0
+    notes: server(MCP)の HTTP 受け口で動く。
+  - id: GHSA-cg2g-xh64-v4q7
+    source: advisory
+    package: 'dompurify'
+    via: web(直接依存)
+    title: 'DOMPurify SAFE_FOR_TEMPLATES bypass: split template expressions survive in attached shadow root content on DOM output modes'
+    severity: critical
+    scope: production
+    status: fixed
+    found: 2026-11-02
+    due: 2026-11-05
+    closed: 2026-11-02
+    resolution: dompurify 3.4.16 → 3.4.17(package.json の下限も ^3.4.17 に)
+    notes: ノートのHTML描画(lib/markdown.ts)で使う。SAFE_FOR_TEMPLATES と DOM 出力モードは使っていないが、更新で解消
+  - id: GHSA-mrv2-3pqr-j5jr
+    source: advisory
+    package: 'dompurify'
+    via: web(直接依存)
+    title: "DOMPurify IN_PLACE: hook that removes a parent or sibling leaves the detached subtree's event handlers armed (incomplete fix for GHSA-p98j-92pf-mc4p)"
+    severity: high
+    scope: production
+    status: fixed
+    found: 2026-11-02
+    due: 2026-11-09
+    closed: 2026-11-02
+    resolution: dompurify 3.4.16 → 3.4.17(package.json の下限も ^3.4.17 に)
+    notes: IN_PLACE は使っていないが、更新で解消
+  - id: GHSA-c6gr-qvv4-5v3f
+    source: advisory
+    package: 'dompurify'
+    via: web(直接依存)
+    title: 'DOMPurify: SMIL attributeName=href guard is skipped when PARSER_MEDIA_TYPE is application/xhtml+xml'
+    severity: low
+    scope: production
+    status: fixed
+    found: 2026-11-02
+    due: 2027-01-31
+    closed: 2026-11-02
+    resolution: dompurify 3.4.16 → 3.4.17(package.json の下限も ^3.4.17 に)
+    notes: PARSER_MEDIA_TYPE は既定(text/html)のまま
+  - id: GHSA-w74x-v6f9-j3xg
+    source: advisory
+    package: 'fast-uri'
+    via: '@modelcontextprotocol/sdk → ajv'
+    title: 'fast-uri vulnerable to URI scheme spoofing via percent-encoded scheme decoding'
+    severity: moderate
+    scope: production
+    status: fixed
+    found: 2026-11-02
+    due: 2026-12-02
+    closed: 2026-11-02
+    resolution: npm audit fix(ロックファイルの更新)、fast-uri 3.1.8 → 3.1.9
+    notes: MCP の入力検証(JSON Schema)で使う
+  - id: GHSA-xhq7-xmqj-769h
+    source: advisory
+    package: 'fast-uri'
+    via: '@modelcontextprotocol/sdk → ajv'
+    title: 'fast-uri vulnerable to improper path equivalence in relative reference normalization'
+    severity: low
+    scope: production
+    status: fixed
+    found: 2026-11-02
+    due: 2027-01-31
+    closed: 2026-11-02
+    resolution: npm audit fix(ロックファイルの更新)、fast-uri 3.1.8 → 3.1.9
+    notes: MCP の入力検証(JSON Schema)で使う
+  - id: GHSA-wjr9-j795-jxcr
+    source: advisory
+    package: 'fast-uri'
+    via: '@modelcontextprotocol/sdk → ajv'
+    title: 'fast-uri vulnerable to host confusion via unchecked WHATWG host canonicalization'
+    severity: moderate
+    scope: production
+    status: fixed
+    found: 2026-11-02
+    due: 2026-12-02
+    closed: 2026-11-02
+    resolution: npm audit fix(ロックファイルの更新)、fast-uri 3.1.8 → 3.1.9
+    notes: MCP の入力検証(JSON Schema)で使う
+  - id: GHSA-333x-w4r6-6crp
+    source: advisory
+    package: 'fast-uri'
+    via: '@modelcontextprotocol/sdk → ajv'
+    title: 'fast-uri vulnerable to scheme injection via an unescaped first-segment colon in suffix references'
+    severity: low
+    scope: production
+    status: fixed
+    found: 2026-11-02
+    due: 2027-01-31
+    closed: 2026-11-02
+    resolution: npm audit fix(ロックファイルの更新)、fast-uri 3.1.8 → 3.1.9
+    notes: MCP の入力検証(JSON Schema)で使う
+  - id: GHSA-rxp7-6hxx-x8q5
+    source: advisory
+    package: 'ip-address'
+    via: '@modelcontextprotocol/sdk → express-rate-limit'
+    title: 'ip-address: Address6 matches a zone identifier in quadratic time ahead of its length limit, allowing a single long string to stall the process'
+    severity: moderate
+    scope: production
+    status: fixed
+    found: 2026-11-02
+    due: 2026-12-02
+    closed: 2026-11-02
+    resolution: npm audit fix(ロックファイルの更新)、ip-address 10.7.3 → 10.7.5
+    notes: server(MCP)の HTTP 受け口で動く。
+  - id: GHSA-6pq8-jhm2-2vcw
+    source: advisory
+    package: 'qs'
+    via: '@modelcontextprotocol/sdk → express'
+    title: "qs : qs.stringify with arrayFormat 'comma' throws an uncaught TypeError on array elements carrying a non-callable own toString (DoS)"
+    severity: moderate
+    scope: production
+    status: fixed
+    found: 2026-11-02
+    due: 2026-12-02
+    closed: 2026-11-02
+    resolution: npm audit fix(ロックファイルの更新)、qs 6.16.0 → 6.17.1
+    notes: server(MCP)の HTTP 受け口で動く。stringify の comma 形式は使っていない
+  - id: GHSA-mrhx-c7xc-m3w5
+    source: advisory
+    package: 'zod'
+    via: server(直接依存)、cf → @cloudflare/config
+    title: 'Zod can exhaust memory while validating oversized constrained collections'
+    severity: high
+    scope: production
+    status: fixed
+    found: 2026-11-02
+    due: 2026-11-09
+    closed: 2026-11-02
+    resolution: zod 4.6.5 → 4.6.7(package.json の下限も ^4.6.7 に)
+    notes: API と MCP ツールの入力検証で使う
+  - id: GHSA-m5mm-p8h7-m29v
+    source: advisory
+    package: 'serialize-javascript'
+    via: vite-plugin-pwa → workbox-build → @rollup/plugin-terser
+    title: 'Serialize JavaScript: Cross-site scripting (XSS) via unescaped </script at the end of a serialized function body'
+    severity: low
+    scope: build
+    status: fixed
+    found: 2026-11-02
+    due: 2027-01-31
+    closed: 2026-11-02
+    resolution: npm audit fix(ロックファイルの更新)、serialize-javascript 7.1.2 → 7.1.4
+    notes: Service Worker のビルド時だけ使う。本番には含まれない。
+  - id: GHSA-4qv8-2p9j-2685
+    source: advisory
+    package: 'undici'
+    via: wrangler / cf → miniflare
+    title: 'undici vulnerable to Denial of Service via unbounded memory in the EventSource parser'
+    severity: moderate
+    scope: build
+    status: fixed
+    found: 2026-11-02
+    due: 2027-01-31
+    closed: 2026-11-02
+    resolution: npm audit fix(wrangler / cf / miniflare を更新、undici 7.30.1)
+    notes: ローカル実行(cf dev)とデプロイ時のビルドで使う。本番のWorkerには含まれない。
+  - id: GHSA-f72v-6w45-q472
+    source: advisory
+    package: 'undici'
+    via: wrangler / cf → miniflare
+    title: 'undici vulnerable to Subresource Integrity bypass via non-lowercase algorithm tokens'
+    severity: moderate
+    scope: build
+    status: fixed
+    found: 2026-11-02
+    due: 2027-01-31
+    closed: 2026-11-02
+    resolution: npm audit fix(wrangler / cf / miniflare を更新、undici 7.30.1)
+    notes: ローカル実行(cf dev)とデプロイ時のビルドで使う。本番のWorkerには含まれない。
+  - id: GHSA-xjj6-f33q-929c
+    source: advisory
+    package: 'undici'
+    via: wrangler / cf → miniflare
+    title: 'undici vulnerable to Denial of Service via unhandled error on excessive content-encodings'
+    severity: high
+    scope: build
+    status: fixed
+    found: 2026-11-02
+    due: 2026-12-02
+    closed: 2026-11-02
+    resolution: npm audit fix(wrangler / cf / miniflare を更新、undici 7.30.1)
+    notes: ローカル実行(cf dev)とデプロイ時のビルドで使う。本番のWorkerには含まれない。
+  - id: GHSA-4w7w-5xrc-9h26
+    source: advisory
+    package: 'undici'
+    via: wrangler / cf → miniflare
+    title: 'undici vulnerable to cache poisoning and cross-user disclosure via cross-origin redirects'
+    severity: high
+    scope: build
+    status: fixed
+    found: 2026-11-02
+    due: 2026-12-02
+    closed: 2026-11-02
+    resolution: npm audit fix(wrangler / cf / miniflare を更新、undici 7.30.1)
+    notes: ローカル実行(cf dev)とデプロイ時のビルドで使う。本番のWorkerには含まれない。
+  - id: GHSA-2m5v-pch6-74hx
+    source: advisory
+    package: 'undici'
+    via: wrangler / cf → miniflare
+    title: 'undici vulnerable to TLS certificate validation bypass via dropped tls options in Agent'
+    severity: high
+    scope: build
+    status: fixed
+    found: 2026-11-02
+    due: 2026-12-02
+    closed: 2026-11-02
+    resolution: npm audit fix(wrangler / cf / miniflare を更新、undici 7.30.1)
+    notes: ローカル実行(cf dev)とデプロイ時のビルドで使う。本番のWorkerには含まれない。
+  - id: GHSA-qrxm-fqhp-jwvm
+    source: advisory
+    package: 'undici'
+    via: wrangler / cf → miniflare
+    title: 'undici vulnerable to Denial of Service via TLS 1.2 certificate-changing renegotiation'
+    severity: high
+    scope: build
+    status: fixed
+    found: 2026-11-02
+    due: 2026-12-02
+    closed: 2026-11-02
+    resolution: npm audit fix(wrangler / cf / miniflare を更新、undici 7.30.1)
+    notes: ローカル実行(cf dev)とデプロイ時のビルドで使う。本番のWorkerには含まれない。
+  - id: GHSA-9fm3-97px-rjf6
+    source: advisory
+    package: 'undici'
+    via: wrangler / cf → miniflare
+    title: 'undici WebSocket client vulnerable to Denial of Service via unbounded automatic PONG buffering'
+    severity: moderate
+    scope: build
+    status: fixed
+    found: 2026-11-02
+    due: 2027-01-31
+    closed: 2026-11-02
+    resolution: npm audit fix(wrangler / cf / miniflare を更新、undici 7.30.1)
+    notes: ローカル実行(cf dev)とデプロイ時のビルドで使う。本番のWorkerには含まれない。
+  - id: GHSA-55wc-3pg8-jfw6
+    source: advisory
+    package: 'undici'
+    via: wrangler / cf → miniflare
+    title: 'undici vulnerable to Denial of Service via unhandled exception in the decompress interceptor'
+    severity: moderate
+    scope: build
+    status: fixed
+    found: 2026-11-02
+    due: 2027-01-31
+    closed: 2026-11-02
+    resolution: npm audit fix(wrangler / cf / miniflare を更新、undici 7.30.1)
+    notes: ローカル実行(cf dev)とデプロイ時のビルドで使う。本番のWorkerには含まれない。
+  - id: GHSA-3g3m-2fjr-6pw4
+    source: advisory
+    package: 'glob'
+    via: vite-plugin-pwa → workbox-build
+    title: 'Glob: AbortSignal cancellation bypass allows post-timeout filesystem traversal'
+    severity: moderate
+    scope: build
+    status: open
+    found: 2026-11-02
+    due: 2027-01-31
+    notes: >-
+      Service Worker のビルド時だけ使う。本番には含まれない。修正版(glob 14.0.2 以降)は workbox-build の対応待ち(npm audit fix の提案は vite-plugin-pwa の古い版への戻しで不可)
+  - id: GHSA-g3hv-75wg-m249
+    source: advisory
+    package: 'minimatch'
+    via: eslint、typescript-eslint、workbox-build → glob / ejs → filelist
+    title: 'minimatch has potential denial of service via globparts amplification'
+    severity: moderate
+    scope: dev
+    status: open
+    found: 2026-11-02
+    due: 2027-01-31
+    notes: >-
+      lint とビルド時だけ使い、パターンはこのリポジトリの設定ファイル由来(外部入力ではない)。本番には含まれない。修正版は minimatch 11.0.1 以降で、eslint 9(minimatch 3 系)などのメジャー更新が必要。上流の対応待ち
+  - id: GHSA-gcqx-w48m-w2h4
+    source: advisory
+    package: 'deepmerge'
+    via: vite-plugin-pwa → workbox-build → @rollup/plugin-node-resolve
+    title: 'deepmerge mergeObject() allows prototype poisoning of returned objects'
+    severity: low
+    scope: build
+    status: open
+    found: 2026-11-02
+    due: 2027-01-31
+    notes: >-
+      Service Worker のビルド時だけ使い、マージする値はビルド設定(外部入力ではない)。本番には含まれない。修正版がまだない(4.2.0 以降すべて該当)
