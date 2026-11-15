@@ -9,8 +9,10 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import type { PublicFinding } from '../api/types';
 import { useOnline } from '../lib/hooks';
-import { newNotePlan } from '../lib/newNote';
-import { displayPath, folderList } from '../lib/paths';
+import { firstLineTitle, timestampTitle, uniquePath } from '../lib/newNote';
+import { displayPath, folderList, folderOf } from '../lib/paths';
+import { moveNote } from '../lib/rename';
+import { cleanTitle, pathForTitle, retitle, splitTitle, titleOf } from '../lib/title';
 import { readProps } from '../lib/properties';
 import { loadDraft, saveDraft } from '../lib/queueStore';
 import { pendingFor } from '../lib/queue';
@@ -30,8 +32,8 @@ import { Spinner } from './ui';
 interface Props {
   /**
    * The note being edited. null for a new memo: it is kept as a draft on this
-   * device while written, and saved where the user chooses on "完了" (named
-   * after its first line). Nothing is created while it is empty.
+   * device while written, and saved where the user chooses on "完了", named
+   * after its title. Nothing is created while it is empty.
    */
   path: string | null;
   /** Server content; null for a new note. */
@@ -125,9 +127,22 @@ export function NoteEditor({ path, content, sha, commit, folder, home, onDone }:
   const pending = path ? pendingFor(syncQueue.snapshot, path) : undefined;
   const pendingContent = pending?.op.kind === 'save' ? pending.op.content : null;
   const initial = pendingContent ?? content ?? '';
-  const parts = useMemo(() => split(initial), [initial]);
+  const parts = useMemo(() => {
+    const p = split(initial);
+    const t = titleOf(initial, path);
+    return { ...p, title: t, ...splitTitle(p.body, t) };
+    // The note as the editor opened it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   /** The frontmatter block, kept out of the editor. */
   const headRef = useRef(parts.head);
+  /** The `# heading` that carried the name, kept out of the editor (shown as the title field). */
+  const headingRef = useRef({ heading: parts.heading, gap: parts.gap });
+  /** The name the note had when the editor opened (a new memo has none). */
+  const titleInit = parts.title;
+  const [title, setTitleState] = useState(parts.title);
+  const titleRef = useRef(title);
+  titleRef.current = title;
   const baseRef = useRef<string | null | undefined>(
     pending?.op.kind === 'save' ? pending.op.baseSha : sha,
   );
@@ -169,15 +184,39 @@ export function NoteEditor({ path, content, sha, commit, folder, home, onDone }:
   const dirty = text !== savedRef.current;
   const draftKey = path ?? NEW_MEMO_DRAFT;
 
+  /**
+   * The whole note from its parts: frontmatter, the name, the body. A new
+   * memo's name becomes its first heading; a renamed note's name is written
+   * where its old name was (frontmatter title or heading).
+   */
+  const compose = (rest: string, name: string): string => {
+    const t = name.trim();
+    if (isNew) return headRef.current + (t ? `# ${t}\n\n` : '') + rest;
+    const { heading, gap } = headingRef.current;
+    const base = headRef.current + (heading !== null ? heading + gap : '') + rest;
+    return t && t !== titleInit ? retitle(base, titleInit, t) : base;
+  };
+
   /** The whole note as it is now. */
   const current = () =>
-    editor.current ? headRef.current + editor.current.getValue() : textRef.current;
+    editor.current ? compose(editor.current.getValue(), titleRef.current) : textRef.current;
+
+  const setTitle = (t: string) => {
+    setTitleState(t);
+    titleRef.current = t;
+    setText(compose(editor.current?.getValue() ?? '', t));
+  };
 
   /** Replace the whole note (a restored draft, a changed frontmatter). */
   const replaceAll = (next: string) => {
     const p = split(next);
+    const t = titleOf(next, path);
+    const s = splitTitle(p.body, t);
     headRef.current = p.head;
-    if (editor.current && editor.current.getValue() !== p.body) editor.current.setValue(p.body);
+    headingRef.current = { heading: isNew ? null : s.heading, gap: s.gap };
+    setTitleState(t);
+    titleRef.current = t;
+    if (editor.current && editor.current.getValue() !== s.rest) editor.current.setValue(s.rest);
     setText(next);
   };
 
@@ -247,7 +286,9 @@ export function NoteEditor({ path, content, sha, commit, folder, home, onDone }:
   const save = useCallback(
     async (opts: { quiet?: boolean } = {}) => {
       if (!path) return;
-      const now = editor.current ? headRef.current + editor.current.getValue() : textRef.current;
+      const now = editor.current
+        ? compose(editor.current.getValue(), titleRef.current)
+        : textRef.current;
       if (now === savedRef.current) return;
       setSaving(true);
       try {
@@ -270,6 +311,8 @@ export function NoteEditor({ path, content, sha, commit, folder, home, onDone }:
         setSaving(false);
       }
     },
+    // compose reads refs only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [path, commit, toast],
   );
 
@@ -297,7 +340,7 @@ export function NoteEditor({ path, content, sha, commit, folder, home, onDone }:
   /** The save button and Ctrl+S. */
   const saveNow = useCallback(async () => {
     if (isNew) {
-      if (editor.current?.getValue().trim()) setAsking(true);
+      if (editor.current?.getValue().trim() || titleRef.current.trim()) setAsking(true);
       return;
     }
     await save({ quiet: slow });
@@ -327,11 +370,24 @@ export function NoteEditor({ path, content, sha, commit, folder, home, onDone }:
   const finish = () => {
     if (leaving.current) return;
     if (isNew) {
-      if (editor.current?.getValue().trim() ?? text.trim()) setAsking(true);
+      if ((editor.current?.getValue() ?? text).trim() || title.trim()) setAsking(true);
       else {
         void saveDraft(NEW_MEMO_DRAFT, undefined);
         onDone(null);
       }
+      return;
+    }
+    // An emptied name keeps the old one.
+    if (!title.trim()) setTitle(titleInit);
+    const name = title.trim() || titleInit;
+    const to = name !== titleInit ? pathForTitle(name, folderOf(path)) : path;
+    if (
+      to.toLowerCase() !== path.toLowerCase() &&
+      notes.some((n) => n.path.toLowerCase() === to.toLowerCase())
+    ) {
+      toast.show(`「${name}」という名前のノートがすでにあります。別の名前にしてください`, {
+        kind: 'error',
+      });
       return;
     }
     leaving.current = true;
@@ -339,8 +395,18 @@ export function NoteEditor({ path, content, sha, commit, folder, home, onDone }:
     void save({ quiet: true })
       .then(() => waitForRepo())
       // Refused: stay, so the text is not lost from view. Not yet sent: it stays queued.
-      .then((r) => {
-        if (r !== 'failed') onDone(path);
+      .then(async (r) => {
+        if (r === 'failed') return;
+        if (to === path) return onDone(path);
+        // Renamed: the file follows its name (links to it are rewritten).
+        setBlocking(slow);
+        try {
+          onDone(await moveNote(path, to));
+        } catch (e) {
+          toast.show(`名前を変えられませんでした: ${(e as Error).message}`, { kind: 'error' });
+        } finally {
+          setBlocking(false);
+        }
       })
       .finally(() => {
         leaving.current = false;
@@ -350,12 +416,14 @@ export function NoteEditor({ path, content, sha, commit, folder, home, onDone }:
   /** Save the new memo where the sheet says. */
   const saveNew = async (target: SaveTarget) => {
     const body = editor.current?.getValue() ?? text;
-    if (!body.trim()) return;
+    const name = title.trim();
+    if (!body.trim() && !name) return;
     rememberSaveTarget(target);
     setSaving(true);
     try {
       if (target.kind === 'append') {
-        await syncQueue.enqueue({ kind: 'capture', text: body.trim(), folder: 'Inbox' });
+        const said = name ? `**${name}** ${body.trim()}`.trim() : body.trim();
+        await syncQueue.enqueue({ kind: 'capture', text: said, folder: 'Inbox' });
         void saveDraft(NEW_MEMO_DRAFT, undefined);
         savedRef.current = textRef.current;
         setAsking(false);
@@ -370,20 +438,16 @@ export function NoteEditor({ path, content, sha, commit, folder, home, onDone }:
         ...notes.map((n) => n.path.toLowerCase()),
         ...queue.items.flatMap((i) => (i.op.kind === 'save' ? [i.op.path.toLowerCase()] : [])),
       ]);
-      const plan = newNotePlan(body, target.folder, taken);
-      if (!plan) return;
-      // The first line becomes the heading, as the title is shown.
-      const content =
-        headRef.current +
-        (plan.heading === null
-          ? body
-          : `${body.slice(0, plan.heading)}# ${body.slice(plan.heading)}`);
-      await syncQueue.enqueue({ kind: 'save', path: plan.path, content, baseSha: null });
+      // No name given: the first line of the body, else the time.
+      const fileName = cleanTitle(name) || firstLineTitle(body) || timestampTitle();
+      const to = uniquePath(fileName, target.folder, taken);
+      const content = compose(body, name);
+      await syncQueue.enqueue({ kind: 'save', path: to, content, baseSha: null });
       void saveDraft(NEW_MEMO_DRAFT, undefined);
       savedRef.current = textRef.current;
       setAsking(false);
-      if ((await waitForRepo(plan.path)) === 'failed') return;
-      onDone(plan.path);
+      if ((await waitForRepo(to)) === 'failed') return;
+      onDone(to);
     } finally {
       setSaving(false);
     }
@@ -567,17 +631,34 @@ export function NoteEditor({ path, content, sha, commit, folder, home, onDone }:
         </button>
       </div>
       {showProps && <PropertiesPanel text={text} onPatch={patchProps} />}
+      <input
+        className="editor-title"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        onKeyDown={(e) => {
+          // Enter moves on to the body, as in Notion.
+          if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            editor.current?.focus();
+          }
+        }}
+        placeholder="タイトル"
+        aria-label="ノートの名前(タイトル)"
+        enterKeyHint="next"
+        autoComplete="off"
+        // A new memo starts in its name; the home screen does not pop the keyboard up.
+        autoFocus={isNew && !home}
+      />
       <div ref={panes} className={`editor-panes mode-${mode}`}>
         {/* The editor stays mounted in preview mode, so undo history and the cursor survive. */}
         <div className="write-editor" hidden={mode === 'preview'}>
           <Editor
             ref={editor}
-            initialValue={parts.body}
-            onChange={(body) => setText(headRef.current + body)}
+            initialValue={parts.rest}
+            onChange={(rest) => setText(compose(rest, titleRef.current))}
             onSave={() => void saveNow()}
-            // The home screen does not pop the keyboard up when the app opens.
-            autoFocus={content === null && !home && mode !== 'preview'}
-            placeholder={isNew ? '1行目がタイトルになります' : '本文を書きましょう'}
+            autoFocus={false}
+            placeholder="本文"
           />
         </div>
         {mode !== 'write' && <Preview text={text} onViewChange={changeView} />}

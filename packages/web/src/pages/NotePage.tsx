@@ -7,12 +7,15 @@ import { Icon } from '../components/Icon';
 import { InlineView } from '../components/InlineView';
 import { BlameView } from '../components/MarkdownView';
 import { NoteEditor } from '../components/NoteEditor';
+import { FolderPicker } from '../components/FolderPicker';
 import { Badge, EmptyState, ErrorBox, Loading, Modal } from '../components/ui';
 import { displayValue, formatDateTime, relativeTime } from '../lib/format';
 import { useAsync, useDocumentTitle, useOnline } from '../lib/hooks';
 import { linkKindLabel } from '../lib/links';
 import {
+  basename,
   displayPath,
+  folderList,
   folderOf,
   noteUrl,
   pathFromSplat,
@@ -20,6 +23,8 @@ import {
   toNotePath,
 } from '../lib/paths';
 import { pendingFor } from '../lib/queue';
+import { moveNote } from '../lib/rename';
+import { pathForTitle, retitle } from '../lib/title';
 import { syncQueue } from '../lib/sync';
 import { useApp } from '../state/app';
 import { useToast } from '../state/toast';
@@ -37,7 +42,7 @@ export function NotePage() {
   const [search, setSearch] = useSearchParams();
   const editing = search.get('edit') === '1';
   const commit = search.get('commit') ?? undefined;
-  const { paths, notesLoaded, lastChange, refreshNotes, queue } = useApp();
+  const { paths, notes, folders: created, notesLoaded, lastChange, refreshNotes, queue } = useApp();
   const navigate = useNavigate();
   const toast = useToast();
   const online = useOnline();
@@ -65,7 +70,7 @@ export function NotePage() {
     [path, known],
   );
   const [tab, setTab] = useState<'note' | 'history'>('note');
-  const [renaming, setRenaming] = useState(false);
+  const [moving, setMoving] = useState(false);
 
   const doc = note.data;
   const pending = pendingFor(queue, path);
@@ -131,11 +136,13 @@ export function NotePage() {
         content={doc?.content ?? pendingContent}
         sha={doc ? doc.sha : null}
         {...(doc?.commit ? { commit: doc.commit } : {})}
-        onDone={() => {
+        onDone={(to) => {
+          refreshNotes();
+          // Renamed while editing: show it under its new name.
+          if (to && to !== path) return navigate(noteUrl(to), { replace: true });
           setEditing(false);
           note.reload();
           blame.reload();
-          refreshNotes();
         }}
       />
     );
@@ -185,6 +192,41 @@ export function NotePage() {
         });
     } catch (e) {
       toast.show(`一覧の設定を保存できませんでした: ${describeError(e)}`, { kind: 'error' });
+    }
+  };
+
+  /** Rename from the title, right where it is shown (like Notion). */
+  const rename = async (next: string) => {
+    const name = next.trim();
+    if (!name || name === title) return false;
+    const to = pathForTitle(name, folderOf(path));
+    if (
+      to.toLowerCase() !== path.toLowerCase() &&
+      notes.some((n) => n.path.toLowerCase() === to.toLowerCase())
+    ) {
+      toast.show(`「${name}」という名前のノートがすでにあります`, { kind: 'error' });
+      return false;
+    }
+    try {
+      // The name is also written where the note carried it (heading or frontmatter title).
+      const fresh = await api.note(path);
+      const content = retitle(fresh.content, title, name);
+      if (content !== fresh.content)
+        await syncQueue.enqueue({
+          kind: 'save',
+          path,
+          content,
+          baseSha: fresh.sha,
+          baseCommit: fresh.commit,
+        });
+      const moved = await moveNote(path, to);
+      refreshNotes();
+      if (moved !== path) navigate(noteUrl(moved), { replace: true });
+      else note.reload();
+      return true;
+    } catch (e) {
+      toast.show(`名前を変えられませんでした: ${describeError(e)}`, { kind: 'error' });
+      return false;
     }
   };
 
@@ -238,7 +280,11 @@ export function NotePage() {
           )}
           {pendingContent !== null && <Badge tone="accent">未同期</Badge>}
         </div>
-        <h1 className="note-title">{title}</h1>
+        {commit ? (
+          <h1 className="note-title">{title}</h1>
+        ) : (
+          <TitleField key={path} title={title} disabled={!online} onRename={rename} />
+        )}
         <div className="note-actions">
           {!commit && (
             <button type="button" className="btn btn-primary" onClick={() => setEditing(true)}>
@@ -264,8 +310,8 @@ export function NotePage() {
               <Icon name="more" size={18} />
             </summary>
             <div className="menu-list">
-              <button type="button" onClick={() => setRenaming(true)} disabled={!online}>
-                名前・場所を変更
+              <button type="button" onClick={() => setMoving(true)} disabled={!online}>
+                場所を変更
               </button>
               <button type="button" onClick={() => void navigator.clipboard?.writeText(content)}>
                 Markdown をコピー
@@ -376,12 +422,16 @@ export function NotePage() {
           )}
         </>
       )}
-      <RenameDialog
-        open={renaming}
+      <MoveDialog
+        open={moving}
         path={path}
-        onClose={() => setRenaming(false)}
-        onRenamed={(to) => {
-          setRenaming(false);
+        folders={folderList(
+          notes.map((n) => n.path),
+          created,
+        )}
+        onClose={() => setMoving(false)}
+        onMoved={(to) => {
+          setMoving(false);
           refreshNotes();
           navigate(noteUrl(to), { replace: true });
         }}
@@ -390,36 +440,90 @@ export function NotePage() {
   );
 }
 
-function RenameDialog({
+/**
+ * The note's name, editable where it is shown: tap, type, and Enter (or tap
+ * elsewhere) renames the note. Escape puts the old name back.
+ */
+function TitleField({
+  title,
+  disabled,
+  onRename,
+}: {
+  title: string;
+  disabled: boolean;
+  onRename: (next: string) => Promise<boolean>;
+}) {
+  const [value, setValue] = useState(title);
+  const [busy, setBusy] = useState(false);
+  const committing = useRef(false);
+  useEffect(() => setValue(title), [title]);
+  const commit = async () => {
+    if (committing.current) return;
+    if (!value.trim() || value.trim() === title) return setValue(title);
+    committing.current = true;
+    setBusy(true);
+    try {
+      if (!(await onRename(value))) setValue(title);
+    } finally {
+      committing.current = false;
+      setBusy(false);
+    }
+  };
+  return (
+    <h1 className="note-title">
+      <input
+        className="note-title-input"
+        value={value}
+        disabled={disabled || busy}
+        aria-label="ノートの名前(タップして変更)"
+        title="タップして名前を変更"
+        enterKeyHint="done"
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => void commit()}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            (e.target as HTMLInputElement).blur();
+          } else if (e.key === 'Escape') {
+            setValue(title);
+            requestAnimationFrame(() => (e.target as HTMLInputElement).blur());
+          }
+        }}
+      />
+    </h1>
+  );
+}
+
+/** Move the note to another folder (its name stays; links to it are rewritten). */
+function MoveDialog({
   open,
   path,
+  folders,
   onClose,
-  onRenamed,
+  onMoved,
 }: {
   open: boolean;
   path: string;
+  folders: string[];
   onClose: () => void;
-  onRenamed: (to: string) => void;
+  onMoved: (to: string) => void;
 }) {
-  const [value, setValue] = useState(path.replace(/\.md$/, ''));
+  const [folder, setFolder] = useState(folderOf(path));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const toast = useToast();
   useEffect(() => {
     if (open) {
-      setValue(path.replace(/\.md$/, ''));
+      setFolder(folderOf(path));
       setError(null);
     }
   }, [open, path]);
+  const to = folder ? `${folder}/${basename(path)}` : basename(path);
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const to = toNotePath(value);
-    if (!to || to === path) return onClose();
+    if (to === path) return onClose();
     setBusy(true);
     try {
-      await api.renameNote(path, to);
-      toast.show('名前を変更しました(リンクも更新しました)', { kind: 'success' });
-      onRenamed(to);
+      onMoved(await moveNote(path, to));
     } catch (err) {
       setError(describeError(err));
     } finally {
@@ -427,26 +531,26 @@ function RenameDialog({
     }
   };
   return (
-    <Modal open={open} onClose={onClose} title="名前・場所を変更">
+    <Modal open={open} onClose={onClose} title="場所を変更" sheet>
       <form onSubmit={(e) => void submit(e)}>
         <div className="field">
-          <label htmlFor="rename-to">新しいパス(フォルダ/名前)</label>
-          <input
-            id="rename-to"
-            className="input"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            autoFocus
+          <span className="label">移動先のフォルダー</span>
+          <FolderPicker
+            label="移動先のフォルダー"
+            value={folder}
+            onChange={setFolder}
+            folders={folders}
+            emptyLabel="いちばん上"
           />
-          <div className="hint">このノートへの [[リンク]] も自動で書き換えます。</div>
+          <div className="hint">このノートへのリンクも自動で書き換えます。</div>
         </div>
         {error && <p className="notice notice-error">{error}</p>}
         <div className="modal-foot">
           <button type="button" className="btn" onClick={onClose}>
             キャンセル
           </button>
-          <button type="submit" className="btn btn-primary" disabled={busy}>
-            変更
+          <button type="submit" className="btn btn-primary" disabled={busy || to === path}>
+            移動
           </button>
         </div>
       </form>

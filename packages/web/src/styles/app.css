@@ -2059,6 +2059,31 @@ select.input {
     display: none;
   }
 }
+/* The note's name, at the size of the page title (H1), on its own line (Notion/Backlog). */
+.editor-title {
+  display: block;
+  width: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.25;
+  padding: 16px 16px 4px;
+}
+.editor-title::placeholder {
+  color: var(--muted);
+  opacity: 0.6;
+}
+@media (min-width: 760px) {
+  .editor-title {
+    font-size: 2.5rem;
+    padding: 24px 24px 4px;
+  }
+}
 .props-panel {
   border-bottom: 1px solid var(--border);
   font-size: 0.875rem;
@@ -2402,6 +2427,33 @@ select.input {
 }
 .crumb {
   color: var(--muted);
+}
+/* On the note page the name is the page title, editable in place. */
+.note-title-input {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: var(--radius-xs);
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+  margin: 0 -4px;
+  padding: 0 4px;
+  text-overflow: ellipsis;
+}
+.note-title-input:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.note-title-input:focus {
+  background: var(--bg-soft);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.note-title-input:disabled {
+  color: inherit;
+  opacity: 1;
 }
 .note-title {
   font-size: 2rem;
