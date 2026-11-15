@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Editor, type EditorHandle } from '../components/Editor';
 import { EditorToolbar } from '../components/EditorToolbar';
-import { Icon } from '../components/Icon';
+import { FolderPicker } from '../components/FolderPicker';
 import { Segmented } from '../components/ui';
 import { useDocumentTitle, useOnline } from '../lib/hooks';
 import { firstLineTitle, quickNoteContent, timestampTitle, uniquePath } from '../lib/newNote';
@@ -179,22 +179,14 @@ export function WritePage() {
               { value: 'append', label: '今日のメモに追記' },
             ]}
           />
-          <label className="folder-pick">
-            <span className="visually-hidden">保存先フォルダ</span>
-            <Icon name="folder" size={18} />
-            <input
-              className="input input-small"
-              list="quick-folders"
-              value={folder}
-              onChange={(e) => setFolder(e.target.value)}
-              aria-label="保存先フォルダ"
-            />
-            <datalist id="quick-folders">
-              {folders.map((f) => (
-                <option key={f} value={f} />
-              ))}
-            </datalist>
-          </label>
+          <FolderPicker
+            label="保存先のフォルダー"
+            value={folder}
+            onChange={setFolder}
+            folders={folders}
+            allowEmpty={mode === 'note'}
+            emptyLabel={mode === 'note' ? 'ルート' : 'Inbox'}
+          />
         </div>
       </div>
       <div className="write-editor">
